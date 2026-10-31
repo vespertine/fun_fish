@@ -129,20 +129,21 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       `1964308+vespertine@users.noreply.github.com`
 
 ### Phase 1 — Proof of concept de bout en bout
-- [ ] Projet Python (`uv`, `pyproject.toml`), package `fun_fish`
-- [ ] Gestion de Stockfish : détection dans le `PATH`, sinon téléchargement et mise
+- [x] Projet Python (`uv`, `pyproject.toml`), package `fun_fish`
+- [x] Gestion de Stockfish : détection dans le `PATH`, sinon téléchargement et mise
       en cache selon l'OS
-- [ ] Wrapper `Analyser` sur `chess.engine` (MultiPV, cache par FEN)
-- [ ] Interface `Personality` et personnalité **dummy** : Stockfish à faible
+- [x] Wrapper `Analyser` sur `chess.engine` (MultiPV, cache par FEN)
+- [x] Interface `Personality` et personnalité **dummy** : Stockfish à faible
       profondeur, ou `Skill Level`
-- [ ] Serveur FastAPI et page web avec chessground : jouer Blancs ou Noirs, nouvelle
+- [x] Serveur FastAPI et page web avec chessground : jouer Blancs ou Noirs, nouvelle
       partie, choix de la personnalité, export PGN
-- [ ] Commande `fun-fish` qui lance le serveur et ouvre le navigateur
-- [ ] Vérification sous Linux, puis CI GitHub Actions sur les trois OS
+- [x] Commande `fun-fish` qui lance le serveur et ouvre le navigateur
+- [x] Vérification sous Linux
+- [ ] CI GitHub Actions sur les trois OS (workflow écrit, à valider au premier push)
 
 ### Phase 2 — Banc d'essai des personnalités
 - [ ] Adaptateur UCI : `fun-fish-engine --personality hustler`
-- [ ] Panneau « pourquoi ce coup ? » (candidats, scores, flèches)
+- [x] Panneau « pourquoi ce coup ? » (candidats, scores, flèches), livré dès la phase 1
 - [ ] Positions de test (FEN et lignes concrètes) avec rapport du coup choisi par
       chaque personnalité
 - [ ] Matchs automatiques entre personnalités et contre Stockfish limité, avec

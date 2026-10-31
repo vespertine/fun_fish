@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>fun_fish</title>
+  <link rel="stylesheet" href="/static/vendor/chessground/chessground.base.css">
+  <link rel="stylesheet" href="/static/vendor/chessground/chessground.brown.css">
+  <link rel="stylesheet" href="/static/vendor/chessground/chessground.cburnett.css">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="board-col">
+      <div class="player top"><span class="dot" id="top-dot"></span><span id="top-name"></span><span class="thinking" id="thinking" hidden>réfléchit…</span></div>
+      <div class="board-wrap"><div id="board"></div></div>
+      <div class="player bottom"><span class="dot" id="bottom-dot"></span><span id="bottom-name">Vous</span></div>
+    </section>
+
+    <aside class="panel">
+      <header class="brand">
+        <h1>fun_fish</h1>
+        <span class="engine" id="engine"></span>
+      </header>
+
+      <section class="card setup">
+        <label>Adversaire
+          <select id="personality"></select>
+        </label>
+        <p class="hint" id="personality-desc"></p>
+        <div class="row">
+          <label>Vous jouez
+            <select id="color">
+              <option value="white">les Blancs</option>
+              <option value="black">les Noirs</option>
+              <option value="random">au hasard</option>
+            </select>
+          </label>
+          <button id="new" class="primary">Nouvelle partie</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <p class="status" id="status"></p>
+        <ol class="moves" id="moves"></ol>
+        <div class="row actions">
+          <button id="undo">↶ Annuler</button>
+          <button id="flip">⇅ Retourner</button>
+          <button id="pgn">Copier le PGN</button>
+        </div>
+      </section>
+
+      <section class="card why">
+        <div class="why-head">
+          <h2>Pourquoi ce coup ?</h2>
+          <label class="toggle"><input type="checkbox" id="arrows" checked> flèches</label>
+        </div>
+        <p class="explanation" id="explanation">L'adversaire n'a pas encore joué.</p>
+        <table class="candidates" id="candidates" hidden>
+          <thead><tr><th>Coup</th><th class="num">Éval</th><th class="num">Proba</th><th></th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </aside>
+  </main>
+
+  <div class="promotion" id="promotion" hidden>
+    <div class="promotion-box">
+      <p>Promotion</p>
+      <div class="promotion-choices"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" hidden></div>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

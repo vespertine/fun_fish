@@ -1,0 +1,122 @@
+:root {
+  --bg: #1d1b19;
+  --panel: #282522;
+  --panel-2: #312d29;
+  --border: #3b3631;
+  --text: #ebe6df;
+  --muted: #a39b90;
+  --accent: #7fa650;
+  --accent-text: #10140b;
+  --chosen: rgba(127, 166, 80, 0.22);
+  --danger: #d27560;
+  --board-size: min(92vw, calc(100vh - 110px), 720px);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+button, select {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+
+.layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 16px;
+}
+
+/* ---------- échiquier ---------- */
+
+.board-col { display: flex; flex-direction: column; gap: 8px; }
+.board-wrap { width: var(--board-size); height: var(--board-size); }
+#board { width: 100%; height: 100%; }
+
+.player { display: flex; align-items: center; gap: 8px; font-weight: 600; min-height: 26px; }
+.dot { width: 14px; height: 14px; border-radius: 50%; border: 1px solid #777; }
+.dot.white { background: #f2f0ea; }
+.dot.black { background: #222; }
+.thinking { font-weight: 400; color: var(--muted); font-style: italic; animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { opacity: 0.4; } }
+
+/* ---------- panneau ---------- */
+
+.panel { width: min(92vw, 380px); display: flex; flex-direction: column; gap: 12px; }
+.brand { display: flex; align-items: baseline; justify-content: space-between; }
+.brand h1 { margin: 0; font-size: 22px; letter-spacing: 0.5px; }
+.engine { color: var(--muted); font-size: 12px; }
+
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.card label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
+.card select { width: 100%; }
+.row { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+.row label { flex: 1; }
+.hint { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+
+.status { margin: 0 0 8px; font-weight: 600; }
+.status.over { color: var(--accent); }
+
+.moves {
+  margin: 0;
+  padding-left: 2.2em;
+  max-height: 180px;
+  overflow-y: auto;
+  font-variant-numeric: tabular-nums;
+}
+.moves li { padding: 1px 0; }
+.moves li::marker { color: var(--muted); }
+.moves li span { display: inline-block; min-width: 5.5em; }
+.actions { flex-wrap: wrap; }
+
+.why-head { display: flex; justify-content: space-between; align-items: center; }
+.why h2 { margin: 0; font-size: 15px; }
+.toggle { flex-direction: row !important; align-items: center; gap: 4px !important; }
+.explanation { margin: 8px 0; }
+
+.candidates { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+.candidates th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px 6px; }
+.candidates td { padding: 3px 6px; border-top: 1px solid var(--border); }
+.candidates .num { text-align: right; }
+.candidates .note { color: var(--muted); }
+.candidates tr.chosen td { background: var(--chosen); font-weight: 600; }
+.candidates tr.discarded td { color: var(--muted); }
+
+/* ---------- promotion / toast ---------- */
+
+.promotion {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center; z-index: 10;
+}
+.promotion[hidden] { display: none; }
+.promotion-box { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; text-align: center; }
+.promotion-box p { margin: 0 0 10px; color: var(--muted); }
+.promotion-choices { display: flex; gap: 10px; }
+.promotion-choices button { font-size: 40px; line-height: 1; width: 64px; height: 64px; background: #f0d9b5; color: #222; }
+
+.toast {
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  background: var(--panel-2); border: 1px solid var(--danger); border-radius: 8px;
+  padding: 10px 16px; z-index: 20; max-width: 90vw;
+}
+
+@media (max-width: 760px) {
+  .layout { padding: 8px; gap: 12px; }
+  :root { --board-size: min(96vw, 720px); }
+}
