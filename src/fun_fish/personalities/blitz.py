@@ -27,6 +27,13 @@ class Blitz(Personality):
     name = "Le blitzeur"
     description = ("Voit deux coups à l'avance, compte le matériel et joue à l'instinct. "
                    "Ne rate pas un mat en deux, mais passe à côté des combinaisons longues.")
+    PARAM_HELP = {
+        "depth": "Profondeur de sa perception",
+        "multipv": "Nombre de coups qu'il envisage",
+        "horizon": "Demi-coups de lecture du matériel",
+        "temperature": "Hasard entre coups qu'il juge équivalents (cp)",
+        "reality_depth": "Profondeur de l'analyse « réalité » (affichage seulement)",
+    }
 
     def __init__(self, depth: int = 8, multipv: int = 8, horizon: int = 2, temperature: float = 40.0,
                  reality_depth: int = 16, **kwargs):

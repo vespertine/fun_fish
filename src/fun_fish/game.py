@@ -66,6 +66,13 @@ class Game:
         self.decisions[len(self.board.move_stack) - 1] = decision
         return decision
 
+    def retry(self) -> None:
+        """Annule le dernier coup de l'IA pour qu'elle le rejoue (par exemple avec d'autres réglages)."""
+        if not self.board.move_stack or self.board.turn != self.human_color:
+            raise GameError("Le dernier coup n'est pas celui de l'IA.")
+        self.board.pop()
+        self.decisions.pop(len(self.board.move_stack), None)
+
     def undo(self) -> None:
         """Revient au dernier moment où c'était à l'humain de jouer, en annulant au moins un coup."""
         if not self.board.move_stack:
@@ -108,7 +115,8 @@ class Game:
             "fen": board.fen(),
             "turn": _color_name(board.turn),
             "human_color": _color_name(self.human_color),
-            "personality": {"key": self.personality.key, "name": self.personality.name},
+            "personality": {"key": self.personality.key, "name": self.personality.name,
+                            "params": self.personality.params()},
             "dests": dests,
             "last_move": [chess.square_name(last.from_square), chess.square_name(last.to_square)] if last else None,
             "check": board.is_check(),
@@ -117,6 +125,7 @@ class Game:
             "status": status,
             "moves": moves_san,
             "engine_to_move": self.engine_to_move,
+            "can_retry": bool(board.move_stack) and board.turn == self.human_color,
             "decision": decision.to_dict() if decision else None,
             "pgn": self.pgn(),
         }

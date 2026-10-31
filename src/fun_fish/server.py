@@ -24,6 +24,19 @@ STATIC_DIR = Path(__file__).parent / "static"
 class NewGameIn(BaseModel):
     personality: str = personalities.DEFAULT_PERSONALITY
     color: Literal["white", "black", "random"] = "white"
+    params: dict[str, float] = {}
+
+
+class PersonalityIn(BaseModel):
+    personality: str
+    params: dict[str, float] = {}
+
+
+def _personality(key: str, params: dict[str, float]):
+    try:
+        return personalities.create(key, **params)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
 
 
 class MoveIn(BaseModel):
@@ -59,10 +72,7 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
 
     @app.post("/api/new")
     def new_game(body: NewGameIn) -> dict:
-        try:
-            personality = personalities.create(body.personality)
-        except ValueError as exc:
-            raise HTTPException(400, str(exc)) from None
+        personality = _personality(body.personality, body.params)
         color = random.choice(["white", "black"]) if body.color == "random" else body.color
         with lock:
             session["game"] = Game(personality, chess.WHITE if color == "white" else chess.BLACK)
@@ -82,6 +92,23 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
         with lock:
             try:
                 game().play_engine(analyser)
+            except GameError as exc:
+                raise HTTPException(409, str(exc)) from None
+            return game().state()
+
+    @app.post("/api/personality")
+    def set_personality(body: PersonalityIn) -> dict:
+        """Change d'adversaire ou de réglages sans recommencer la partie."""
+        personality = _personality(body.personality, body.params)
+        with lock:
+            game().personality = personality
+            return game().state()
+
+    @app.post("/api/retry")
+    def retry() -> dict:
+        with lock:
+            try:
+                game().retry()
             except GameError as exc:
                 raise HTTPException(409, str(exc)) from None
             return game().state()

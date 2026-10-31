@@ -72,3 +72,32 @@ def test_real_stockfish_finds_mate_in_one(stockfish_analyser):
     assert decision.san == "Rd8#"
     casual = personalities.create("casual").choose_move(board, stockfish_analyser)
     assert board.is_legal(casual.move)
+
+
+def test_api_settings_apply_and_retry(fake_analyser):
+    client = TestClient(create_app(fake_analyser))
+    info = client.get("/api/info").json()
+    hustler = next(p for p in info["personalities"] if p["key"] == "hustler")
+    assert any(spec["name"] == "tolerance" and spec["help"] for spec in hustler["params"])
+
+    state = client.post("/api/new", json={"personality": "casual", "color": "white",
+                                          "params": {"max_loss": 40, "temperature": 10.5}}).json()
+    assert state["personality"]["params"]["max_loss"] == 40
+    assert client.post("/api/new", json={"personality": "casual", "params": {"nope": 1}}).status_code == 400
+
+    client.post("/api/move", json={"uci": "e2e4"})
+    assert not client.post("/api/move", json={"uci": "d2d4"}).status_code == 200
+    state = client.post("/api/engine-move", json={}).json()
+    assert state["can_retry"] and len(state["moves"]) == 2
+
+    state = client.post("/api/personality", json={"personality": "stockfish", "params": {"depth": 3}}).json()
+    assert state["personality"]["key"] == "stockfish" and len(state["moves"]) == 2
+
+    state = client.post("/api/retry", json={}).json()
+    assert len(state["moves"]) == 1 and state["engine_to_move"] and not state["can_retry"]
+    assert client.post("/api/retry", json={}).status_code == 409
+
+
+def test_create_casts_params_to_declared_types():
+    p = personalities.create("hustler", tolerance=149.6, naivety="15")
+    assert p.tolerance == 150 and isinstance(p.tolerance, int) and p.naivety == 15.0

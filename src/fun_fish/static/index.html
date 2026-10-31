@@ -38,6 +38,16 @@
           </label>
           <button id="new" class="primary">Nouvelle partie</button>
         </div>
+        <details class="settings" id="settings">
+          <summary>Réglages</summary>
+          <div class="params" id="params"></div>
+          <div class="row settings-actions">
+            <button id="reset-params">Valeurs par défaut</button>
+            <button id="apply-params">Appliquer à la partie</button>
+          </div>
+          <p class="hint">Les réglages servent à la prochaine partie, ou tout de suite avec « Appliquer ».
+            « Rejouer l'IA » lui refait jouer son dernier coup.</p>
+        </details>
       </section>
 
       <section class="card">
@@ -45,6 +55,7 @@
         <ol class="moves" id="moves"></ol>
         <div class="row actions">
           <button id="undo">↶ Annuler</button>
+          <button id="retry" title="Annule le dernier coup de l'IA et la fait rejouer">↻ Rejouer l'IA</button>
           <button id="flip">⇅ Retourner</button>
           <button id="pgn">Copier le PGN</button>
         </div>

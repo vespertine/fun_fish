@@ -19,6 +19,14 @@ def create(key: str, rng: random.Random | None = None, **params) -> Personality:
         cls = PERSONALITIES[key]
     except KeyError:
         raise ValueError(f"Personnalité inconnue : {key!r} (connues : {', '.join(PERSONALITIES)})") from None
+    types = {spec["name"]: spec["type"] for spec in cls.param_specs()}
+    unknown = set(params) - set(types)
+    if unknown:
+        raise ValueError(f"Réglage inconnu pour {key} : {', '.join(sorted(unknown))}")
+    try:
+        params = {k: int(round(float(v))) if types[k] == "int" else float(v) for k, v in params.items()}
+    except (TypeError, ValueError):
+        raise ValueError(f"Valeur non numérique dans les réglages de {key}") from None
     try:
         return cls(rng=rng, **params)
     except TypeError as exc:
@@ -26,7 +34,8 @@ def create(key: str, rng: random.Random | None = None, **params) -> Personality:
 
 
 def catalogue() -> list[dict]:
-    return [{"key": cls.key, "name": cls.name, "description": cls.description} for cls in PERSONALITIES.values()]
+    return [{"key": cls.key, "name": cls.name, "description": cls.description, "params": cls.param_specs()}
+            for cls in PERSONALITIES.values()]
 
 
 __all__ = ["Candidate", "Decision", "Personality", "PERSONALITIES", "DEFAULT_PERSONALITY", "create", "catalogue"]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import random
 from abc import ABC, abstractmethod
@@ -68,6 +69,26 @@ class Personality(ABC):
     key: ClassVar[str]
     name: ClassVar[str]
     description: ClassVar[str]
+    PARAM_HELP: ClassVar[dict[str, str]] = {}  # aide affichée dans le panneau de réglages
+
+    @classmethod
+    def param_specs(cls) -> list[dict]:
+        """Réglages de la personnalité, déduits de la signature de son constructeur."""
+        specs = []
+        for name, param in inspect.signature(cls.__init__).parameters.items():
+            if name in ("self", "rng") or param.kind in (param.VAR_KEYWORD, param.VAR_POSITIONAL):
+                continue
+            default = param.default
+            specs.append({
+                "name": name,
+                "default": default,
+                "type": "int" if isinstance(default, int) else "float",
+                "help": cls.PARAM_HELP.get(name, ""),
+            })
+        return specs
+
+    def params(self) -> dict:
+        return {spec["name"]: getattr(self, spec["name"]) for spec in self.param_specs()}
 
     def __init__(self, rng: random.Random | None = None):
         self.rng = rng or random.Random()

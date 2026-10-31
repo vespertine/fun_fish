@@ -55,6 +55,7 @@ function render(s) {
   renderMoves(s.moves);
   renderDecision(s.decision);
   $('#undo').disabled = s.moves.length === 0;
+  $('#retry').disabled = !s.can_retry;
 }
 
 function renderPlayers() {
@@ -182,15 +183,48 @@ async function engineMoveIfNeeded() {
 
 function setThinking(on) {
   $('#thinking').hidden = !on;
-  for (const id of ['#new', '#undo']) $(id).disabled = on;
+  for (const id of ['#new', '#undo', '#retry', '#apply-params']) $(id).disabled = on;
+  if (!on && state) $('#retry').disabled = !state.can_retry;
 }
 
 // ---------- actions ----------
 
 async function newGame() {
-  const s = await api('/api/new', { personality: $('#personality').value, color: $('#color').value });
-  orientation = s.human_color;
-  render(s);
+  const key = $('#personality').value;
+  const params = readParams();
+  saveParams(key, params);
+  try {
+    const s = await api('/api/new', { personality: key, color: $('#color').value, params });
+    orientation = s.human_color;
+    render(s);
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  await engineMoveIfNeeded();
+}
+
+async function applyParams() {
+  const key = $('#personality').value;
+  const params = readParams();
+  try {
+    render(await api('/api/personality', { personality: key, params }));
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  saveParams(key, params);
+  toast(`Réglages appliqués : ${state.personality.name}.`);
+  await engineMoveIfNeeded();
+}
+
+async function retry() {
+  try {
+    render(await api('/api/retry', {}));
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
   await engineMoveIfNeeded();
 }
 
@@ -218,6 +252,68 @@ function showPersonalityDescription() {
   $('#personality-desc').textContent = p ? p.description : '';
 }
 
+// ---------- réglages ----------
+
+const storageKey = (key) => `fun_fish.params.${key}`;
+
+function loadParams(key) {
+  try {
+    return JSON.parse(localStorage.getItem(storageKey(key)) || 'null');
+  } catch {
+    return null;
+  }
+}
+
+function saveParams(key, params) {
+  try { localStorage.setItem(storageKey(key), JSON.stringify(params)); } catch { /* stockage indisponible */ }
+}
+
+function clearParams(key) {
+  try { localStorage.removeItem(storageKey(key)); } catch { /* stockage indisponible */ }
+}
+
+function renderParams(key, values) {
+  const p = personalities.find((x) => x.key === key);
+  const box = $('#params');
+  box.innerHTML = '';
+  for (const spec of p?.params ?? []) {
+    const row = document.createElement('label');
+    row.className = 'param';
+    row.title = spec.help;
+    const value = values?.[spec.name] ?? spec.default;
+    const changed = value !== spec.default;
+    row.innerHTML = `<span class="param-name${changed ? ' changed' : ''}">${spec.name}</span>`
+      + `<input type="number" step="${spec.type === 'int' ? 1 : 'any'}" data-name="${spec.name}"`
+      + ` data-default="${spec.default}" value="${value}">`
+      + `<span class="param-help">${spec.help}</span>`;
+    row.querySelector('input').addEventListener('input', (e) => {
+      row.querySelector('.param-name').classList.toggle('changed', Number(e.target.value) !== spec.default);
+    });
+    box.appendChild(row);
+  }
+  $('#settings').hidden = !(p?.params?.length);
+}
+
+function readParams() {
+  const params = {};
+  for (const input of document.querySelectorAll('#params input')) {
+    if (input.value !== '') params[input.dataset.name] = Number(input.value);
+  }
+  return params;
+}
+
+function onPersonalityChange() {
+  const key = $('#personality').value;
+  showPersonalityDescription();
+  renderParams(key, loadParams(key));
+}
+
+function resetParams() {
+  const key = $('#personality').value;
+  clearParams(key);
+  renderParams(key, null);
+}
+
 // ---------- démarrage ----------
 
 async function init() {
@@ -230,6 +326,7 @@ async function init() {
   const s = await api('/api/state');
   select.value = s.personality.key;
   showPersonalityDescription();
+  renderParams(s.personality.key, s.personality.params);
   orientation = s.human_color;
 
   cg = Chessground($('#board'), {
@@ -244,7 +341,10 @@ async function init() {
   });
   render(s);
 
-  select.addEventListener('change', showPersonalityDescription);
+  select.addEventListener('change', onPersonalityChange);
+  $('#apply-params').addEventListener('click', applyParams);
+  $('#reset-params').addEventListener('click', resetParams);
+  $('#retry').addEventListener('click', retry);
   $('#new').addEventListener('click', newGame);
   $('#undo').addEventListener('click', undo);
   $('#flip').addEventListener('click', flip);

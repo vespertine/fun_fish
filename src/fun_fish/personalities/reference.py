@@ -20,6 +20,7 @@ class PureStockfish(Personality):
     key = "stockfish"
     name = "Stockfish"
     description = "Joue toujours le meilleur coup de Stockfish à profondeur fixe. L'étalon, pas une personnalité."
+    PARAM_HELP = {"depth": "Profondeur de recherche"}
 
     def __init__(self, depth: int = 14, **kwargs):
         super().__init__(**kwargs)
@@ -43,6 +44,12 @@ class Casual(Personality):
     name = "Le copain du club"
     description = ("Regarde quelques coups, pas très loin, et en joue un des bons au hasard, "
                    "pas forcément le meilleur.")
+    PARAM_HELP = {
+        "depth": "Profondeur de recherche",
+        "multipv": "Nombre de coups envisagés",
+        "max_loss": "Perte maximale par rapport au meilleur coup (cp)",
+        "temperature": "Hasard du tirage (cp)",
+    }
 
     def __init__(self, depth: int = 6, multipv: int = 6, max_loss: int = 150,
                  temperature: float = 60.0, **kwargs):

@@ -82,6 +82,24 @@ class Hustler(Personality):
     name = "L'arnaqueur"
     description = ("Cherche les coups où les réponses naturelles perdent et où un seul chemin étroit tient. "
                    "Accepte de lâcher un peu si on le contre bien.")
+    PARAM_HELP = {
+        "tolerance": "Perte maximale acceptée si l'adversaire répond juste (centipions)",
+        "soundness_depth": "Profondeur du filtre de santé",
+        "reply_depth": "Profondeur d'analyse des réponses adverses",
+        "shallow_depth": "L'adversaire naïf voit de 1 à N demi-coups",
+        "naivety": "Hasard de l'adversaire naïf (cp) : plus c'est haut, plus il joue au hasard",
+        "safe_margin": "En deçà (cp), une réponse adverse est sûre",
+        "error_margin": "Au-delà (cp), c'est une vraie erreur",
+        "sharp_plies": "Coups adverses simulés",
+        "branching": "Réponses tentantes explorées à chaque coup adverse",
+        "min_temptation": "Tentation minimale pour explorer une réponse (0 à 1)",
+        "w_trap": "Poids du piège (gain attendu de la naïveté adverse)",
+        "w_sharp": "Poids de l'étroitesse (probabilité d'erreur adverse)",
+        "w_loss": "Poids de la perte acceptée",
+        "temperature": "Hasard du choix final (en pions de score)",
+        "max_candidates": "Coups sains examinés",
+        "deep_candidates": "Dont simulés sur tous les coups",
+    }
 
     def __init__(self, tolerance: int = 100, soundness_depth: int = 12, reply_depth: int = 8,
                  shallow_depth: int = 2, naivety: float = 20.0, safe_margin: int = 60, error_margin: int = 150,
@@ -196,6 +214,8 @@ class Hustler(Personality):
     def explain(self, board: chess.Board, san: str, e: CandidateEval) -> str:
         node = e.node
         if node.hustle < 0.3 and node.p_error < 0.3:
+            if e.loss > 0:
+                return f"Pas de piège en vue : joue {san}, un coup sain tiré au sort."
             return f"Rien à arnaquer ici : joue {san}."
         n = len(node.safe)
         text = (f"Joue {san} : l'adversaire n'a que {n} réponse{'s' if n > 1 else ''} sûre{'s' if n > 1 else ''} "
