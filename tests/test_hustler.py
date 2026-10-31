@@ -34,3 +34,14 @@ def test_finds_legal_trap_with_real_stockfish(stockfish_analyser):
     decision = Hustler(rng=random.Random(0)).choose_move(board, stockfish_analyser)
     assert decision.san == "Nxe5"
     assert "Bxd1" in decision.explanation
+
+
+def test_sees_blackburne_trap_with_real_stockfish(stockfish_analyser):
+    """3...Cd4 : Cxe5 est tentant, et après Dg5 l'adversaire naïf joue Cxf7 et s'effondre."""
+    board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b KQkq - 3 3")
+    hustler = Hustler(rng=random.Random(0), tolerance=150)
+    root = stockfish_analyser.analyse(board, multipv=board.legal_moves.count(), depth=12)
+    nd4 = next(line for line in root if board.san(line.move) == "Nd4")
+    evaluation = hustler.evaluate(board, nd4, root[0], stockfish_analyser, plies=2)
+    assert evaluation.node.hustle > 1.0
+    assert evaluation.node.bait[0] == "Nxe5"

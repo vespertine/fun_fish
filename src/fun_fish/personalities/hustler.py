@@ -3,13 +3,17 @@
 1. **Santé** : on ne garde que nos coups qui perdent au plus `tolerance` centipions par
    rapport au meilleur, si l'adversaire répond juste.
 2. **Adversaire naïf** : sa probabilité de jouer une réponse est un softmax (température
-   `naivety`) de l'analyse à faible profondeur, moyenné sur les profondeurs 1 à
-   `shallow_depth`. Chaque piège vise un niveau de myopie différent. Une réponse est
-   tentante quand elle paraît bonne à courte vue.
+   `naivety`) d'un score qui mélange son instinct (`fun_fish.naive` : prises, échecs,
+   fourchettes, pièces à sauver) et l'éval de Stockfish à faible profondeur (1 à
+   `shallow_depth`). `instinct` règle le mélange : 1 = pur instinct, 0 = pur Stockfish.
+   Stockfish seul est un mauvais naïf : même à profondeur 1, il voit les captures en
+   chaîne et ne tombe dans presque aucun piège.
 3. **Simulation** : on déroule ses réponses tentantes (au plus `branching`, de tentation
-   ≥ `min_temptation`) sur `sharp_plies` coups, en répondant à chaque fois par notre
-   meilleur coup. Un piège peut ainsi se refermer en plusieurs temps : dans Blackburne,
-   Cxe5 n'est qu'une erreur moyenne, c'est Cxf7 au coup suivant qui coûte la partie.
+   ≥ `min_temptation`) sur `sharp_plies` coups. À nos coups, on choisit parmi nos
+   `our_options` meilleures réponses (à moins de `safe_margin` de la meilleure) celle qui
+   piège le mieux. Un piège peut ainsi se refermer en plusieurs temps : dans Blackburne,
+   Cxe5 n'est pas une erreur ; c'est Dg5 (aussi bon que d5) qui tend Cxf7, et Cxf7 qui
+   coûte la partie.
 
 On en tire deux mesures :
 
@@ -30,6 +34,7 @@ from dataclasses import dataclass, field
 import chess
 
 from fun_fish.analysis import Analyser, Line
+from fun_fish.naive import Instinct
 from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, softmax
 from fun_fish.reading import VISIBLE_MATE
 
@@ -86,12 +91,15 @@ class Hustler(Personality):
         "tolerance": "Perte maximale acceptée si l'adversaire répond juste (centipions)",
         "soundness_depth": "Profondeur du filtre de santé",
         "reply_depth": "Profondeur d'analyse des réponses adverses",
-        "shallow_depth": "L'adversaire naïf voit de 1 à N demi-coups",
+        "instinct": "Part de l'instinct (prises, échecs, fourchettes) face à Stockfish dans l'adversaire naïf (0 à 1)",
+        "caution": "Attention de l'adversaire naïf aux reprises et pièces en prise (0 = aveugle, 1 = lucide)",
+        "shallow_depth": "Part Stockfish de l'adversaire naïf : voit de 1 à N demi-coups (0 = instinct seul)",
         "naivety": "Hasard de l'adversaire naïf (cp) : plus c'est haut, plus il joue au hasard",
         "safe_margin": "En deçà (cp), une réponse adverse est sûre",
         "error_margin": "Au-delà (cp), c'est une vraie erreur",
         "sharp_plies": "Coups adverses simulés",
         "branching": "Réponses tentantes explorées à chaque coup adverse",
+        "our_options": "Nos réponses quasi optimales envisagées pour prolonger le piège (1 = toujours la meilleure)",
         "min_temptation": "Tentation minimale pour explorer une réponse (0 à 1)",
         "w_trap": "Poids du piège (gain attendu de la naïveté adverse)",
         "w_sharp": "Poids de l'étroitesse (probabilité d'erreur adverse)",
@@ -102,21 +110,25 @@ class Hustler(Personality):
     }
 
     def __init__(self, tolerance: int = 100, soundness_depth: int = 12, reply_depth: int = 8,
-                 shallow_depth: int = 2, naivety: float = 20.0, safe_margin: int = 60, error_margin: int = 150,
-                 sharp_plies: int = 2, branching: int = 3, min_temptation: float = 0.1,
+                 instinct: float = 0.7, caution: float = 0.5, shallow_depth: int = 1, naivety: float = 60.0,
+                 safe_margin: int = 60, error_margin: int = 150,
+                 sharp_plies: int = 2, branching: int = 3, min_temptation: float = 0.1, our_options: int = 2,
                  w_trap: float = 1.0, w_sharp: float = 1.0, w_loss: float = 1.0, temperature: float = 0.3,
                  max_candidates: int = 15, deep_candidates: int = 6, **kwargs):
         super().__init__(**kwargs)
         self.tolerance = tolerance  # cp qu'il accepte de perdre si l'adversaire répond juste
         self.soundness_depth = soundness_depth  # profondeur du filtre de santé
         self.reply_depth = reply_depth  # profondeur d'analyse des réponses adverses
-        self.shallow_depth = shallow_depth  # l'adversaire naïf voit de 1 à N demi-coups
+        self.instinct = instinct  # part de l'instinct dans l'adversaire naïf
+        self.caution = caution  # attention de l'adversaire naïf aux reprises
+        self.shallow_depth = shallow_depth  # part Stockfish de l'adversaire naïf : 1 à N demi-coups
         self.naivety = naivety  # cp : plus c'est haut, plus l'adversaire naïf joue au hasard
         self.safe_margin = safe_margin  # cp : en deçà, une réponse adverse est sûre
         self.error_margin = error_margin  # cp : au-delà, c'est une vraie erreur
         self.sharp_plies = sharp_plies  # coups adverses simulés
         self.branching = branching  # réponses tentantes explorées à chaque coup adverse
         self.min_temptation = min_temptation  # en deçà, une réponse n'est pas explorée
+        self.our_options = our_options  # nos réponses envisagées pour prolonger le piège
         self.w_trap, self.w_sharp, self.w_loss = w_trap, w_sharp, w_loss
         self.temperature = temperature  # en pions de score
         self.max_candidates = max_candidates  # coups sains examinés
@@ -125,12 +137,18 @@ class Hustler(Personality):
     # ---------- adversaire naïf ----------
 
     def temptation(self, position: chess.Board, analyser: Analyser) -> dict[chess.Move, float]:
-        n = position.legal_moves.count()
-        result: dict[chess.Move, float] = {}
+        """Probabilité que l'adversaire naïf (qui a le trait) joue chaque coup."""
+        appeal = {m: 100 * a for m, a in Instinct(caution=self.caution).appeals(position).items()}
+        moves = list(appeal)
+        if self.shallow_depth < 1 or self.instinct >= 1:
+            return dict(zip(moves, softmax([appeal[m] for m in moves], self.naivety)))
+        result = dict.fromkeys(moves, 0.0)
         for depth in range(1, self.shallow_depth + 1):
-            shallow = analyser.analyse(position, multipv=n, depth=depth)
-            for line, p in zip(shallow, softmax([l.score for l in shallow], self.naivety)):
-                result[line.move] = result.get(line.move, 0.0) + p / self.shallow_depth
+            shallow = {l.move: l.score for l in analyser.analyse(position, multipv=len(moves), depth=depth)}
+            scores = [self.instinct * appeal[m] + (1 - self.instinct) * shallow.get(m, min(shallow.values()))
+                      for m in moves]
+            for m, p in zip(moves, softmax(scores, self.naivety)):
+                result[m] += p / self.shallow_depth
         return result
 
     def simulate(self, position: chess.Board, analyser: Analyser, plies: int) -> Node:
@@ -150,13 +168,12 @@ class Hustler(Personality):
             explored += t
             error = best.score - line.score >= self.error_margin
             value, p_error = our_value(line), 1.0 if error else 0.0
-            if plies > 1 and len(line.pv) >= 2:
-                child = position.copy()
-                child.push(line.move)
-                if child.is_legal(line.pv[1]):
-                    child.push(line.pv[1])  # notre meilleure réponse
-                    if not child.is_game_over():
-                        sub = self.simulate(child, analyser, plies - 1)
+            if plies > 1:
+                after = position.copy()
+                after.push(line.move)
+                if not after.is_game_over():
+                    sub = self.follow_up(after, analyser, plies - 1)
+                    if sub is not None:
                         value = sub.value
                         p_error = 1.0 if error else sub.p_error
             node.value += t * value
@@ -167,6 +184,24 @@ class Hustler(Personality):
                 node.bait = (position.san(line.move), t, value)
         node.value += (1.0 - explored) * node.best_value  # le reste du temps, il joue juste
         return node
+
+    def follow_up(self, position: chess.Board, analyser: Analyser, plies: int) -> Node | None:
+        """À nous de jouer : parmi nos réponses quasi optimales, celle qui piège le mieux."""
+        ours = analyser.analyse(position, multipv=max(1, self.our_options), depth=self.reply_depth)
+        best_node = None
+        for line in ours:
+            if ours[0].score - line.score > self.safe_margin:
+                break
+            child = position.copy()
+            child.push(line.move)
+            if child.is_game_over():
+                value = clip(line.score)
+                node = Node(value=value, best_value=value, p_error=0.0)
+            else:
+                node = self.simulate(child, analyser, plies)
+            if best_node is None or node.value > best_node.value:
+                best_node = node
+        return best_node
 
     # ---------- choix ----------
 
