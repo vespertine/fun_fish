@@ -47,11 +47,32 @@ def cmd_play(args: argparse.Namespace) -> None:
         uvicorn.run(create_app(analyser, on_startup=on_startup), host=args.host, port=port, log_level="warning")
 
 
+def parse_params(pairs: list[str]) -> dict:
+    """["tolerance=150", "w_sharp=3.5"] -> {"tolerance": 150, "w_sharp": 3.5}"""
+    params = {}
+    for pair in pairs:
+        key, sep, raw = pair.partition("=")
+        if not sep:
+            raise SystemExit(f"Réglage mal formé : {pair!r} (attendu : nom=valeur)")
+        for cast in (int, float):
+            try:
+                params[key] = cast(raw)
+                break
+            except ValueError:
+                continue
+        else:
+            params[key] = raw
+    return params
+
+
 def cmd_choose(args: argparse.Namespace) -> None:
     """Montre ce que choisirait une personnalité dans une position donnée."""
     board = chess.Board(args.fen)
     rng = random.Random(args.seed)
-    personality = personalities.create(args.personality, rng=rng)
+    try:
+        personality = personalities.create(args.personality, rng=rng, **parse_params(args.set))
+    except ValueError as exc:
+        raise SystemExit(f"Erreur : {exc}") from None
     with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
         decision = personality.choose_move(board, analyser)
         print(decision.explanation)
@@ -107,6 +128,8 @@ def build_parser() -> argparse.ArgumentParser:
     choose.add_argument("-p", "--personality", default=personalities.DEFAULT_PERSONALITY,
                         choices=list(personalities.PERSONALITIES))
     choose.add_argument("--seed", type=int)
+    choose.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR",
+                        help="surcharge un réglage de la personnalité (répétable)")
     choose.add_argument("-n", "--repeat", type=int, default=1, help="nombre de tirages pour voir la distribution")
     choose.set_defaults(func=cmd_choose)
 

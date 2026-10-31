@@ -32,6 +32,7 @@ binaire : `--stockfish CHEMIN` ou la variable `FUN_FISH_STOCKFISH`.
 
 ```bash
 fun-fish choose "<FEN>" -p blitz -n 50    # ce que choisirait une personnalité, et sa distribution sur 50 tirages
+fun-fish choose "<FEN>" -p hustler -s tolerance=150 -s naivety=15   # avec des réglages surchargés
 fun-fish read "<FEN>" --horizon 2         # lecture humaine des meilleures lignes (approfondie | court-termiste)
 fun-fish stockfish                         # chemin de Stockfish (le télécharge si besoin)
 fun-fish play --port 9000 --no-browser
@@ -42,6 +43,7 @@ fun-fish play --port 9000 --no-browser
 | Clé | Nom | Comportement |
 |---|---|---|
 | `blitz` | Le blitzeur | Perception à profondeur 8, lecture humaine à 2 demi-coups : mat visible > niveau d'avantage > matériel, hasard entre coups jugés équivalents. Le panneau montre ce que dit la réalité (profondeur 16) |
+| `hustler` | L'arnaqueur | Parmi les coups sains (perte ≤ `tolerance`), préfère ceux où un adversaire naïf, simulé sur 2 coups, se trompe souvent et cher. Réglable avec `-s param=valeur` (voir `personalities/hustler.py`) |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
