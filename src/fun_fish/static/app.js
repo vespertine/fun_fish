@@ -7,6 +7,9 @@ let state = null;
 let personalities = [];
 let orientation = 'white';
 
+// Reprise de coup avec la flèche ← (mode d'essai, à désactiver plus tard).
+const TAKEBACK_WITH_ARROW = true;
+
 async function api(path, body) {
   const init = body === undefined ? {} : {
     method: 'POST',
@@ -350,6 +353,16 @@ async function init() {
   $('#flip').addEventListener('click', flip);
   $('#pgn').addEventListener('click', copyPgn);
   $('#arrows').addEventListener('change', drawArrows);
+  if (TAKEBACK_WITH_ARROW) {
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'ArrowLeft' || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (e.target.closest('input, select, textarea')) return;
+      if ($('#undo').disabled) return;
+      e.preventDefault();
+      undo();
+    });
+    $('#undo').title = 'Raccourci : flèche ←';
+  }
 
   await engineMoveIfNeeded();
 }
