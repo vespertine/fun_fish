@@ -96,9 +96,22 @@ class Game:
 
         replay = chess.Board()
         moves_san = []
-        for move in board.move_stack:
-            moves_san.append(replay.san(move))
+        history = []  # un élément par demi-coup : de quoi revoir la position et le raisonnement de l'IA
+        for ply, move in enumerate(board.move_stack):
+            by_human = replay.turn == self.human_color
+            san = replay.san(move)
             replay.push(move)
+            moves_san.append(san)
+            past = self.decisions.get(ply)
+            history.append({
+                "san": san,
+                "uci": move.uci(),
+                "last_move": [chess.square_name(move.from_square), chess.square_name(move.to_square)],
+                "fen": replay.fen(),
+                "check": replay.is_check(),
+                "by": "human" if by_human else "ai",
+                "decision": past.to_dict() if past else None,
+            })
 
         last = board.move_stack[-1] if board.move_stack else None
         decision = self.decisions.get(len(board.move_stack) - 1)
@@ -124,6 +137,8 @@ class Game:
             "result": outcome.result() if outcome else "*",
             "status": status,
             "moves": moves_san,
+            "start_fen": chess.STARTING_FEN,
+            "history": history,
             "engine_to_move": self.engine_to_move,
             "can_retry": bool(board.move_stack) and board.turn == self.human_color,
             "decision": decision.to_dict() if decision else None,

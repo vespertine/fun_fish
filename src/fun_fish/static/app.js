@@ -7,9 +7,6 @@ let state = null;
 let personalities = [];
 let orientation = 'white';
 
-// Reprise de coup avec la flèche ← (mode d'essai, à désactiver plus tard).
-const TAKEBACK_WITH_ARROW = true;
-
 async function api(path, body) {
   const init = body === undefined ? {} : {
     method: 'POST',
@@ -38,27 +35,58 @@ function fmtScore(score, mate) {
 
 // ---------- rendu ----------
 
+// Demi-coup affiché : null = position en cours ; sinon on revoit l'historique (0 = position de départ).
+let viewPly = null;
+let shownDecision = null;
+
 function render(s) {
   state = s;
-  const humanTurn = !s.game_over && !s.engine_to_move;
-  cg.set({
-    fen: s.fen,
-    orientation,
-    turnColor: s.turn,
-    lastMove: s.last_move || undefined,
-    check: s.check,
-    movable: {
-      color: humanTurn ? s.human_color : undefined,
-      dests: new Map(Object.entries(s.dests)),
-    },
-  });
-  renderPlayers();
-  $('#status').textContent = s.status;
-  $('#status').classList.toggle('over', s.game_over);
-  renderMoves(s.moves);
-  renderDecision(s.decision);
+  viewPly = null;
+  show();
   $('#undo').disabled = s.moves.length === 0;
   $('#retry').disabled = !s.can_retry;
+}
+
+function show() {
+  const history = state.history;
+  const ply = viewPly ?? history.length;
+  const live = ply === history.length;
+  const entry = ply > 0 ? history[ply - 1] : null;
+
+  if (live) {
+    const humanTurn = !state.game_over && !state.engine_to_move;
+    cg.set({
+      fen: state.fen,
+      orientation,
+      turnColor: state.turn,
+      lastMove: state.last_move || undefined,
+      check: state.check,
+      movable: {
+        color: humanTurn ? state.human_color : undefined,
+        dests: new Map(Object.entries(state.dests)),
+      },
+    });
+  } else {
+    const fen = entry ? entry.fen : state.start_fen;
+    cg.set({
+      fen,
+      orientation,
+      turnColor: fen.split(' ')[1] === 'w' ? 'white' : 'black',
+      lastMove: entry ? entry.last_move : undefined,
+      check: entry ? entry.check : false,
+      movable: { color: undefined, dests: new Map() },
+    });
+  }
+
+  renderPlayers();
+  const status = $('#status');
+  status.textContent = live
+    ? state.status
+    : `Historique : demi-coup ${ply} sur ${history.length}. → ou Fin pour revenir à la partie.`;
+  status.classList.toggle('over', live && state.game_over);
+  status.classList.toggle('browsing', !live);
+  renderMoves(history, live ? null : ply);
+  renderDecision(entry, live);
 }
 
 function renderPlayers() {
@@ -75,30 +103,51 @@ function renderPlayers() {
   (aiColor === top ? $('.player.top') : $('.player.bottom')).appendChild(thinking);
 }
 
-function renderMoves(moves) {
+function renderMoves(history, activePly) {
   const ol = $('#moves');
   ol.innerHTML = '';
-  for (let i = 0; i < moves.length; i += 2) {
+  let active = null;
+  for (let i = 0; i < history.length; i += 2) {
     const li = document.createElement('li');
-    li.innerHTML = `<span>${moves[i]}</span><span>${moves[i + 1] ?? ''}</span>`;
+    for (const ply of [i + 1, i + 2]) {
+      const span = document.createElement('span');
+      const entry = history[ply - 1];
+      if (entry) {
+        span.textContent = entry.san;
+        span.className = `move ${entry.by}`;
+        span.dataset.ply = ply;
+        span.title = entry.by === 'ai' ? "Revoir ce coup et le raisonnement de l'IA" : 'Revoir cette position';
+        if (ply === activePly) { span.classList.add('active'); active = span; }
+        span.addEventListener('click', () => goTo(ply));
+      }
+      li.appendChild(span);
+    }
     ol.appendChild(li);
   }
-  ol.scrollTop = ol.scrollHeight;
+  if (active) active.scrollIntoView({ block: 'nearest' });
+  else ol.scrollTop = ol.scrollHeight;
 }
 
-function renderDecision(decision) {
+function showNoDecision(text) {
+  shownDecision = null;
+  $('#explanation').textContent = text;
+  $('#candidates').hidden = true;
+  $('#reality').hidden = true;
+  cg.setAutoShapes([]);
+}
+
+function renderDecision(entry, live) {
   const table = $('#candidates');
   const tbody = table.querySelector('tbody');
   tbody.innerHTML = '';
+  const decision = entry?.decision ?? null;
   if (!decision) {
-    $('#explanation').textContent = state.moves.length
-      ? 'À vous de jouer.'
-      : "L'adversaire n'a pas encore joué.";
-    table.hidden = true;
-    $('#reality').hidden = true;
-    cg.setAutoShapes([]);
+    if (!entry) showNoDecision(live ? "L'adversaire n'a pas encore joué." : 'Position de départ.');
+    else if (live) showNoDecision(state.engine_to_move ? "L'adversaire réfléchit…" : 'À vous de jouer.');
+    else showNoDecision(entry.by === 'human' ? `Votre coup : ${entry.san}.` : `${entry.san} (raisonnement non conservé).`);
     return;
   }
+  shownDecision = decision;
   $('#explanation').textContent = decision.explanation;
   const reality = $('#reality');
   reality.hidden = !decision.reality;
@@ -118,7 +167,7 @@ function renderDecision(decision) {
 }
 
 function drawArrows() {
-  const decision = state?.decision;
+  const decision = shownDecision;
   if (!decision || !$('#arrows').checked) {
     cg.setAutoShapes([]);
     return;
@@ -188,6 +237,26 @@ function setThinking(on) {
   $('#thinking').hidden = !on;
   for (const id of ['#new', '#undo', '#retry', '#apply-params']) $(id).disabled = on;
   if (!on && state) $('#retry').disabled = !state.can_retry;
+}
+
+// ---------- navigation dans l'historique ----------
+
+function goTo(ply) {
+  const n = state.history.length;
+  const target = Math.max(0, Math.min(n, ply));
+  viewPly = target === n ? null : target;
+  show();
+}
+
+function onNavigationKey(e) {
+  if (e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.target.closest('input, select, textarea')) return;
+  if (!$('#promotion').hidden) return;
+  const current = viewPly ?? state.history.length;
+  const moves = { ArrowLeft: current - 1, ArrowRight: current + 1, Home: 0, End: state.history.length };
+  if (!(e.key in moves)) return;
+  e.preventDefault();
+  goTo(moves[e.key]);
 }
 
 // ---------- actions ----------
@@ -353,16 +422,7 @@ async function init() {
   $('#flip').addEventListener('click', flip);
   $('#pgn').addEventListener('click', copyPgn);
   $('#arrows').addEventListener('change', drawArrows);
-  if (TAKEBACK_WITH_ARROW) {
-    document.addEventListener('keydown', (e) => {
-      if (e.key !== 'ArrowLeft' || e.altKey || e.ctrlKey || e.metaKey) return;
-      if (e.target.closest('input, select, textarea')) return;
-      if ($('#undo').disabled) return;
-      e.preventDefault();
-      undo();
-    });
-    $('#undo').title = 'Raccourci : flèche ←';
-  }
+  document.addEventListener('keydown', onNavigationKey);
 
   await engineMoveIfNeeded();
 }

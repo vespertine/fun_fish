@@ -101,3 +101,14 @@ def test_api_settings_apply_and_retry(fake_analyser):
 def test_create_casts_params_to_declared_types():
     p = personalities.create("hustler", tolerance=149.6, naivety="15")
     assert p.tolerance == 150 and isinstance(p.tolerance, int) and p.naivety == 15.0
+
+
+def test_state_history_keeps_ai_reasoning(fake_analyser):
+    game = Game(personalities.create("casual"), chess.WHITE)
+    game.play_human("e2e4")
+    game.play_engine(fake_analyser)
+    history = game.state()["history"]
+    assert [h["by"] for h in history] == ["human", "ai"]
+    assert history[0]["decision"] is None and history[1]["decision"]["san"] == history[1]["san"]
+    assert history[0]["fen"].startswith("rnbqkbnr/pppppppp/8/8/4P3")
+    assert history[1]["last_move"] == [history[1]["uci"][:2], history[1]["uci"][2:4]]

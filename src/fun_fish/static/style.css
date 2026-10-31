@@ -90,6 +90,13 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 
 .status { margin: 0 0 8px; font-weight: 600; }
 .status.over { color: var(--accent); }
+.status.browsing { color: #e0b252; font-weight: 500; font-size: 13px; }
+.moves li span.move { cursor: pointer; border-radius: 4px; padding: 0 4px; margin-left: -4px; }
+.moves li span.move:hover { background: var(--panel-2); }
+.moves li span.move.ai { color: var(--text); }
+.moves li span.move.human { color: var(--muted); }
+.moves li span.move.active { background: #e0b252; color: #1d1b19; }
+.nav-hint { margin: 6px 0 0; font-size: 12px; }
 
 .moves {
   margin: 0;
