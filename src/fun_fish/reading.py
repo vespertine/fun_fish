@@ -8,9 +8,10 @@ Le bilan matériel se lit en rejouant la variation principale. Il est mesuré su
 position « posée », c'est-à-dire où la ligne ne continue pas par une prise :
 compter au milieu d'un échange ne veut rien dire. L'horizon règle jusqu'où on lit :
 
-- `horizon=None` : toute la variation (lecture approfondie) ;
 - `horizon=N` : on regarde N demi-coups, puis on termine l'échange en cours
-  (lecture court-termiste, celle d'un joueur pressé).
+  (lecture court-termiste avec N petit, celle d'un joueur pressé) ;
+- `horizon=None` : lecture approfondie, plafonnée à DEEP_HORIZON demi-coups car la fin
+  des variations de Stockfish est peu fiable.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ LEVEL_LABELS = {
     -3: "perdant",
 }
 VISIBLE_MATE = 3  # au-delà, le mat est « compliqué »
+DEEP_HORIZON = 10  # demi-coups lus par la lecture approfondie
 
 
 def describe_pieces(pieces: Iterable[chess.PieceType]) -> str:
@@ -131,12 +133,11 @@ def material_along(board: chess.Board, pv: Sequence[chess.Move], horizon: int | 
         # en fin de ligne, on exige que le dernier coup n'ait pas été une prise.
         return (not is_capture[i]) if i < n else (n == 0 or not is_capture[n - 1])
 
-    if horizon is None:
-        index = next((i for i in range(n, -1, -1) if settled(i)), 0)
-    else:
-        start = min(horizon, n)
-        index = next((i for i in range(start, n + 1) if settled(i)),
-                     next((i for i in range(start, -1, -1) if settled(i)), 0))
+    # Première position posée à partir de l'horizon (on finit l'échange en cours),
+    # sinon la dernière position posée avant lui.
+    start = min(DEEP_HORIZON if horizon is None else horizon, n)
+    index = next((i for i in range(start, n + 1) if settled(i)),
+                 next((i for i in range(start, -1, -1) if settled(i)), 0))
 
     (mine0, theirs0), (mine1, theirs1) = snapshots[0], snapshots[index]
     gained, lost = [], []

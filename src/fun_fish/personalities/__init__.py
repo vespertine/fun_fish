@@ -5,10 +5,11 @@ from __future__ import annotations
 import random
 
 from fun_fish.personalities.base import Candidate, Decision, Personality
+from fun_fish.personalities.blitz import Blitz
 from fun_fish.personalities.reference import Casual, PureStockfish
 
-PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Casual, PureStockfish)}
-DEFAULT_PERSONALITY = Casual.key
+PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Casual, PureStockfish)}
+DEFAULT_PERSONALITY = Blitz.key
 
 
 def create(key: str, rng: random.Random | None = None) -> Personality:

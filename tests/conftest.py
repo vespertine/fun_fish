@@ -14,6 +14,8 @@ class FakeAnalyser:
 
     def __init__(self, scores: dict[str, int] | None = None, step: int = 40):
         self.scores = scores or {}
+        self.mates: dict[str, int] = {}  # coup uci -> mat en N
+        self.pvs: dict[str, list[str]] = {}  # coup uci -> variation complète
         self.step = step
         self.calls = 0
 
@@ -21,8 +23,11 @@ class FakeAnalyser:
         self.calls += 1
         lines = []
         for i, move in enumerate(board.legal_moves):
-            score = self.scores.get(move.uci(), -i * self.step)
-            lines.append(Line(move=move, score=score, mate=None, wdl=None, pv=(move,), depth=1))
+            uci = move.uci()
+            mate = self.mates.get(uci)
+            score = 100_000 - mate if mate else self.scores.get(uci, -i * self.step)
+            pv = tuple(chess.Move.from_uci(u) for u in self.pvs.get(uci, [uci]))
+            lines.append(Line(move=move, score=score, mate=mate, wdl=None, pv=pv, depth=1))
         lines.sort(key=lambda line: line.score, reverse=True)
         return lines[:multipv]
 

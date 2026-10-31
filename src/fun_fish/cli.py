@@ -55,6 +55,8 @@ def cmd_choose(args: argparse.Namespace) -> None:
     with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
         decision = personality.choose_move(board, analyser)
         print(decision.explanation)
+        if decision.reality:
+            print(decision.reality)
         for cand in decision.to_dict()["candidates"]:
             proba = "  -  " if cand["probability"] is None else f"{cand['probability']:5.0%}"
             score = f"#{cand['mate']}" if cand["mate"] is not None else f"{cand['score'] / 100:+.2f}"

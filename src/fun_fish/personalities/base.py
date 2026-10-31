@@ -39,6 +39,7 @@ class Decision:
     color: chess.Color  # camp qui joue le coup
     explanation: str
     candidates: list[Candidate] = field(default_factory=list)
+    reality: str | None = None  # verdict d'une analyse profonde, quand la personnalité voit court
 
     def to_dict(self) -> dict:
         """Sérialise avec les évals du point de vue des Blancs, comme dans toutes les interfaces d'échecs."""
@@ -47,6 +48,7 @@ class Decision:
             "uci": self.move.uci(),
             "san": self.san,
             "explanation": self.explanation,
+            "reality": self.reality,
             "candidates": [
                 {
                     "uci": c.move.uci(),

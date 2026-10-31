@@ -89,6 +89,8 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
 .why h2 { margin: 0; font-size: 15px; }
 .toggle { flex-direction: row !important; align-items: center; gap: 4px !important; }
 .explanation { margin: 8px 0; }
+.reality { margin: 0 0 10px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--panel-2); font-size: 13px; color: var(--muted); }
+.reality.mistake { border-left-color: var(--danger); color: var(--text); }
 
 .candidates { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
 .candidates th { text-align: left; color: var(--muted); font-weight: 500; padding: 2px 6px; }

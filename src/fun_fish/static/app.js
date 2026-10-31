@@ -91,10 +91,15 @@ function renderDecision(decision) {
       ? 'À vous de jouer.'
       : "L'adversaire n'a pas encore joué.";
     table.hidden = true;
+    $('#reality').hidden = true;
     cg.setAutoShapes([]);
     return;
   }
   $('#explanation').textContent = decision.explanation;
+  const reality = $('#reality');
+  reality.hidden = !decision.reality;
+  reality.textContent = decision.reality || '';
+  reality.classList.toggle('mistake', /^(Erreur|Imprécision)/.test(decision.reality || ''));
   table.hidden = false;
   for (const c of decision.candidates) {
     const tr = document.createElement('tr');
