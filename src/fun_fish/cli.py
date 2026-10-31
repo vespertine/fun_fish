@@ -15,6 +15,7 @@ import chess
 from fun_fish import __version__, personalities
 from fun_fish.analysis import Analyser
 from fun_fish.engines import StockfishNotFound, find_stockfish
+from fun_fish.personalities.base import format_score
 
 
 def _free_port(host: str, preferred: int) -> int:
@@ -64,6 +65,23 @@ def cmd_choose(args: argparse.Namespace) -> None:
             print(f"\nSur {args.repeat} tirages : " + ", ".join(f"{san} ×{n}" for san, n in counts.most_common()))
 
 
+def cmd_read(args: argparse.Namespace) -> None:
+    """Affiche la lecture humaine des meilleures lignes, approfondie et court-termiste."""
+    from fun_fish.reading import read_lines
+
+    board = chess.Board(args.fen)
+    with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
+        lines = analyser.analyse(board, multipv=args.multipv, depth=args.depth)
+    deep = read_lines(board, lines)
+    short = read_lines(board, lines, horizon=args.horizon)
+    side = "Blancs" if board.turn == chess.WHITE else "Noirs"
+    print(f"Trait aux {side}, profondeur {args.depth}. Lecture complète | à {args.horizon} demi-coups\n")
+    for d, s, line in zip(deep, short, lines):
+        pv = board.variation_san(list(line.pv[:args.show_pv]))
+        print(f"  {d.san:<7} {format_score(d.score, d.mate):>6}  {d.summary:<44} | {s.summary}")
+        print(f"  {'':<7} {'':>6}  {pv}")
+
+
 def cmd_stockfish(args: argparse.Namespace) -> None:
     print(find_stockfish(args.stockfish))
 
@@ -89,6 +107,14 @@ def build_parser() -> argparse.ArgumentParser:
     choose.add_argument("--seed", type=int)
     choose.add_argument("-n", "--repeat", type=int, default=1, help="nombre de tirages pour voir la distribution")
     choose.set_defaults(func=cmd_choose)
+
+    read = sub.add_parser("read", parents=[common], help="lecture humaine des meilleures lignes d'une position")
+    read.add_argument("fen", nargs="?", default=chess.STARTING_FEN)
+    read.add_argument("-d", "--depth", type=int, default=16)
+    read.add_argument("-m", "--multipv", type=int, default=6)
+    read.add_argument("--horizon", type=int, default=2, help="demi-coups de la lecture court-termiste")
+    read.add_argument("--show-pv", type=int, default=8, help="demi-coups de variation affichés")
+    read.set_defaults(func=cmd_read)
 
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)

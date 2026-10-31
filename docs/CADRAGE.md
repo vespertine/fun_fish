@@ -139,7 +139,7 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       partie, choix de la personnalité, export PGN
 - [x] Commande `fun-fish` qui lance le serveur et ouvre le navigateur
 - [x] Vérification sous Linux
-- [ ] CI GitHub Actions sur les trois OS (workflow écrit, à valider au premier push)
+- [x] CI GitHub Actions sur les trois OS
 
 ### Phase 2 — Banc d'essai des personnalités
 - [ ] Adaptateur UCI : `fun-fish-engine --personality hustler`
