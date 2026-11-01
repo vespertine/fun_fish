@@ -8,6 +8,11 @@
    `shallow_depth`). `instinct` règle le mélange : 1 = pur instinct, 0 = pur Stockfish.
    Stockfish seul est un mauvais naïf : même à profondeur 1, il voit les captures en
    chaîne et ne tombe dans presque aucun piège.
+   Si `opponent_elo` > 0, c'est Maia-2 qui joue ce rôle : la tentation d'un coup est la
+   probabilité qu'un humain de cet Elo le joue (les réglages de l'instinct sont ignorés).
+   On n'analyse alors que ses `reply_lines` meilleures réponses et celles que Maia juge
+   plausibles (jusqu'à `plausible_mass` de probabilité cumulée, `max_plausible` au plus),
+   au lieu de toutes : c'est 3 à 5 fois plus rapide.
 3. **Simulation** : on déroule ses réponses tentantes (au plus `branching`, de tentation
    ≥ `min_temptation`) sur `sharp_plies` coups. À nos coups, on choisit parmi nos
    `our_options` meilleures réponses (à moins de `safe_margin` de la meilleure) celle qui
@@ -88,6 +93,10 @@ class Hustler(Personality):
     description = ("Cherche les coups où les réponses naturelles perdent et où un seul chemin étroit tient. "
                    "Accepte de lâcher un peu si on le contre bien.")
     PARAM_HELP = {
+        "opponent_elo": "Elo de l'adversaire imaginé, modélisé par Maia-2 (0 = adversaire naïf à l'instinct)",
+        "reply_lines": "Avec Maia : meilleures réponses adverses toujours analysées",
+        "plausible_mass": "Avec Maia : probabilité cumulée des réponses plausibles analysées (0 à 1)",
+        "max_plausible": "Avec Maia : nombre maximal de réponses plausibles analysées",
         "tolerance": "Perte maximale acceptée si l'adversaire répond juste (centipions)",
         "soundness_depth": "Profondeur du filtre de santé",
         "reply_depth": "Profondeur d'analyse des réponses adverses",
@@ -109,13 +118,18 @@ class Hustler(Personality):
         "deep_candidates": "Dont simulés sur tous les coups",
     }
 
-    def __init__(self, tolerance: int = 100, soundness_depth: int = 12, reply_depth: int = 8,
+    def __init__(self, opponent_elo: int = 0, reply_lines: int = 5, plausible_mass: float = 0.9,
+                 max_plausible: int = 8, tolerance: int = 100, soundness_depth: int = 12, reply_depth: int = 8,
                  instinct: float = 0.7, caution: float = 0.5, shallow_depth: int = 1, naivety: float = 60.0,
                  safe_margin: int = 60, error_margin: int = 150,
                  sharp_plies: int = 2, branching: int = 3, min_temptation: float = 0.1, our_options: int = 2,
                  w_trap: float = 1.0, w_sharp: float = 1.0, w_loss: float = 1.0, temperature: float = 0.3,
                  max_candidates: int = 15, deep_candidates: int = 6, **kwargs):
         super().__init__(**kwargs)
+        self.opponent_elo = opponent_elo  # > 0 : l'adversaire est modélisé par Maia-2 à cet Elo
+        self.reply_lines = reply_lines  # avec Maia : meilleures réponses toujours analysées
+        self.plausible_mass = plausible_mass  # avec Maia : masse de probabilité des réponses analysées
+        self.max_plausible = max_plausible
         self.tolerance = tolerance  # cp qu'il accepte de perdre si l'adversaire répond juste
         self.soundness_depth = soundness_depth  # profondeur du filtre de santé
         self.reply_depth = reply_depth  # profondeur d'analyse des réponses adverses
@@ -138,6 +152,10 @@ class Hustler(Personality):
 
     def temptation(self, position: chess.Board, analyser: Analyser) -> dict[chess.Move, float]:
         """Probabilité que l'adversaire naïf (qui a le trait) joue chaque coup."""
+        if self.opponent_elo > 0:
+            from fun_fish.sim import maia
+
+            return maia.shared().probabilities(position, self.opponent_elo)
         appeal = {m: 100 * a for m, a in Instinct(caution=self.caution).appeals(position).items()}
         moves = list(appeal)
         if self.shallow_depth < 1 or self.instinct >= 1:
@@ -153,9 +171,9 @@ class Hustler(Personality):
 
     def simulate(self, position: chess.Board, analyser: Analyser, plies: int) -> Node:
         """Déroule les réponses tentantes de l'adversaire (qui a le trait) sur `plies` coups."""
-        deep = analyser.analyse(position, multipv=position.legal_moves.count(), depth=self.reply_depth)
-        best = deep[0]
         tempt = self.temptation(position, analyser)
+        deep = self.replies(position, analyser, tempt)
+        best = deep[0]
         node = Node(value=0.0, best_value=our_value(best), p_error=0.0,
                     safe=[position.san(l.move) for l in deep if best.score - l.score <= self.safe_margin])
 
@@ -184,6 +202,25 @@ class Hustler(Personality):
                 node.bait = (position.san(line.move), t, value)
         node.value += (1.0 - explored) * node.best_value  # le reste du temps, il joue juste
         return node
+
+    def replies(self, position: chess.Board, analyser: Analyser, tempt: dict[chess.Move, float]) -> list[Line]:
+        """Les réponses adverses à analyser : toutes, ou avec Maia les meilleures et les plausibles."""
+        legal = position.legal_moves.count()
+        if self.opponent_elo <= 0 or legal <= self.reply_lines + self.max_plausible:
+            return analyser.analyse(position, multipv=legal, depth=self.reply_depth)
+        top = analyser.analyse(position, multipv=self.reply_lines, depth=self.reply_depth)
+        seen = {line.move for line in top}
+        plausible, mass = [], 0.0
+        for move, p in sorted(tempt.items(), key=lambda x: -x[1]):
+            if mass >= self.plausible_mass or len(plausible) >= self.max_plausible:
+                break
+            mass += p
+            if move not in seen:
+                plausible.append(move)
+        if not plausible:
+            return top
+        extra = analyser.analyse(position, multipv=len(plausible), depth=self.reply_depth, moves=plausible)
+        return sorted([*top, *extra], key=lambda line: -line.score)
 
     def follow_up(self, position: chess.Board, analyser: Analyser, plies: int) -> Node | None:
         """À nous de jouer : parmi nos réponses quasi optimales, celle qui piège le mieux."""
@@ -220,7 +257,8 @@ class Hustler(Personality):
         return e
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        root = analyser.analyse(board, multipv=board.legal_moves.count(), depth=self.soundness_depth)
+        root = analyser.analyse(board, multipv=min(board.legal_moves.count(), self.max_candidates),
+                                depth=self.soundness_depth)
         best = root[0]
         sound = [l for l in root if best.score - l.score <= self.tolerance][: self.max_candidates]
 
@@ -254,7 +292,7 @@ class Hustler(Personality):
             return f"Rien à arnaquer ici : joue {san}."
         n = len(node.safe)
         text = (f"Joue {san} : l'adversaire n'a que {n} réponse{'s' if n > 1 else ''} sûre{'s' if n > 1 else ''} "
-                f"({', '.join(node.safe) or 'aucune'}). À courte vue, il commet une vraie erreur "
+                f"({', '.join(node.safe) or 'aucune'}). {self.opponent_label()} commet une vraie erreur "
                 f"dans {node.p_error:.0%} des cas.")
         if node.bait:
             move, temptation, value = node.bait
@@ -262,6 +300,9 @@ class Hustler(Personality):
             text += (f" Piège principal : {move} (tentant à {temptation:.0%}) ; s'il continue naïvement, "
                      f"la partie finit vers {format_score(int(sign * value), None)}.")
         return text
+
+    def opponent_label(self) -> str:
+        return f"Un joueur à {self.opponent_elo} Elo" if self.opponent_elo > 0 else "À courte vue, il"
 
     def cost(self, board: chess.Board, chosen: CandidateEval, best: Line) -> str:
         sign = 1 if board.turn == chess.WHITE else -1

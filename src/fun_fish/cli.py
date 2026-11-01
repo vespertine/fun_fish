@@ -125,7 +125,7 @@ def cmd_sim(args: argparse.Namespace) -> None:
 
     params = parse_params(args.set)
     try:
-        personalities.create(args.personality, **params)  # valide les réglages avant de lancer les processus
+        personalities.create(args.personality, **runner.resolve_params(params, 1500))  # valide les réglages avant de lancer les processus
     except ValueError as exc:
         raise SystemExit(f"Erreur : {exc}") from None
     out = Path(args.out)

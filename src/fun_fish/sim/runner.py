@@ -25,12 +25,18 @@ class Task:
     agent_white: bool
 
 
+def resolve_params(params: dict, elo: int) -> dict:
+    """La valeur « match » prend l'Elo de l'adversaire de la partie (ex. opponent_elo=match)."""
+    return {k: elo if v == "match" else v for k, v in params.items()}
+
+
 def _init_worker(stockfish: str, maia_kind: str) -> None:
     from fun_fish.analysis import Analyser
-    from fun_fish.sim.maia import Maia
+    from fun_fish.sim import maia
 
     _worker["analyser"] = Analyser(stockfish, threads=1, hash_mb=64)
-    _worker["maia"] = Maia(kind=maia_kind, threads=1)
+    # Le même Maia sert d'adversaire et de modèle d'adversaire aux personnalités (opponent_elo).
+    _worker["maia"] = maia.shared(maia_kind, threads=1)
 
 
 def _run(task: Task) -> dict:
@@ -39,10 +45,11 @@ def _run(task: Task) -> dict:
     from fun_fish.sim.match import play_game
 
     rng = random.Random(task.seed)
-    agent = personalities.create(task.personality, rng=random.Random(rng.random()), **task.params)
+    params = resolve_params(task.params, task.elo)
+    agent = personalities.create(task.personality, rng=random.Random(rng.random()), **params)
     opponent = MaiaPlayer(_worker["maia"], task.elo, rng=random.Random(rng.random()))
     record = play_game(agent, opponent, task.elo, chess.WHITE if task.agent_white else chess.BLACK,
-                       _worker["analyser"], seed=task.seed, params=task.params)
+                       _worker["analyser"], seed=task.seed, params=params)
     return record.to_dict()
 
 

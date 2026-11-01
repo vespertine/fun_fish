@@ -19,10 +19,12 @@ class FakeAnalyser:
         self.step = step
         self.calls = 0
 
-    def analyse(self, board: chess.Board, *, multipv: int = 1, **_limits) -> list[Line]:
+    def analyse(self, board: chess.Board, *, multipv: int = 1, moves=None, **_limits) -> list[Line]:
         self.calls += 1
         lines = []
         for i, move in enumerate(board.legal_moves):
+            if moves is not None and move not in moves:
+                continue
             uci = move.uci()
             mate = self.mates.get(uci)
             score = 100_000 - mate if mate else self.scores.get(uci, -i * self.step)

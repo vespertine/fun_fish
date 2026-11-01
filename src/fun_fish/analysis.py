@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import threading
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -42,8 +43,11 @@ class Analyser:
         self._cache: dict[tuple, list[Line]] = {}
 
     def analyse(self, board: chess.Board, *, multipv: int = 1, depth: int | None = None,
-                nodes: int | None = None, time: float | None = None) -> list[Line]:
+                nodes: int | None = None, time: float | None = None,
+                moves: Iterable[chess.Move] | None = None) -> list[Line]:
         """Renvoie jusqu'à `multipv` lignes, triées de la meilleure à la pire pour le camp au trait.
+
+        `moves` restreint la recherche à ces coups (searchmoves de l'UCI).
 
         Le cache est indexé par position (EPD) : l'historique de répétitions est ignoré.
         """
@@ -51,7 +55,8 @@ class Analyser:
             return []
         if depth is None and nodes is None and time is None:
             depth = 12
-        key = (board.epd(), multipv, depth, nodes, time)
+        root_moves = sorted(moves, key=lambda m: m.uci()) if moves is not None else None
+        key = (board.epd(), multipv, depth, nodes, time, tuple(root_moves) if root_moves is not None else None)
         with self._lock:
             cached = self._cache.get(key)
             if cached is not None:
@@ -61,6 +66,7 @@ class Analyser:
                 chess.engine.Limit(depth=depth, nodes=nodes, time=time),
                 multipv=multipv,
                 info=chess.engine.INFO_ALL,
+                root_moves=root_moves,
             )
             lines = [line for info in infos if (line := _to_line(info)) is not None]
             lines.sort(key=lambda line: line.score, reverse=True)

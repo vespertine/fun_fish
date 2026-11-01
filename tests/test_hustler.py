@@ -45,3 +45,11 @@ def test_sees_blackburne_trap_with_real_stockfish(stockfish_analyser):
     evaluation = hustler.evaluate(board, nd4, root[0], stockfish_analyser, plies=2)
     assert evaluation.node.hustle > 1.0
     assert evaluation.node.bait[0] == "Nxe5"
+
+
+def test_maia_opponent_model_finds_legal_trap(stockfish_analyser):
+    pytest.importorskip("maia2")
+    board = chess.Board("rn1qkbnr/ppp2p1p/3p2p1/4p3/2B1P1b1/2N2N2/PPPP1PPP/R1BQK2R w KQkq - 0 5")
+    decision = Hustler(rng=random.Random(0), opponent_elo=1100).choose_move(board, stockfish_analyser)
+    assert decision.san == "Nxe5"
+    assert "1100 Elo" in decision.explanation

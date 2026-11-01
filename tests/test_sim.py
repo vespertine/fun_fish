@@ -42,3 +42,8 @@ def test_report_summarizes_by_elo(fake_analyser):
             records.append(play_game(agent, RandomPlayer(i), elo, color, fake_analyser, seed=i, max_plies=40).to_dict())
     text = report.summarize(records)
     assert " 1100 " in text and " 1500 " in text
+
+
+def test_match_param_takes_opponent_elo():
+    from fun_fish.sim.runner import resolve_params
+    assert resolve_params({"opponent_elo": "match", "tolerance": 150}, 1300) == {"opponent_elo": 1300, "tolerance": 150}

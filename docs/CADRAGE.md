@@ -64,7 +64,7 @@ Deux façons de l'utiliser :
 | Packaging | [uv](https://github.com/astral-sh/uv), puis PyInstaller | Apache/MIT, GPL avec exception | `uvx`/`uv run` pour les développeurs, exécutables par OS via GitHub Actions |
 | Tournois et tests | [cutechess-cli](https://github.com/cutechess/cutechess) / python-chess | GPL-3.0 | Matchs entre personnalités, calcul d'Elo |
 | Bot en ligne *(plus tard)* | [lichess-bot](https://github.com/lichess-bot-devs/lichess-bot) | AGPL-3.0 | Faire jouer une personnalité sur Lichess |
-| Coups « humains » | [Maia-2](https://github.com/CSSLab/maia2) (PyTorch, sans lc0) | MIT | Prédit le coup qu'un humain d'un Elo donné jouerait (tranches de 100 de 1100 à 2000) : adversaire simulé pour les matchs, et bientôt modèle d'adversaire des personnalités |
+| Coups « humains » | [Maia-2](https://github.com/CSSLab/maia2) (PyTorch, sans lc0) | MIT | Prédit le coup qu'un humain d'un Elo donné jouerait (tranches de 100 de 1100 à 2000) : adversaire simulé pour les matchs, et modèle d'adversaire de l'arnaqueur (`opponent_elo`) |
 
 **Conséquence sur la licence** : Stockfish, python-chess et chessground sont sous
 GPL-3.0. Le projet sera donc publié sous **GPL-3.0**. Ce n'est pas une contrainte pour
@@ -155,7 +155,8 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [ ] 2 ou 3 autres personnalités contrastées
 - [ ] Réglage itératif sur des lignes concrètes
 - [x] Maia-2 intégré comme adversaire simulé (dépendance optionnelle `sim`)
-- [ ] Maia comme modèle d'adversaire de l'arnaqueur (à la place ou en plus de l'instinct)
+- [x] Maia comme modèle d'adversaire de l'arnaqueur (`opponent_elo`), avec élagage des réponses improbables : mats plus rapides contre Maia (médiane 20 coups contre 27 à 1100-1500, 26 contre 36 à 1900, sur 12 parties par tranche)
+- [ ] Accélérer : Maia en lot, profondeur du filtre de santé
 - [ ] Personnalité agressive : mats et gros gains matériels rapides contre une tranche d'Elo
 - [ ] Un seul curseur de niveau pour l'utilisateur (Elo visé), validé par simulations
 

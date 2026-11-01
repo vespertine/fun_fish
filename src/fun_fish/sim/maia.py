@@ -9,13 +9,39 @@ from __future__ import annotations
 import contextlib
 import io
 import random
+import threading
+from collections import OrderedDict
 
 import chess
 
 from fun_fish.engines import cache_dir
 
 
+def available() -> bool:
+    """Maia-2 (et PyTorch) sont-ils installés ?"""
+    try:
+        import maia2  # noqa: F401
+        import torch  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+_shared: dict[str, "Maia"] = {}
+_shared_lock = threading.Lock()
+
+
+def shared(kind: str = "rapid", threads: int = 1) -> "Maia":
+    """Un seul Maia par processus et par type : le chargement prend quelques secondes et 300 Mo."""
+    with _shared_lock:
+        if kind not in _shared:
+            _shared[kind] = Maia(kind=kind, threads=threads)
+        return _shared[kind]
+
+
 class Maia:
+    CACHE_SIZE = 20_000
+
     def __init__(self, kind: str = "rapid", threads: int = 1):
         try:
             import torch
@@ -27,11 +53,25 @@ class Maia:
             self._model = model.from_pretrained(type=kind, device="cpu", save_root=str(cache_dir() / "maia2"))
         self._prepared = inference.prepare()
         self._inference = inference
+        self._lock = threading.Lock()
+        self._cache: OrderedDict[tuple, dict[chess.Move, float]] = OrderedDict()
 
     def probabilities(self, board: chess.Board, elo: int, opponent_elo: int | None = None) -> dict[chess.Move, float]:
         """Probabilité de chaque coup légal pour un joueur de `elo` face à un adversaire de `opponent_elo`."""
-        probs, _ = self._inference.inference_each(self._model, self._prepared, board.fen(), elo,
-                                                  opponent_elo if opponent_elo is not None else elo)
+        opponent_elo = opponent_elo if opponent_elo is not None else elo
+        key = (board.fen(), elo, opponent_elo)
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+                return self._cache[key]
+            result = self._compute(board, elo, opponent_elo)
+            self._cache[key] = result
+            if len(self._cache) > self.CACHE_SIZE:
+                self._cache.popitem(last=False)
+            return result
+
+    def _compute(self, board: chess.Board, elo: int, opponent_elo: int) -> dict[chess.Move, float]:
+        probs, _ = self._inference.inference_each(self._model, self._prepared, board.fen(), elo, opponent_elo)
         legal = {m.uci(): m for m in board.legal_moves}
         result = {legal[u]: p for u, p in probs.items() if u in legal}
         total = sum(result.values())

@@ -43,7 +43,7 @@ fun-fish play --port 9000 --no-browser
 | Clé | Nom | Comportement |
 |---|---|---|
 | `blitz` | Le blitzeur | Perception à profondeur 8, lecture humaine à 2 demi-coups : mat visible > niveau d'avantage > matériel, hasard entre coups jugés équivalents. Le panneau montre ce que dit la réalité (profondeur 16) |
-| `hustler` | L'arnaqueur | Parmi les coups sains (perte ≤ `tolerance`), préfère ceux où un adversaire naïf (instinct : prises, échecs, fourchettes ; voir `naive.py`), simulé sur 2 coups, se trompe souvent et cher. Réglable avec `-s param=valeur` (voir `personalities/hustler.py`) |
+| `hustler` | L'arnaqueur | Parmi les coups sains (perte ≤ `tolerance`), préfère ceux où un adversaire naïf (instinct : prises, échecs, fourchettes ; voir `naive.py`), simulé sur 2 coups, se trompe souvent et cher. Avec `-s opponent_elo=1300` (extra `sim`), l'adversaire imaginé est Maia-2 à cet Elo. Réglable avec `-s param=valeur` (voir `personalities/hustler.py`) |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
@@ -69,6 +69,9 @@ Les poids (280 Mo) sont téléchargés au premier lancement dans le cache de fun
 fun-fish sim -p hustler -s tolerance=150 --elos 1100-1900:200 -g 20 -o runs/hustler_t150.jsonl
 fun-fish sim-report runs/*.jsonl         # synthèse : score, mats, durée, éval et matériel aux coups 10/20/30/40
 ```
+
+La valeur `match` prend l'Elo de l'adversaire de chaque partie : `-s opponent_elo=match`
+fait jouer l'arnaqueur contre un Maia qu'il modélise exactement.
 
 Un fichier existant est repris là où il s'est arrêté. Ordres de grandeur sur 22 cœurs :
 le blitzeur joue ~3 parties par seconde, l'arnaqueur ~1 partie par minute et par cœur.
