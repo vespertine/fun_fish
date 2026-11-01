@@ -157,6 +157,8 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [x] Maia-2 intégré comme adversaire simulé (dépendance optionnelle `sim`)
 - [x] Maia comme modèle d'adversaire de l'arnaqueur (`opponent_elo`), avec élagage des réponses improbables : mats plus rapides contre Maia (médiane 20 coups contre 27 à 1100-1500, 26 contre 36 à 1900, sur 12 parties par tranche)
 - [ ] Accélérer : Maia en lot, profondeur du filtre de santé
+- [ ] En live, approximer Maia sans PyTorch (quitte à regrouper les Elo en quelques
+      niveaux) ; comparer plusieurs approches
 - [ ] Personnalité agressive : mats et gros gains matériels rapides contre une tranche d'Elo
 - [ ] Un seul curseur de niveau pour l'utilisateur (Elo visé), validé par simulations
 

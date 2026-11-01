@@ -23,6 +23,10 @@ python -m venv .venv
 .venv/bin/fun-fish
 ```
 
+Ou avec make (Linux, macOS) : `make run` (ouvre le navigateur), `make serve`
+(serveur seul, `PORT=9000` pour changer de port), `make test`, `make sim-install`,
+`make help` pour la liste.
+
 Le navigateur s'ouvre sur l'échiquier. Au premier lancement, Stockfish 19 est
 téléchargé depuis ses releases officielles et mis en cache (`~/.cache/fun_fish`,
 `~/Library/Caches/fun_fish` ou `%LOCALAPPDATA%\fun_fish`). Pour utiliser un autre
