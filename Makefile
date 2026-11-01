@@ -17,9 +17,10 @@ install: $(BIN)/fun-fish ## Crée le venv et installe le projet (avec les outils
 
 dev: install ## Alias de install
 
-sim-install: install ## Ajoute Maia-2 et PyTorch CPU (simulations, opponent_elo)
+sim-install: install ## Ajoute Maia-2, PyTorch CPU et ONNX, puis exporte Maia en ONNX
 	$(BIN)/pip install -q "torch==2.8.*" --index-url https://download.pytorch.org/whl/cpu
-	$(BIN)/pip install -q -e '.[dev,sim]'
+	$(BIN)/pip install -q -e '.[dev,sim,maia]'
+	$(BIN)/fun-fish maia-export
 
 serve: install ## Démarre le serveur sans ouvrir le navigateur (PORT=8765)
 	$(BIN)/fun-fish play --port $(PORT) --no-browser

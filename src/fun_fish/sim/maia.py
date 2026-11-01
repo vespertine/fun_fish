@@ -1,30 +1,137 @@
 """Maia-2 : probabilité qu'un humain d'un Elo donné joue chaque coup.
 
-Le modèle couvre les tranches < 1100, 1100-1199, ..., 1900-1999 et ≥ 2000. Les poids
-(280 Mo) sont téléchargés une fois dans le cache de fun_fish, avec vérification SHA-256.
+Le modèle couvre les tranches < 1100, 1100-1199, ..., 1900-1999 et ≥ 2000. Deux moteurs :
+
+- **ONNX** (`onnxruntime`, 24 Mo) : le modèle exporté (93 Mo) et sa liste de coups, dans
+  le cache de fun_fish. Pas besoin de PyTorch ; c'est aussi le plus rapide.
+- **PyTorch** (`maia2`, extra `sim`) : les poids d'origine (280 Mo), téléchargés par maia2.
+
+`fun-fish maia-export` produit les fichiers ONNX à partir de PyTorch (une seule fois).
 """
 
 from __future__ import annotations
 
 import contextlib
 import io
+import json
 import random
 import threading
 from collections import OrderedDict
+from pathlib import Path
 
 import chess
 
 from fun_fish.engines import cache_dir
 
+PIECES = (chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING)
 
-def available() -> bool:
-    """Maia-2 (et PyTorch) sont-ils installés ?"""
-    try:
-        import maia2  # noqa: F401
-        import torch  # noqa: F401
-    except ImportError:
-        return False
-    return True
+
+def model_dir() -> Path:
+    return cache_dir() / "maia2"
+
+
+def onnx_files(kind: str = "rapid") -> tuple[Path, Path]:
+    return model_dir() / f"{kind}_model.onnx", model_dir() / f"{kind}_moves.json"
+
+
+def _has(module: str) -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec(module) is not None
+
+
+def onnx_ready(kind: str = "rapid") -> bool:
+    return _has("onnxruntime") and all(f.exists() for f in onnx_files(kind))
+
+
+def torch_ready() -> bool:
+    return _has("maia2") and _has("torch")
+
+
+def available(kind: str = "rapid") -> bool:
+    """Maia-2 est-il utilisable (ONNX ou PyTorch) ?"""
+    return onnx_ready(kind) or torch_ready()
+
+
+def elo_category(elo: int) -> int:
+    """Tranche d'Elo de Maia-2 : 0 pour < 1100, 1 à 9 pour 1100-1999, 10 pour ≥ 2000."""
+    if elo < 1100:
+        return 0
+    if elo >= 2000:
+        return 10
+    return 1 + (elo - 1100) // 100
+
+
+def encode(board: chess.Board):
+    """Les 18 plans 8×8 de Maia-2 (pièces, trait, roques, prise en passant), en numpy."""
+    import numpy as np
+
+    planes = np.zeros((18, 8, 8), dtype=np.float32)
+    for i, piece in enumerate(PIECES):
+        for color, offset in ((chess.WHITE, 0), (chess.BLACK, 6)):
+            for square in board.pieces(piece, color):
+                planes[i + offset, square // 8, square % 8] = 1.0
+    if board.turn == chess.WHITE:
+        planes[12] = 1.0
+    rights = (board.has_kingside_castling_rights(chess.WHITE), board.has_queenside_castling_rights(chess.WHITE),
+              board.has_kingside_castling_rights(chess.BLACK), board.has_queenside_castling_rights(chess.BLACK))
+    for i, right in enumerate(rights):
+        if right:
+            planes[13 + i] = 1.0
+    if board.ep_square is not None and board.has_legal_en_passant():  # comme la FEN que lit maia2
+        planes[17, board.ep_square // 8, board.ep_square % 8] = 1.0
+    return planes
+
+
+class _OnnxNet:
+    def __init__(self, kind: str, threads: int):
+        import onnxruntime as ort
+
+        model, moves = onnx_files(kind)
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = threads
+        options.inter_op_num_threads = 1
+        self.session = ort.InferenceSession(str(model), options, providers=["CPUExecutionProvider"])
+        self.moves: list[str] = json.loads(moves.read_text())
+
+    def logits(self, boards, elo_self, elo_oppo):
+        return self.session.run(["logits"], {"boards": boards, "elo_self": elo_self, "elo_oppo": elo_oppo})[0]
+
+
+class _TorchNet:
+    def __init__(self, kind: str, threads: int):
+        import torch
+        from maia2 import inference, model
+
+        torch.set_num_threads(threads)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.model = model.from_pretrained(type=kind, device="cpu", save_root=str(model_dir()))
+        self.model.eval()
+        reversed_moves = inference.prepare()[2]
+        self.moves = [reversed_moves[i] for i in range(len(reversed_moves))]
+        self.torch = torch
+
+    def logits(self, boards, elo_self, elo_oppo):
+        t = self.torch
+        with t.no_grad():
+            return self.model(t.from_numpy(boards), t.from_numpy(elo_self), t.from_numpy(elo_oppo))[0].numpy()
+
+
+def export_onnx(kind: str = "rapid") -> tuple[Path, Path]:
+    """Exporte le modèle PyTorch en ONNX, avec sa liste de coups (nécessite l'extra `sim`)."""
+    import torch
+
+    net = _TorchNet(kind, threads=4)
+    module = net.model.module if hasattr(net.model, "module") else net.model
+    model, moves = onnx_files(kind)
+    sample = torch.from_numpy(encode(chess.Board())).unsqueeze(0).repeat(2, 1, 1, 1)
+    elos = torch.tensor([3, 3])
+    axes = {name: {0: "n"} for name in ("boards", "elo_self", "elo_oppo", "logits", "aux", "value")}
+    with contextlib.redirect_stdout(io.StringIO()):
+        torch.onnx.export(module, (sample, elos, elos), str(model), input_names=["boards", "elo_self", "elo_oppo"],
+                          output_names=["logits", "aux", "value"], dynamic_axes=axes, opset_version=17, dynamo=False)
+    moves.write_text(json.dumps(net.moves))
+    return model, moves
 
 
 _shared: dict[str, "Maia"] = {}
@@ -32,7 +139,7 @@ _shared_lock = threading.Lock()
 
 
 def shared(kind: str = "rapid", threads: int = 1) -> "Maia":
-    """Un seul Maia par processus et par type : le chargement prend quelques secondes et 300 Mo."""
+    """Un seul Maia par processus et par type : le chargement prend quelques secondes."""
     with _shared_lock:
         if kind not in _shared:
             _shared[kind] = Maia(kind=kind, threads=threads)
@@ -42,20 +149,16 @@ def shared(kind: str = "rapid", threads: int = 1) -> "Maia":
 class Maia:
     CACHE_SIZE = 20_000
 
-    def __init__(self, kind: str = "rapid", threads: int = 1):
-        try:
-            import torch
-            from maia2 import inference, model
-        except ImportError as exc:  # pragma: no cover - dépend de l'installation
-            raise RuntimeError("Maia-2 n'est pas installé : pip install -e '.[sim]' (voir README).") from exc
-        torch.set_num_threads(threads)
-        with contextlib.redirect_stdout(io.StringIO()):
-            self._model = model.from_pretrained(type=kind, device="cpu", save_root=str(cache_dir() / "maia2"))
-        self._prepared = inference.prepare()
-        from maia2.utils import board_to_tensor
-
-        self._board_to_tensor = board_to_tensor
-        self._model.eval()
+    def __init__(self, kind: str = "rapid", threads: int = 1, backend: str | None = None):
+        backend = backend or ("onnx" if onnx_ready(kind) else "torch")
+        if backend == "onnx":
+            self._net = _OnnxNet(kind, threads)
+        elif torch_ready():
+            self._net = _TorchNet(kind, threads)
+        else:  # pragma: no cover - dépend de l'installation
+            raise RuntimeError("Maia-2 indisponible : pip install -e '.[sim]', ou les fichiers ONNX (voir README).")
+        self.backend = backend
+        self._index = {uci: i for i, uci in enumerate(self._net.moves)}
         self._lock = threading.Lock()
         self._cache: OrderedDict[tuple, dict[chess.Move, float]] = OrderedDict()
 
@@ -84,34 +187,27 @@ class Maia:
             return results
 
     def _compute(self, boards: list[chess.Board], elo: int, opponent_elo: int) -> list[dict[chess.Move, float]]:
-        import torch
-        from maia2.utils import map_to_category
+        import numpy as np
 
-        all_moves, elo_dict, all_moves_reversed = self._prepared
-        tensors, masks = [], []
-        for board in boards:
-            # Maia raisonne toujours du point de vue des Blancs : on retourne l'échiquier aux Noirs.
-            seen = board if board.turn == chess.WHITE else board.mirror()
-            tensors.append(self._board_to_tensor(seen))
-            mask = torch.zeros(len(all_moves))
-            mask[[all_moves[m.uci()] for m in seen.legal_moves]] = 1
-            masks.append(mask)
-        n = len(boards)
-        elo_self = torch.tensor([map_to_category(elo, elo_dict)] * n)
-        elo_oppo = torch.tensor([map_to_category(opponent_elo, elo_dict)] * n)
-        legal = torch.stack(masks).bool()
-        with torch.no_grad():
-            logits, _, _ = self._model(torch.stack(tensors), elo_self, elo_oppo)
-            probs = logits.masked_fill(~legal, float("-inf")).softmax(dim=-1)
+        # Maia raisonne toujours du point de vue des Blancs : on retourne l'échiquier aux Noirs.
+        seen = [b if b.turn == chess.WHITE else b.mirror() for b in boards]
+        n = len(seen)
+        logits = self._net.logits(np.stack([encode(b) for b in seen]),
+                                  np.full(n, elo_category(elo), dtype=np.int64),
+                                  np.full(n, elo_category(opponent_elo), dtype=np.int64))
         results = []
-        for board, row, mask in zip(boards, probs, legal):
+        for board, view, row in zip(boards, seen, logits):
+            legal = [(m, self._index.get(m.uci())) for m in view.legal_moves]
+            legal = [(m, i) for m, i in legal if i is not None]
+            values = np.array([row[i] for _, i in legal], dtype=np.float64)
+            probs = np.exp(values - values.max())
+            probs /= probs.sum()
             result = {}
-            for index in mask.nonzero(as_tuple=True)[0].tolist():
-                move = chess.Move.from_uci(all_moves_reversed[index])
+            for (move, _), p in zip(legal, probs):
                 if board.turn == chess.BLACK:
                     move = chess.Move(chess.square_mirror(move.from_square), chess.square_mirror(move.to_square),
                                       move.promotion)
-                result[move] = float(row[index])
+                result[move] = float(p)
             results.append(result)
         return results
 

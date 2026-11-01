@@ -145,6 +145,15 @@ def cmd_sim_report(args: argparse.Namespace) -> None:
         print()
 
 
+def cmd_maia_export(args: argparse.Namespace) -> None:
+    from fun_fish.sim import maia
+
+    if not maia.torch_ready():
+        raise SystemExit("L'export demande PyTorch et maia2 : make sim-install (voir README).")
+    model, moves = maia.export_onnx()
+    print(f"Modèle ONNX : {model} ({model.stat().st_size // 1_000_000} Mo)\nCoups : {moves}")
+
+
 def cmd_stockfish(args: argparse.Namespace) -> None:
     print(find_stockfish(args.stockfish))
 
@@ -196,6 +205,8 @@ def build_parser() -> argparse.ArgumentParser:
     sim_report.add_argument("files", nargs="+")
     sim_report.set_defaults(func=cmd_sim_report)
 
+    export = sub.add_parser("maia-export", help="exporter Maia-2 en ONNX (pour s'en servir sans PyTorch)")
+    export.set_defaults(func=cmd_maia_export)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)
     return parser

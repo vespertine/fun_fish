@@ -18,6 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "httpx>=0.27"]
+# Maia-2 sans PyTorch (modèle exporté en ONNX, voir `fun-fish maia-export`).
+maia = ["onnxruntime>=1.17", "numpy"]
 # Simulations contre Maia-2. Installer d'abord PyTorch CPU :
 #   pip install "torch==2.8.*" --index-url https://download.pytorch.org/whl/cpu
 sim = ["maia2==0.11.0"]
