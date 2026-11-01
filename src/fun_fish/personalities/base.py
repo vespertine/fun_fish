@@ -70,15 +70,18 @@ class Personality(ABC):
     name: ClassVar[str]
     description: ClassVar[str]
     PARAM_HELP: ClassVar[dict[str, str]] = {}  # aide affichée dans le panneau de réglages
+    DEFAULTS: ClassVar[dict[str, float]] = {}  # profil : réglages par défaut d'une variante
 
     @classmethod
     def param_specs(cls) -> list[dict]:
-        """Réglages de la personnalité, déduits de la signature de son constructeur."""
+        """Réglages de la personnalité, déduits de la signature de son constructeur (ou de celui
+        de la personnalité dont elle est une variante, avec ses `DEFAULTS`)."""
         specs = []
-        for name, param in inspect.signature(cls.__init__).parameters.items():
+        init = next(c.__init__ for c in cls.__mro__ if "__init__" in vars(c) and c.__init__.__code__.co_argcount > 1)
+        for name, param in inspect.signature(init).parameters.items():
             if name in ("self", "rng") or param.kind in (param.VAR_KEYWORD, param.VAR_POSITIONAL):
                 continue
-            default = param.default
+            default = cls.DEFAULTS.get(name, param.default)
             specs.append({
                 "name": name,
                 "default": default,

@@ -51,6 +51,7 @@ fun-fish play --port 9000 --no-browser
 | `blitz` | Le blitzeur | Perception à profondeur 8, lecture humaine à 2 demi-coups : mat visible > niveau d'avantage > matériel, hasard entre coups jugés équivalents. Le panneau montre ce que dit la réalité (profondeur 16) |
 | `hustler` | L'arnaqueur | Parmi les coups sains (perte ≤ `tolerance`), préfère ceux où un adversaire naïf (instinct : prises, échecs, fourchettes ; voir `naive.py`), simulé sur 2 coups, se trompe souvent et cher. Avec `-s opponent_elo=1300` (extra `sim`), l'adversaire imaginé est Maia-2 à cet Elo. Réglable avec `-s param=valeur` (voir `personalities/hustler.py`) |
 | `attacker` | Le cogneur | Parmi les coups sains (perte ≤ 1,5 pion), cherche ceux qui matent ou gagnent ≥ 3 pions en 3 coups contre les réponses probables de l'adversaire (Maia à `opponent_elo`, ou l'instinct). Brutal contre les faibles, réfutable par une bonne défense |
+| `romantic` | Le romantique | Le cogneur avec un profil de style : développe vite, ouvre les lignes, vise le roi, préfère l'initiative au matériel, apprécie un sacrifice sain à position égale |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
@@ -58,6 +59,12 @@ Le cogneur et l'arnaqueur partagent un premier étage, le filtre de santé (`Sou
 `personalities/base.py`). Quand la position est gagnante (au-delà de `convert_above`, +5 par
 défaut), il passe en mode conversion : vérification à profondeur 14 et tolérance de 0,3 pion,
 pour conclure au lieu de tourner en rond.
+
+Le style (`style.py`) départage les coups sains : `w_develop`, `w_open`, `w_king`,
+`w_activity`, `w_initiative`, `w_sacrifice` et `w_surprise` (coups peu théoriques en
+ouverture selon Maia, « dark forest »). Tous à 0 par défaut pour le cogneur et l'arnaqueur ;
+`style_first=N` ne garde que les N coups les plus à leur goût avant le calcul, ce qui est aussi
+moins cher.
 
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.

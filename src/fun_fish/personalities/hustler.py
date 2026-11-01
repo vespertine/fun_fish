@@ -42,6 +42,7 @@ from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import OpponentModel, make_model
 from fun_fish.personalities.base import (CONVERT_HELP, CONVERTING, Candidate, Decision, Personality, Soundness, format_score,
                                          pick, regret, softmax)
+from fun_fish.style import STYLE_HELP, Style
 from fun_fish.reading import VISIBLE_MATE
 
 CLIP = 1000  # on borne les évals à ±10 pions : au-delà, peu importe
@@ -81,11 +82,13 @@ class CandidateEval:
     loss: int  # cp perdus par rapport au meilleur coup si l'adversaire répond juste
     node: Node
     score: float = 0.0
+    style: float = 0.0
 
     @property
     def note(self) -> str:
         n = len(self.node.safe)
-        return f"{n} sûr{'s' if n > 1 else ''} · erreur {self.node.p_error:.0%} · piège {self.node.hustle:+.1f}"
+        text = f"{n} sûr{'s' if n > 1 else ''} · erreur {self.node.p_error:.0%} · piège {self.node.hustle:+.1f}"
+        return text + (f" · style {self.style:+.1f}" if self.style else "")
 
 
 class Hustler(Personality):
@@ -117,6 +120,7 @@ class Hustler(Personality):
         "temperature": "Hasard du choix final (en pions de score)",
         "max_candidates": "Coups sains examinés",
         **CONVERT_HELP,
+        **STYLE_HELP,
         "deep_candidates": "Dont simulés sur tous les coups",
     }
 
@@ -127,7 +131,9 @@ class Hustler(Personality):
                  sharp_plies: int = 2, branching: int = 3, min_temptation: float = 0.1, our_options: int = 2,
                  w_trap: float = 1.0, w_sharp: float = 1.0, w_loss: float = 1.0, temperature: float = 0.3,
                  max_candidates: int = 15, deep_candidates: int = 6,
-                 convert_above: int = 500, convert_depth: int = 14, convert_tolerance: int = 30, **kwargs):
+                 convert_above: int = 500, convert_depth: int = 14, convert_tolerance: int = 30,
+                 w_develop: float = 0.0, w_open: float = 0.0, w_king: float = 0.0, w_activity: float = 0.0,
+                 w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0, style_first: int = 0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo  # > 0 : l'adversaire est modélisé par Maia-2 à cet Elo
         self.reply_lines = reply_lines  # avec Maia : meilleures réponses toujours analysées
@@ -151,6 +157,9 @@ class Hustler(Personality):
         self.max_candidates = max_candidates  # coups sains examinés
         self.deep_candidates = deep_candidates  # dont simulés sur sharp_plies coups
         self.convert_above, self.convert_depth, self.convert_tolerance = convert_above, convert_depth, convert_tolerance
+        self.w_develop, self.w_open, self.w_king, self.w_activity = w_develop, w_open, w_king, w_activity
+        self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
+        self.style_first = style_first
         self._model: OpponentModel | None = None
 
     def soundness(self) -> Soundness:
@@ -243,6 +252,12 @@ class Hustler(Personality):
 
     # ---------- choix ----------
 
+    @staticmethod
+    def styled(e, bonus: dict[chess.Move, float]):
+        e.style = bonus.get(e.line.move, 0.0)
+        e.score += e.style
+        return e
+
     def evaluate(self, board: chess.Board, line: Line, best: Line, analyser: Analyser, plies: int) -> CandidateEval:
         loss = regret(best, line)
         position = board.copy()
@@ -260,15 +275,19 @@ class Hustler(Personality):
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         sound, converting = self.soundness().lines(board, analyser)
         best = sound[0]
+        style = Style.of(self)
+        bonus = {} if converting else style.bonuses(board, sound, best)
+        if self.style_first > 0 and bonus:
+            sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
 
         # Premier passage : un seul coup adverse simulé, pour tous les candidats.
         self.model.prefetch([_after(board, line.move) for line in sound])
-        evals = [self.scored(self.evaluate(board, line, best, analyser, plies=1)) for line in sound]
+        evals = [self.styled(self.scored(self.evaluate(board, line, best, analyser, plies=1)), bonus) for line in sound]
         # Second passage : simulation complète pour les plus prometteurs.
         if self.sharp_plies > 1:
             evals.sort(key=lambda e: -e.score)
             evals[: self.deep_candidates] = [
-                self.scored(self.evaluate(board, e.line, best, analyser, plies=self.sharp_plies))
+                self.styled(self.scored(self.evaluate(board, e.line, best, analyser, plies=self.sharp_plies)), bonus)
                 for e in evals[: self.deep_candidates]
             ]
 
@@ -281,12 +300,15 @@ class Hustler(Personality):
         ]
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=(CONVERTING if converting else "") + self.explain(board, san, chosen),
+                        explanation=(CONVERTING if converting else "")
+                        + self.explain(board, san, chosen, style.reasons.get(chosen.line.move)),
                         candidates=candidates, reality=self.cost(board, chosen, best))
 
-    def explain(self, board: chess.Board, san: str, e: CandidateEval) -> str:
+    def explain(self, board: chess.Board, san: str, e: CandidateEval, taste: str | None = None) -> str:
         node = e.node
         if node.hustle < 0.3 and node.p_error < 0.3:
+            if taste:
+                return f"Pas de piège en vue : joue {san}, un coup à son goût ({taste})."
             if e.loss > 0:
                 return f"Pas de piège en vue : joue {san}, un coup sain tiré au sort."
             return f"Rien à arnaquer ici : joue {san}."

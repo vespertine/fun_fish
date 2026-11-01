@@ -171,10 +171,14 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       profondeur 14 avec 0,3 pion de tolérance. Sur une partie réelle où le cogneur tournait
       en rond à +6 (profondeur 4), puis laissait passer un pion à dame : mat contre Stockfish
       profondeur 16 en 22 et 33 coups depuis la même position
-- [ ] Étage de style (presque gratuit, calculé avec python-chess) : développement, lignes
-      ouvertes, pression sur le roi, activité, initiative plutôt que matériel (Morphy), goût du
-      sacrifice à position égale. Profils « Morphy » et neutre, colonnes de style dans le rapport
-- [ ] Curseur « dark forest », surtout en ouverture : sortir l'adversaire de la théorie (coups
+- [x] Étage de style (`style.py`, presque gratuit, calculé avec python-chess) : développement,
+      lignes ouvertes, pression sur le roi, activité, initiative plutôt que matériel (Morphy),
+      goût du sacrifice à position égale ; `style_first` place le style avant le calcul.
+      Profil **Le romantique** (`romantic`) = cogneur + style. Contre Maia 1500 (24 parties) :
+      même score (100 %, mat médian 20 coups contre 19) et même coût, mais pièces développées au
+      coup 6 : 3,2 contre 1,6 ; roque avant le coup 12 : 62 % contre 17 % ; coups de pion dans
+      les 8 premiers : 2,9 contre 4,0 ; matériel au coup 10 : +0,4 contre +2,5 à éval égale
+- [ ] Curseur « dark forest » (`w_surprise`, branché, pas encore évalué), surtout en ouverture : sortir l'adversaire de la théorie (coups
       peu probables pour Maia 2000). À manier avec prudence : comparer coups très humains et
       coups très surprenants, et ce que ça change au ressenti
 - [ ] Ordre des étages (style puis cogneur, ou l'inverse) ; plus tard, vote entre personnalités

@@ -28,25 +28,12 @@ from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import MaiaModel, OpponentModel, make_model
 from fun_fish.personalities.base import (CONVERT_HELP, CONVERTING, Candidate, Decision, Personality, Soundness, format_score,
                                          pick, regret, softmax)
-from fun_fish.reading import PIECE_VALUES
+from fun_fish.style import STYLE_HELP, Style, material, settled_material
 
 
 CLIP = 1000  # évals bornées à ±10 pions
-SETTLE_PLIES = 6  # on finit les échanges en cours au plus sur ce nombre de demi-coups
 
 
-def material(board: chess.Board, color: chess.Color) -> int:
-    return sum(v * (len(board.pieces(p, color)) - len(board.pieces(p, not color))) for p, v in PIECE_VALUES.items())
-
-
-def settled_material(board: chess.Board, pv: tuple[chess.Move, ...], color: chess.Color) -> int:
-    """Bilan matériel une fois les prises en cours terminées le long de la variation."""
-    b = board.copy(stack=False)
-    for i, move in enumerate(pv[:SETTLE_PLIES]):
-        if not b.is_legal(move) or (i >= 1 and not (b.is_capture(move) or move.promotion)):
-            break
-        b.push(move)
-    return material(b, color)
 
 
 @dataclass
@@ -74,11 +61,13 @@ class CandidateEval:
     loss: int
     outcome: Outcome
     score: float = 0.0
+    style: float = 0.0
 
     @property
     def note(self) -> str:
         o = self.outcome
-        return f"mat {o.mate:.0%} · gain {max(0.0, o.win - o.mate):.0%} · éval {o.value / 100:+.1f}"
+        text = f"mat {o.mate:.0%} · gain {max(0.0, o.win - o.mate):.0%} · éval {o.value / 100:+.1f}"
+        return text + (f" · style {self.style:+.1f}" if self.style else "")
 
 
 class Attacker(Personality):
@@ -104,6 +93,7 @@ class Attacker(Personality):
         "temperature": "Hasard du choix final (en points de score)",
         "max_candidates": "Coups sains examinés",
         **CONVERT_HELP,
+        **STYLE_HELP,
         "deep_candidates": "Dont simulés sur tout l'horizon",
         "instinct": "Adversaire naïf : part de l'instinct face à Stockfish (0 à 1)",
         "caution": "Adversaire naïf : attention aux reprises (0 = aveugle, 1 = lucide)",
@@ -116,6 +106,8 @@ class Attacker(Personality):
                  w_mate: float = 3.0, w_win: float = 1.5, w_eval: float = 0.3, w_loss: float = 1.0,
                  temperature: float = 0.3, max_candidates: int = 12, deep_candidates: int = 5,
                  convert_above: int = 500, convert_depth: int = 14, convert_tolerance: int = 30,
+                 w_develop: float = 0.0, w_open: float = 0.0, w_king: float = 0.0, w_activity: float = 0.0,
+                 w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0, style_first: int = 0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -134,6 +126,9 @@ class Attacker(Personality):
         self.deep_candidates = deep_candidates
         self.instinct, self.caution, self.naivety = instinct, caution, naivety
         self.convert_above, self.convert_depth, self.convert_tolerance = convert_above, convert_depth, convert_tolerance
+        self.w_develop, self.w_open, self.w_king, self.w_activity = w_develop, w_open, w_king, w_activity
+        self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
+        self.style_first = style_first
         self._model: OpponentModel | None = None
 
     @property
@@ -222,9 +217,19 @@ class Attacker(Personality):
 
     # ---------- choix ----------
 
+    @staticmethod
+    def styled(e, bonus: dict[chess.Move, float]):
+        e.style = bonus.get(e.line.move, 0.0)
+        e.score += e.style
+        return e
+
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         sound, converting = self.soundness().lines(board, analyser)
         best = sound[0]
+        style = Style.of(self)
+        bonus = {} if converting else style.bonuses(board, sound, best)
+        if self.style_first > 0 and bonus:
+            sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
         children = []
         for line in sound:
             child = board.copy(stack=False)
@@ -232,11 +237,11 @@ class Attacker(Personality):
             children.append(child)
         self.model.prefetch(children)
 
-        evals = [self.scored(self.evaluate(board, line, best, analyser, moves=1), best) for line in sound]
+        evals = [self.styled(self.scored(self.evaluate(board, line, best, analyser, moves=1), best), bonus) for line in sound]
         if self.attack_moves > 1:
             evals.sort(key=lambda e: -e.score)
             evals[: self.deep_candidates] = [
-                self.scored(self.evaluate(board, e.line, best, analyser, moves=self.attack_moves), best)
+                self.styled(self.scored(self.evaluate(board, e.line, best, analyser, moves=self.attack_moves), best), bonus)
                 for e in evals[: self.deep_candidates]
             ]
 
@@ -249,13 +254,16 @@ class Attacker(Personality):
         ]
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=(CONVERTING if converting else "") + self.explain(san, chosen),
+                        explanation=(CONVERTING if converting else "") + self.explain(san, chosen,
+                                                                                      style.reasons.get(chosen.line.move)),
                         candidates=candidates,
                         reality=self.cost(board, chosen, best))
 
-    def explain(self, san: str, e: CandidateEval) -> str:
+    def explain(self, san: str, e: CandidateEval, taste: str | None = None) -> str:
         o = e.outcome
         if o.mate < 0.1 and o.win < 0.1:
+            if taste:
+                return f"Pas d'attaque qui paie tout de suite : joue {san}, un coup à son goût ({taste})."
             return f"Pas d'attaque qui paie tout de suite : joue {san}, le coup le plus prometteur."
         parts = []
         if o.mate >= 0.05:
