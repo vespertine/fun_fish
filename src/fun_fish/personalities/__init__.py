@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import random
 
+from fun_fish.personalities.attacker import Attacker
 from fun_fish.personalities.base import Candidate, Decision, Personality
 from fun_fish.personalities.blitz import Blitz
 from fun_fish.personalities.hustler import Hustler
 from fun_fish.personalities.reference import Casual, PureStockfish
 
-PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Casual, PureStockfish)}
+PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Casual, PureStockfish)}
 DEFAULT_PERSONALITY = Blitz.key
 
 

@@ -52,32 +52,68 @@ class Maia:
         with contextlib.redirect_stdout(io.StringIO()):
             self._model = model.from_pretrained(type=kind, device="cpu", save_root=str(cache_dir() / "maia2"))
         self._prepared = inference.prepare()
-        self._inference = inference
+        from maia2.utils import board_to_tensor
+
+        self._board_to_tensor = board_to_tensor
+        self._model.eval()
         self._lock = threading.Lock()
         self._cache: OrderedDict[tuple, dict[chess.Move, float]] = OrderedDict()
 
     def probabilities(self, board: chess.Board, elo: int, opponent_elo: int | None = None) -> dict[chess.Move, float]:
         """Probabilité de chaque coup légal pour un joueur de `elo` face à un adversaire de `opponent_elo`."""
-        opponent_elo = opponent_elo if opponent_elo is not None else elo
-        key = (board.fen(), elo, opponent_elo)
-        with self._lock:
-            if key in self._cache:
-                self._cache.move_to_end(key)
-                return self._cache[key]
-            result = self._compute(board, elo, opponent_elo)
-            self._cache[key] = result
-            if len(self._cache) > self.CACHE_SIZE:
-                self._cache.popitem(last=False)
-            return result
+        return self.probabilities_many([board], elo, opponent_elo)[0]
 
-    def _compute(self, board: chess.Board, elo: int, opponent_elo: int) -> dict[chess.Move, float]:
-        probs, _ = self._inference.inference_each(self._model, self._prepared, board.fen(), elo, opponent_elo)
-        legal = {m.uci(): m for m in board.legal_moves}
-        result = {legal[u]: p for u, p in probs.items() if u in legal}
-        total = sum(result.values())
-        if not result or total <= 0:
-            return {m: 1 / len(legal) for m in legal.values()}
-        return {m: p / total for m, p in result.items()}
+    def probabilities_many(self, boards: list[chess.Board], elo: int,
+                           opponent_elo: int | None = None) -> list[dict[chess.Move, float]]:
+        """Comme `probabilities`, pour plusieurs positions en un seul passage du réseau (bien plus rapide)."""
+        opponent_elo = opponent_elo if opponent_elo is not None else elo
+        keys = [(b.fen(), elo, opponent_elo) for b in boards]
+        with self._lock:
+            missing = {k: b for k, b in zip(keys, boards) if k not in self._cache and not b.is_game_over()}
+            if missing:
+                for key, result in zip(missing, self._compute(list(missing.values()), elo, opponent_elo)):
+                    self._cache[key] = result
+                while len(self._cache) > self.CACHE_SIZE:
+                    self._cache.popitem(last=False)
+            results = []
+            for key in keys:
+                result = self._cache.get(key, {})
+                if key in self._cache:
+                    self._cache.move_to_end(key)
+                results.append(result)
+            return results
+
+    def _compute(self, boards: list[chess.Board], elo: int, opponent_elo: int) -> list[dict[chess.Move, float]]:
+        import torch
+        from maia2.utils import map_to_category
+
+        all_moves, elo_dict, all_moves_reversed = self._prepared
+        tensors, masks = [], []
+        for board in boards:
+            # Maia raisonne toujours du point de vue des Blancs : on retourne l'échiquier aux Noirs.
+            seen = board if board.turn == chess.WHITE else board.mirror()
+            tensors.append(self._board_to_tensor(seen))
+            mask = torch.zeros(len(all_moves))
+            mask[[all_moves[m.uci()] for m in seen.legal_moves]] = 1
+            masks.append(mask)
+        n = len(boards)
+        elo_self = torch.tensor([map_to_category(elo, elo_dict)] * n)
+        elo_oppo = torch.tensor([map_to_category(opponent_elo, elo_dict)] * n)
+        legal = torch.stack(masks).bool()
+        with torch.no_grad():
+            logits, _, _ = self._model(torch.stack(tensors), elo_self, elo_oppo)
+            probs = logits.masked_fill(~legal, float("-inf")).softmax(dim=-1)
+        results = []
+        for board, row, mask in zip(boards, probs, legal):
+            result = {}
+            for index in mask.nonzero(as_tuple=True)[0].tolist():
+                move = chess.Move.from_uci(all_moves_reversed[index])
+                if board.turn == chess.BLACK:
+                    move = chess.Move(chess.square_mirror(move.from_square), chess.square_mirror(move.to_square),
+                                      move.promotion)
+                result[move] = float(row[index])
+            results.append(result)
+        return results
 
 
 class MaiaPlayer:

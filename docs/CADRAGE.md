@@ -159,7 +159,11 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [ ] Accélérer : Maia en lot, profondeur du filtre de santé
 - [ ] En live, approximer Maia sans PyTorch (quitte à regrouper les Elo en quelques
       niveaux) ; comparer plusieurs approches
-- [ ] Personnalité agressive : mats et gros gains matériels rapides contre une tranche d'Elo
+- [x] Modèle d'adversaire commun (`opponent.py` : instinct ou Maia, Maia en lot)
+- [x] Personnalité agressive, le cogneur (`attacker`) : probabilité de mater ou de gagner
+      ≥ 3 pions en 3 coups contre les réponses probables de Maia. Sur 12 parties par
+      tranche : mat médian en 20 coups à 1100, 16 à 1500, 34 à 1900 (l'arnaqueur : 20, 20, 26)
+- [ ] Croiser cogneur et arnaqueur (score combiné, comparaison sur les mêmes positions)
 - [ ] Un seul curseur de niveau pour l'utilisateur (Elo visé), validé par simulations
 
 ### Phase 4 — Distribution

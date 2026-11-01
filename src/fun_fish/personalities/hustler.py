@@ -39,7 +39,7 @@ from dataclasses import dataclass, field
 import chess
 
 from fun_fish.analysis import Analyser, Line
-from fun_fish.naive import Instinct
+from fun_fish.opponent import OpponentModel, make_model
 from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, softmax
 from fun_fish.reading import VISIBLE_MATE
 
@@ -147,27 +147,20 @@ class Hustler(Personality):
         self.temperature = temperature  # en pions de score
         self.max_candidates = max_candidates  # coups sains examinés
         self.deep_candidates = deep_candidates  # dont simulés sur sharp_plies coups
+        self._model: OpponentModel | None = None
 
     # ---------- adversaire naïf ----------
 
+    @property
+    def model(self) -> OpponentModel:
+        if self._model is None:
+            self._model = make_model(self.opponent_elo, instinct=self.instinct, caution=self.caution,
+                                     shallow_depth=self.shallow_depth, naivety=self.naivety)
+        return self._model
+
     def temptation(self, position: chess.Board, analyser: Analyser) -> dict[chess.Move, float]:
         """Probabilité que l'adversaire naïf (qui a le trait) joue chaque coup."""
-        if self.opponent_elo > 0:
-            from fun_fish.sim import maia
-
-            return maia.shared().probabilities(position, self.opponent_elo)
-        appeal = {m: 100 * a for m, a in Instinct(caution=self.caution).appeals(position).items()}
-        moves = list(appeal)
-        if self.shallow_depth < 1 or self.instinct >= 1:
-            return dict(zip(moves, softmax([appeal[m] for m in moves], self.naivety)))
-        result = dict.fromkeys(moves, 0.0)
-        for depth in range(1, self.shallow_depth + 1):
-            shallow = {l.move: l.score for l in analyser.analyse(position, multipv=len(moves), depth=depth)}
-            scores = [self.instinct * appeal[m] + (1 - self.instinct) * shallow.get(m, min(shallow.values()))
-                      for m in moves]
-            for m, p in zip(moves, softmax(scores, self.naivety)):
-                result[m] += p / self.shallow_depth
-        return result
+        return self.model.probabilities(position, analyser)
 
     def simulate(self, position: chess.Board, analyser: Analyser, plies: int) -> Node:
         """Déroule les réponses tentantes de l'adversaire (qui a le trait) sur `plies` coups."""
@@ -263,6 +256,7 @@ class Hustler(Personality):
         sound = [l for l in root if best.score - l.score <= self.tolerance][: self.max_candidates]
 
         # Premier passage : un seul coup adverse simulé, pour tous les candidats.
+        self.model.prefetch([_after(board, line.move) for line in sound])
         evals = [self.scored(self.evaluate(board, line, best, analyser, plies=1)) for line in sound]
         # Second passage : simulation complète pour les plus prometteurs.
         if self.sharp_plies > 1:
@@ -302,7 +296,7 @@ class Hustler(Personality):
         return text
 
     def opponent_label(self) -> str:
-        return f"Un joueur à {self.opponent_elo} Elo" if self.opponent_elo > 0 else "À courte vue, il"
+        return self.model.label()
 
     def cost(self, board: chess.Board, chosen: CandidateEval, best: Line) -> str:
         sign = 1 if board.turn == chess.WHITE else -1
@@ -311,3 +305,9 @@ class Hustler(Personality):
             return f"C'est aussi le meilleur coup selon Stockfish ({fmt(best)})."
         return (f"Prix du bluff : {chosen.loss / 100:.2f} si l'adversaire répond juste "
                 f"({fmt(chosen.line)} contre {fmt(best)} pour {board.san(best.move)}).")
+
+
+def _after(board: chess.Board, move: chess.Move) -> chess.Board:
+    child = board.copy(stack=False)
+    child.push(move)
+    return child
