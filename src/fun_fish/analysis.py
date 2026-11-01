@@ -49,14 +49,17 @@ class Analyser:
 
         `moves` restreint la recherche à ces coups (searchmoves de l'UCI).
 
-        Le cache est indexé par position (EPD) : l'historique de répétitions est ignoré.
+        Le cache est indexé par position (EPD) et par les positions déjà vues depuis le dernier
+        coup irréversible : Stockfish reçoit l'historique et compte les répétitions comme nulles,
+        donc une même position n'a pas la même valeur selon ce qui s'est joué avant.
         """
         if board.is_game_over():
             return []
         if depth is None and nodes is None and time is None:
             depth = 12
         root_moves = sorted(moves, key=lambda m: m.uci()) if moves is not None else None
-        key = (board.epd(), multipv, depth, nodes, time, tuple(root_moves) if root_moves is not None else None)
+        key = (board.epd(), _seen_before(board), multipv, depth, nodes, time,
+               tuple(root_moves) if root_moves is not None else None)
         with self._lock:
             cached = self._cache.get(key)
             if cached is not None:
@@ -84,6 +87,19 @@ class Analyser:
 
     def __exit__(self, *exc) -> None:
         self.close()
+
+
+def _seen_before(board: chess.Board) -> tuple[str, ...]:
+    """Positions déjà vues (depuis le dernier coup irréversible) que la suite pourrait répéter."""
+    plies = min(board.halfmove_clock, len(board.move_stack))
+    if plies < 4:  # pas de répétition possible en moins de 4 demi-coups
+        return ()
+    b = board.copy()
+    seen = set()
+    for _ in range(plies):
+        b.pop()
+        seen.add(b.epd())
+    return tuple(sorted(seen))
 
 
 def _to_line(info: chess.engine.InfoDict) -> Line | None:

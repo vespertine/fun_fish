@@ -64,3 +64,29 @@ def test_personality_does_not_mutate_board(fake_analyser):
     fen = board.fen()
     Casual(rng=random.Random(0)).choose_move(board, fake_analyser)
     assert board.fen() == fen
+
+
+def test_regret_prefers_faster_mates():
+    from fun_fish.analysis import Line
+    from fun_fish.personalities.base import regret
+
+    def line(score, mate=None):
+        return Line(move=chess.Move.null(), score=score, mate=mate, wdl=None, pv=(), depth=1)
+
+    assert regret(line(99997, 3), line(99994, 6)) == 300
+    assert regret(line(300), line(250)) == 50
+    assert regret(line(99997, 3), line(1500)) > 90000
+
+
+def test_repetition_changes_the_analysis(stockfish_analyser):
+    """Après deux allers-retours de cavaliers, Stockfish doit recevoir l'historique : la même
+    position (EPD) ne partage plus son entrée de cache avec celle sans historique."""
+    from fun_fish.analysis import _seen_before
+
+    board = chess.Board()
+    assert _seen_before(board) == ()
+    for san in ("Nf3", "Nf6", "Ng1", "Ng8"):
+        board.push_san(san)
+    assert chess.Board().epd() in _seen_before(board)
+    fresh = chess.Board()
+    assert stockfish_analyser.analyse(board, depth=6) is not stockfish_analyser.analyse(fresh, depth=6)

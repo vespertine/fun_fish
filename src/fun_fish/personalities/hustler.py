@@ -40,7 +40,7 @@ import chess
 
 from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import OpponentModel, make_model
-from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, softmax
+from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, regret, softmax
 from fun_fish.reading import VISIBLE_MATE
 
 CLIP = 1000  # on borne les évals à ±10 pions : au-delà, peu importe
@@ -236,7 +236,7 @@ class Hustler(Personality):
     # ---------- choix ----------
 
     def evaluate(self, board: chess.Board, line: Line, best: Line, analyser: Analyser, plies: int) -> CandidateEval:
-        loss = max(0, best.score - line.score)
+        loss = regret(best, line)
         position = board.copy()
         position.push(line.move)
         if position.is_checkmate():
@@ -253,7 +253,7 @@ class Hustler(Personality):
         root = analyser.analyse(board, multipv=min(board.legal_moves.count(), self.max_candidates),
                                 depth=self.soundness_depth)
         best = root[0]
-        sound = [l for l in root if best.score - l.score <= self.tolerance][: self.max_candidates]
+        sound = [l for l in root if regret(best, l) <= self.tolerance][: self.max_candidates]
 
         # Premier passage : un seul coup adverse simulé, pour tous les candidats.
         self.model.prefetch([_after(board, line.move) for line in sound])

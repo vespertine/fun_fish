@@ -26,7 +26,7 @@ import chess
 
 from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import MaiaModel, OpponentModel, make_model
-from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, softmax
+from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, regret, softmax
 from fun_fish.reading import PIECE_VALUES
 
 CLIP = 1000  # évals bornées à ±10 pions
@@ -191,8 +191,8 @@ class Attacker(Personality):
         return sub
 
     def evaluate(self, board: chess.Board, line: Line, best: Line, analyser: Analyser, moves: int) -> CandidateEval:
-        loss = max(0, best.score - line.score)
-        position = board.copy(stack=False)
+        loss = regret(best, line)
+        position = board.copy()
         position.push(line.move)
         if position.is_checkmate():
             return CandidateEval(line, loss, Outcome(mate=1.0, win=1.0, value=CLIP, best=(1.0, [])))
@@ -217,7 +217,7 @@ class Attacker(Personality):
         root = analyser.analyse(board, multipv=min(board.legal_moves.count(), self.max_candidates),
                                 depth=self.soundness_depth)
         best = root[0]
-        sound = [l for l in root if best.score - l.score <= self.tolerance]
+        sound = [l for l in root if regret(best, l) <= self.tolerance]
         children = []
         for line in sound:
             child = board.copy(stack=False)

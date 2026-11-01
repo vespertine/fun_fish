@@ -98,6 +98,17 @@ class Personality(ABC):
         """Choisit un coup pour le camp au trait. Ne doit pas modifier `board`."""
 
 
+MATE_MOVE_COST = 100  # cp : coût d'un coup de plus pour mater
+
+
+def regret(best: "Line", line: "Line") -> int:
+    """Ce qu'on perd à jouer `line` plutôt que `best` (cp). Entre deux mats, chaque coup de plus
+    coûte MATE_MOVE_COST : sinon un mat en 6 vaut presque un mat en 3, et l'agent tourne en rond."""
+    if best.mate is not None and best.mate > 0 and line.mate is not None and line.mate > 0:
+        return max(0, (line.mate - best.mate) * MATE_MOVE_COST)
+    return max(0, best.score - line.score)
+
+
 def softmax(scores: Sequence[float], temperature: float) -> list[float]:
     """Probabilités proportionnelles à exp(score / température). Température ≤ 0 : argmax."""
     if not scores:
