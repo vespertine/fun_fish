@@ -32,7 +32,7 @@ class Blitz(Personality):
         "multipv": "Nombre de coups qu'il envisage",
         "horizon": "Demi-coups de lecture du matériel",
         "temperature": "Hasard entre coups qu'il juge équivalents (cp)",
-        "reality_depth": "Profondeur de l'analyse « réalité » (affichage seulement)",
+        "reality_depth": "Profondeur de l'analyse « réalité » (affichage seulement ; 0 = désactivée)",
     }
 
     def __init__(self, depth: int = 8, multipv: int = 8, horizon: int = 2, temperature: float = 40.0,
@@ -74,7 +74,8 @@ class Blitz(Personality):
         if others:
             explanation += f" Hésitait avec {', '.join(others)}."
         return Decision(move=chosen.move, san=chosen.san, color=board.turn, explanation=explanation,
-                        candidates=candidates, reality=self.reality(board, analyser, chosen))
+                        candidates=candidates,
+                        reality=self.reality(board, analyser, chosen) if self.reality_depth > 0 else None)
 
     # ---------- réalité ----------
 

@@ -50,6 +50,29 @@ fun-fish play --port 9000 --no-browser
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.
 
+## Simulations contre Maia
+
+[Maia-2](https://github.com/CSSLab/maia2) prédit le coup qu'un humain d'un Elo donné
+jouerait (tranches < 1100, 1100 à 1999 par 100, ≥ 2000). On s'en sert comme adversaire
+simulé pour mesurer une personnalité à grande échelle. Installation (PyTorch CPU d'abord,
+pour éviter les 2 Go de CUDA) :
+
+```bash
+.venv/bin/pip install "torch==2.8.*" --index-url https://download.pytorch.org/whl/cpu
+.venv/bin/pip install -e ".[sim]"
+```
+
+Les poids (280 Mo) sont téléchargés au premier lancement dans le cache de fun_fish.
+
+```bash
+# 20 parties par tranche de 1100 à 1900 (pas de 200), couleurs alternées, en parallèle
+fun-fish sim -p hustler -s tolerance=150 --elos 1100-1900:200 -g 20 -o runs/hustler_t150.jsonl
+fun-fish sim-report runs/*.jsonl         # synthèse : score, mats, durée, éval et matériel aux coups 10/20/30/40
+```
+
+Un fichier existant est repris là où il s'est arrêté. Ordres de grandeur sur 22 cœurs :
+le blitzeur joue ~3 parties par seconde, l'arnaqueur ~1 partie par minute et par cœur.
+
 ## Développement
 
 ```bash

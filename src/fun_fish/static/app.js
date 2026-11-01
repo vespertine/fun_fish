@@ -100,7 +100,8 @@ function renderPlayers() {
   $('#bottom-dot').className = `dot ${top === 'white' ? 'black' : 'white'}`;
   // l'indicateur « réfléchit » suit le joueur IA, en haut ou en bas
   const thinking = $('#thinking');
-  (aiColor === top ? $('.player.top') : $('.player.bottom')).appendChild(thinking);
+  const row = aiColor === top ? $('.player.top') : $('.player.bottom');
+  row.insertBefore(thinking, row.querySelector('.corner'));
 }
 
 function renderMoves(history, activePly) {

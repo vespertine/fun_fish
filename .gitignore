@@ -10,3 +10,4 @@ node_modules/
 # binaires Stockfish téléchargés localement
 engines/
 .DS_Store
+runs/

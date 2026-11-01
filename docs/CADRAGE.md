@@ -64,7 +64,7 @@ Deux façons de l'utiliser :
 | Packaging | [uv](https://github.com/astral-sh/uv), puis PyInstaller | Apache/MIT, GPL avec exception | `uvx`/`uv run` pour les développeurs, exécutables par OS via GitHub Actions |
 | Tournois et tests | [cutechess-cli](https://github.com/cutechess/cutechess) / python-chess | GPL-3.0 | Matchs entre personnalités, calcul d'Elo |
 | Bot en ligne *(plus tard)* | [lichess-bot](https://github.com/lichess-bot-devs/lichess-bot) | AGPL-3.0 | Faire jouer une personnalité sur Lichess |
-| Coups « humains » *(plus tard)* | [Maia](https://github.com/CSSLab/maia-chess) (réseaux pour lc0) | GPL-3.0 | Prédit le coup qu'un humain d'un certain Elo jouerait : idéal pour estimer la probabilité qu'un adversaire tombe dans un piège |
+| Coups « humains » | [Maia-2](https://github.com/CSSLab/maia2) (PyTorch, sans lc0) | MIT | Prédit le coup qu'un humain d'un Elo donné jouerait (tranches de 100 de 1100 à 2000) : adversaire simulé pour les matchs, et bientôt modèle d'adversaire des personnalités |
 
 **Conséquence sur la licence** : Stockfish, python-chess et chessground sont sous
 GPL-3.0. Le projet sera donc publié sous **GPL-3.0**. Ce n'est pas une contrainte pour
@@ -146,7 +146,7 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [x] Panneau « pourquoi ce coup ? » (candidats, scores, flèches), livré dès la phase 1
 - [ ] Positions de test (FEN et lignes concrètes) avec rapport du coup choisi par
       chaque personnalité
-- [ ] Matchs automatiques entre personnalités et contre Stockfish limité, avec
+- [x] Matchs automatiques contre Maia-2 par tranche d'Elo (`fun-fish sim`), avec
       estimation d'Elo et statistiques de style (taux de sacrifices, longueur des
       parties, nombre de pièges tendus ou réussis…)
 
@@ -154,7 +154,10 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [ ] *Hustler* v1 : largeur du chemin adverse
 - [ ] 2 ou 3 autres personnalités contrastées
 - [ ] Réglage itératif sur des lignes concrètes
-- [ ] *(option)* Intégration de Maia pour la probabilité d'erreur humaine
+- [x] Maia-2 intégré comme adversaire simulé (dépendance optionnelle `sim`)
+- [ ] Maia comme modèle d'adversaire de l'arnaqueur (à la place ou en plus de l'instinct)
+- [ ] Personnalité agressive : mats et gros gains matériels rapides contre une tranche d'Elo
+- [ ] Un seul curseur de niveau pour l'utilisateur (Elo visé), validé par simulations
 
 ### Phase 4 — Distribution
 - [ ] Exécutables PyInstaller Linux, macOS et Windows via GitHub Actions (releases)

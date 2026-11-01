@@ -12,7 +12,7 @@
 <body>
   <main class="layout">
     <section class="board-col">
-      <div class="player top"><span class="dot" id="top-dot"></span><span id="top-name"></span><span class="thinking" id="thinking" hidden>réfléchit…</span></div>
+      <div class="player top"><span class="dot" id="top-dot"></span><span id="top-name"></span><span class="thinking" id="thinking" hidden>réfléchit…</span><button class="corner" id="flip" title="Retourner l'échiquier" aria-label="Retourner l'échiquier">⇅</button></div>
       <div class="board-wrap"><div id="board"></div></div>
       <div class="player bottom"><span class="dot" id="bottom-dot"></span><span id="bottom-name">Vous</span></div>
     </section>
@@ -57,7 +57,6 @@
         <div class="row actions">
           <button id="undo" title="Annule votre dernier coup et la réponse de l'IA">↶ Reprendre le coup</button>
           <button id="retry" title="Annule le dernier coup de l'IA et la fait rejouer">↻ Rejouer l'IA</button>
-          <button id="flip">⇅ Retourner</button>
           <button id="pgn">Copier le PGN</button>
         </div>
       </section>

@@ -105,6 +105,46 @@ def cmd_read(args: argparse.Namespace) -> None:
         print(f"  {'':<7} {'':>6}  {pv}")
 
 
+def parse_elos(spec: str) -> list[int]:
+    """« 1100-1900:200 » -> [1100, 1300, 1500, 1700, 1900] ; « 1000,1500 » -> [1000, 1500]."""
+    elos: list[int] = []
+    for part in spec.split(","):
+        if "-" in part:
+            span, _, step = part.partition(":")
+            lo, hi = (int(x) for x in span.split("-"))
+            elos += list(range(lo, hi + 1, int(step or 100)))
+        else:
+            elos.append(int(part))
+    return elos
+
+
+def cmd_sim(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from fun_fish.sim import report, runner
+
+    params = parse_params(args.set)
+    try:
+        personalities.create(args.personality, **params)  # valide les réglages avant de lancer les processus
+    except ValueError as exc:
+        raise SystemExit(f"Erreur : {exc}") from None
+    out = Path(args.out)
+    runner.run(args.personality, params, parse_elos(args.elos), args.games, out,
+               stockfish=str(find_stockfish(args.stockfish)), workers=args.workers, seed=args.seed)
+    print()
+    print(report.summarize(report.load(out)))
+
+
+def cmd_sim_report(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from fun_fish.sim import report
+
+    for path in args.files:
+        print(report.summarize(report.load(Path(path))))
+        print()
+
+
 def cmd_stockfish(args: argparse.Namespace) -> None:
     print(find_stockfish(args.stockfish))
 
@@ -140,6 +180,21 @@ def build_parser() -> argparse.ArgumentParser:
     read.add_argument("--horizon", type=int, default=2, help="demi-coups de la lecture court-termiste")
     read.add_argument("--show-pv", type=int, default=8, help="demi-coups de variation affichés")
     read.set_defaults(func=cmd_read)
+
+    sim = sub.add_parser("sim", parents=[common], help="faire jouer une personnalité contre Maia par tranche d'Elo")
+    sim.add_argument("-p", "--personality", default=personalities.DEFAULT_PERSONALITY,
+                     choices=list(personalities.PERSONALITIES))
+    sim.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR")
+    sim.add_argument("--elos", default="1100-1900:200", help="tranches : « 1100-1900:200 » ou « 1000,1500,2000 »")
+    sim.add_argument("-g", "--games", type=int, default=10, help="parties par tranche (couleurs alternées)")
+    sim.add_argument("-w", "--workers", type=int, help="processus en parallèle (défaut : cœurs - 2)")
+    sim.add_argument("-o", "--out", required=True, help="fichier JSONL de résultats (repris s'il existe)")
+    sim.add_argument("--seed", type=int, default=0)
+    sim.set_defaults(func=cmd_sim)
+
+    sim_report = sub.add_parser("sim-report", help="synthèse de fichiers de résultats")
+    sim_report.add_argument("files", nargs="+")
+    sim_report.set_defaults(func=cmd_sim_report)
 
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)
