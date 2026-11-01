@@ -320,6 +320,24 @@ async function copyPgn() {
   }
 }
 
+async function debugExport() {
+  try {
+    const response = await fetch('/api/debug-export');
+    if (!response.ok) throw new Error(response.statusText);
+    const data = await response.json();
+    const stamp = data.exported_at.replace(/[:T]/g, '-');
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `fun_fish-debug-${stamp}.json`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+    toast('Export de debug téléchargé (fun-fish replay FICHIER pour le rejouer).');
+  } catch {
+    toast("Impossible d'exporter la partie.");
+  }
+}
+
 function showPersonalityDescription() {
   const p = personalities.find((x) => x.key === $('#personality').value);
   $('#personality-desc').textContent = p ? p.description : '';
@@ -422,6 +440,7 @@ async function init() {
   $('#undo').addEventListener('click', undo);
   $('#flip').addEventListener('click', flip);
   $('#pgn').addEventListener('click', copyPgn);
+  $('#debug-export').addEventListener('click', debugExport);
   $('#arrows').addEventListener('change', drawArrows);
   document.addEventListener('keydown', onNavigationKey);
 

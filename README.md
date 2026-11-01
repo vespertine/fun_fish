@@ -38,6 +38,8 @@ binaire : `--stockfish CHEMIN` ou la variable `FUN_FISH_STOCKFISH`.
 fun-fish choose "<FEN>" -p blitz -n 50    # ce que choisirait une personnalité, et sa distribution sur 50 tirages
 fun-fish choose "<FEN>" -p hustler -s tolerance=150 -s naivety=15   # avec des réglages surchargés
 fun-fish read "<FEN>" --horizon 2         # lecture humaine des meilleures lignes (approfondie | court-termiste)
+fun-fish replay export.json --list          # coups de l'IA d'un export de debug (bouton « ⤓ Export debug »)
+fun-fish replay export.json --ply 55 -s attack_depth=8   # rejouer sa réflexion à ce demi-coup, réglages surchargés
 fun-fish stockfish                         # chemin de Stockfish (le télécharge si besoin)
 fun-fish play --port 9000 --no-browser
 ```

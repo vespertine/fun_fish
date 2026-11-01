@@ -65,6 +65,11 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
     def info() -> dict:
         return {"engine": getattr(analyser, "engine_name", "?"), "personalities": personalities.catalogue()}
 
+    @app.get("/api/debug-export")
+    def debug_export() -> dict:
+        with lock:
+            return game().debug_export(getattr(analyser, "engine_name", "?"))
+
     @app.get("/api/state")
     def state() -> dict:
         with lock:

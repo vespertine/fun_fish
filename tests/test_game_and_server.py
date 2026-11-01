@@ -1,3 +1,4 @@
+import random
 import chess
 import pytest
 from fastapi.testclient import TestClient
@@ -112,3 +113,17 @@ def test_state_history_keeps_ai_reasoning(fake_analyser):
     assert history[0]["decision"] is None and history[1]["decision"]["san"] == history[1]["san"]
     assert history[0]["fen"].startswith("rnbqkbnr/pppppppp/8/8/4P3")
     assert history[1]["last_move"] == [history[1]["uci"][:2], history[1]["uci"][2:4]]
+
+
+def test_debug_export_records_settings_per_ai_move(fake_analyser):
+    from fun_fish.game import Game
+
+    game = Game(personalities.create("casual", rng=random.Random(0)), human_color=chess.WHITE)
+    game.play_human("e2e4")
+    game.play_engine(fake_analyser)
+    data = game.debug_export("test")
+    assert data["format"] == "fun_fish-debug/1" and len(data["moves"]) == 2
+    human, ai = data["moves"]
+    assert human["by"] == "human" and "params" not in human
+    assert ai["by"] == "ai" and ai["personality"] == "casual" and "max_loss" in ai["params"]
+    assert ai["decision"]["san"] == ai["san"] and ai["fen_before"] == chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1").fen()

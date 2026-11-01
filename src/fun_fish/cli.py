@@ -9,6 +9,7 @@ import sys
 import threading
 import webbrowser
 from collections import Counter
+from pathlib import Path
 
 import chess
 
@@ -75,17 +76,54 @@ def cmd_choose(args: argparse.Namespace) -> None:
         raise SystemExit(f"Erreur : {exc}") from None
     with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
         decision = personality.choose_move(board, analyser)
-        print(decision.explanation)
-        if decision.reality:
-            print(decision.reality)
-        for cand in decision.to_dict()["candidates"]:
-            proba = "  -  " if cand["probability"] is None else f"{cand['probability']:5.0%}"
-            score = f"#{cand['mate']}" if cand["mate"] is not None else f"{cand['score'] / 100:+.2f}"
-            mark = "→" if cand["chosen"] else " "
-            print(f" {mark} {cand['san']:<8} {score:>7}  {proba}  {cand['note']}")
+        print_decision(decision)
         if args.repeat > 1:
             counts = Counter(personality.choose_move(board, analyser).san for _ in range(args.repeat))
             print(f"\nSur {args.repeat} tirages : " + ", ".join(f"{san} ×{n}" for san, n in counts.most_common()))
+
+
+def print_decision(decision) -> None:
+    print(decision.explanation)
+    if decision.reality:
+        print(decision.reality)
+    for cand in decision.to_dict()["candidates"]:
+        proba = "  -  " if cand["probability"] is None else f"{cand['probability']:5.0%}"
+        score = f"#{cand['mate']}" if cand["mate"] is not None else f"{cand['score'] / 100:+.2f}"
+        mark = "→" if cand["chosen"] else " "
+        print(f" {mark} {cand['san']:<8} {score:>7}  {proba}  {cand['note']}")
+
+
+def cmd_replay(args: argparse.Namespace) -> None:
+    """Rejoue la réflexion de l'IA à un coup d'un export de debug (bouton « Export debug »)."""
+    import json
+    import time
+
+    data = json.loads(Path(args.file).read_text())
+    ai_moves = [m for m in data["moves"] if m["by"] == "ai"]
+    if args.list or not ai_moves:
+        for m in ai_moves:
+            board = chess.Board(m["fen_before"])
+            print(f"  ply {m['ply']:>3}  {board.fullmove_number}{'.' if board.turn else '...'} {m['san']:<7} "
+                  f"{m['personality']:<9} {m['seconds']:>5.1f}s  {m['params']}")
+        return
+    entry = next((m for m in ai_moves if m["ply"] == args.ply), None) if args.ply is not None else ai_moves[-1]
+    if entry is None:
+        raise SystemExit(f"Pas de coup de l'IA au demi-coup {args.ply} (--list pour la liste).")
+    board = chess.Board(data["start_fen"])
+    for m in data["moves"][: entry["ply"]]:  # avec l'historique : les répétitions comptent
+        board.push_uci(m["uci"])
+    params = {**entry["params"], **parse_params(args.set)}
+    try:
+        personality = personalities.create(entry["personality"], rng=random.Random(args.seed), **params)
+    except ValueError as exc:
+        raise SystemExit(f"Erreur : {exc}") from None
+    print(f"Demi-coup {entry['ply']} : {board.fen()}")
+    print(f"À l'époque : {entry['san']} ({entry['seconds']} s), {entry['personality']} {entry['params']}\n")
+    with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
+        start = time.monotonic()
+        decision = personality.choose_move(board, analyser)
+        print(f"Maintenant ({time.monotonic() - start:.1f} s) :")
+        print_decision(decision)
 
 
 def cmd_read(args: argparse.Namespace) -> None:
@@ -205,6 +243,13 @@ def build_parser() -> argparse.ArgumentParser:
     sim_report.add_argument("files", nargs="+")
     sim_report.set_defaults(func=cmd_sim_report)
 
+    replay = sub.add_parser("replay", parents=[common], help="rejouer la réflexion de l'IA depuis un export de debug")
+    replay.add_argument("file", help="fichier JSON du bouton « Export debug »")
+    replay.add_argument("--ply", type=int, help="demi-coup à rejouer (par défaut : le dernier coup de l'IA)")
+    replay.add_argument("--list", action="store_true", help="lister les coups de l'IA avec leurs réglages")
+    replay.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR", help="surcharger un réglage")
+    replay.add_argument("--seed", type=int, help="graine du tirage au sort")
+    replay.set_defaults(func=cmd_replay)
     export = sub.add_parser("maia-export", help="exporter Maia-2 en ONNX (pour s'en servir sans PyTorch)")
     export.set_defaults(func=cmd_maia_export)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
