@@ -166,7 +166,19 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       Sur 200 parties par tranche, l'écart se resserre : cogneur 20/22/25, arnaqueur 21/22/23 ;
       98-99 % de score pour les deux, le cogneur gagne plus de matériel (+15 au coup 40 contre +8).
       Toutes les nulles (2-3 %) étaient des répétitions en position gagnante, corrigées depuis
-- [ ] Croiser cogneur et arnaqueur (score combiné, comparaison sur les mêmes positions)
+- [x] Chaîne d'étages : un premier étage commun (`Soundness`, filtre de santé) puis le choix
+      de la personnalité. Mode **conversion** : au-delà de +5 (`convert_above`), il revérifie à
+      profondeur 14 avec 0,3 pion de tolérance. Sur une partie réelle où le cogneur tournait
+      en rond à +6 (profondeur 4), puis laissait passer un pion à dame : mat contre Stockfish
+      profondeur 16 en 22 et 33 coups depuis la même position
+- [ ] Étage de style (presque gratuit, calculé avec python-chess) : développement, lignes
+      ouvertes, pression sur le roi, activité, initiative plutôt que matériel (Morphy), goût du
+      sacrifice à position égale. Profils « Morphy » et neutre, colonnes de style dans le rapport
+- [ ] Curseur « dark forest », surtout en ouverture : sortir l'adversaire de la théorie (coups
+      peu probables pour Maia 2000). À manier avec prudence : comparer coups très humains et
+      coups très surprenants, et ce que ça change au ressenti
+- [ ] Ordre des étages (style puis cogneur, ou l'inverse) ; plus tard, vote entre personnalités
+      (produit pondéré des probabilités, Borda...) si la chaîne ne suffit pas
 - [ ] Un seul curseur de niveau pour l'utilisateur (Elo visé), validé par simulations
 
 ### Phase 4 — Distribution

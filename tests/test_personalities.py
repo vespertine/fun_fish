@@ -90,3 +90,17 @@ def test_repetition_changes_the_analysis(stockfish_analyser):
     assert chess.Board().epd() in _seen_before(board)
     fresh = chess.Board()
     assert stockfish_analyser.analyse(board, depth=6) is not stockfish_analyser.analyse(fresh, depth=6)
+
+
+def test_soundness_tightens_when_winning(fake_analyser):
+    from fun_fish.personalities.base import Soundness
+
+    board = chess.Board()
+    stage = Soundness(tolerance=300, depth=4, max_candidates=12, convert_above=500, convert_tolerance=30)
+    lines, converting = stage.lines(board, fake_analyser)  # meilleur coup à 0 : rien à convertir
+    assert not converting and len(lines) == 8  # 0, -40, ..., -280
+    fake_analyser.scores = {"e2e4": 700, "d2d4": 680, "g1f3": 600}
+    lines, converting = stage.lines(board, fake_analyser)
+    assert converting and [l.move.uci() for l in lines] == ["e2e4", "d2d4"]
+    lines, converting = Soundness(300, 4, 12, convert_above=0).lines(board, fake_analyser)
+    assert not converting and len(lines) == 3  # tolérance normale : tout ce qui est au-dessus de +4

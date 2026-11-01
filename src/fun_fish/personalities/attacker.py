@@ -26,8 +26,10 @@ import chess
 
 from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import MaiaModel, OpponentModel, make_model
-from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, regret, softmax
+from fun_fish.personalities.base import (CONVERT_HELP, CONVERTING, Candidate, Decision, Personality, Soundness, format_score,
+                                         pick, regret, softmax)
 from fun_fish.reading import PIECE_VALUES
+
 
 CLIP = 1000  # évals bornées à ±10 pions
 SETTLE_PLIES = 6  # on finit les échanges en cours au plus sur ce nombre de demi-coups
@@ -101,6 +103,7 @@ class Attacker(Personality):
         "w_loss": "Poids de la perte acceptée (par pion)",
         "temperature": "Hasard du choix final (en points de score)",
         "max_candidates": "Coups sains examinés",
+        **CONVERT_HELP,
         "deep_candidates": "Dont simulés sur tout l'horizon",
         "instinct": "Adversaire naïf : part de l'instinct face à Stockfish (0 à 1)",
         "caution": "Adversaire naïf : attention aux reprises (0 = aveugle, 1 = lucide)",
@@ -112,6 +115,7 @@ class Attacker(Personality):
                  min_probability: float = 0.08, mate_within: int = 3, big_gain: int = 3,
                  w_mate: float = 3.0, w_win: float = 1.5, w_eval: float = 0.3, w_loss: float = 1.0,
                  temperature: float = 0.3, max_candidates: int = 12, deep_candidates: int = 5,
+                 convert_above: int = 500, convert_depth: int = 14, convert_tolerance: int = 30,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -129,6 +133,7 @@ class Attacker(Personality):
         self.max_candidates = max_candidates
         self.deep_candidates = deep_candidates
         self.instinct, self.caution, self.naivety = instinct, caution, naivety
+        self.convert_above, self.convert_depth, self.convert_tolerance = convert_above, convert_depth, convert_tolerance
         self._model: OpponentModel | None = None
 
     @property
@@ -137,6 +142,10 @@ class Attacker(Personality):
             self._model = make_model(self.opponent_elo, instinct=self.instinct, caution=self.caution,
                                      naivety=self.naivety)
         return self._model
+
+    def soundness(self) -> Soundness:
+        return Soundness(self.tolerance, self.soundness_depth, self.max_candidates,
+                         self.convert_above, self.convert_depth, self.convert_tolerance)
 
     # ---------- simulation ----------
 
@@ -214,10 +223,8 @@ class Attacker(Personality):
     # ---------- choix ----------
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        root = analyser.analyse(board, multipv=min(board.legal_moves.count(), self.max_candidates),
-                                depth=self.soundness_depth)
-        best = root[0]
-        sound = [l for l in root if regret(best, l) <= self.tolerance]
+        sound, converting = self.soundness().lines(board, analyser)
+        best = sound[0]
         children = []
         for line in sound:
             child = board.copy(stack=False)
@@ -242,7 +249,8 @@ class Attacker(Personality):
         ]
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=self.explain(san, chosen), candidates=candidates,
+                        explanation=(CONVERTING if converting else "") + self.explain(san, chosen),
+                        candidates=candidates,
                         reality=self.cost(board, chosen, best))
 
     def explain(self, san: str, e: CandidateEval) -> str:

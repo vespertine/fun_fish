@@ -40,7 +40,8 @@ import chess
 
 from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import OpponentModel, make_model
-from fun_fish.personalities.base import Candidate, Decision, Personality, format_score, pick, regret, softmax
+from fun_fish.personalities.base import (CONVERT_HELP, CONVERTING, Candidate, Decision, Personality, Soundness, format_score,
+                                         pick, regret, softmax)
 from fun_fish.reading import VISIBLE_MATE
 
 CLIP = 1000  # on borne les évals à ±10 pions : au-delà, peu importe
@@ -115,6 +116,7 @@ class Hustler(Personality):
         "w_loss": "Poids de la perte acceptée",
         "temperature": "Hasard du choix final (en pions de score)",
         "max_candidates": "Coups sains examinés",
+        **CONVERT_HELP,
         "deep_candidates": "Dont simulés sur tous les coups",
     }
 
@@ -124,7 +126,8 @@ class Hustler(Personality):
                  safe_margin: int = 60, error_margin: int = 150,
                  sharp_plies: int = 2, branching: int = 3, min_temptation: float = 0.1, our_options: int = 2,
                  w_trap: float = 1.0, w_sharp: float = 1.0, w_loss: float = 1.0, temperature: float = 0.3,
-                 max_candidates: int = 15, deep_candidates: int = 6, **kwargs):
+                 max_candidates: int = 15, deep_candidates: int = 6,
+                 convert_above: int = 500, convert_depth: int = 14, convert_tolerance: int = 30, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo  # > 0 : l'adversaire est modélisé par Maia-2 à cet Elo
         self.reply_lines = reply_lines  # avec Maia : meilleures réponses toujours analysées
@@ -147,7 +150,12 @@ class Hustler(Personality):
         self.temperature = temperature  # en pions de score
         self.max_candidates = max_candidates  # coups sains examinés
         self.deep_candidates = deep_candidates  # dont simulés sur sharp_plies coups
+        self.convert_above, self.convert_depth, self.convert_tolerance = convert_above, convert_depth, convert_tolerance
         self._model: OpponentModel | None = None
+
+    def soundness(self) -> Soundness:
+        return Soundness(self.tolerance, self.soundness_depth, self.max_candidates,
+                         self.convert_above, self.convert_depth, self.convert_tolerance)
 
     # ---------- adversaire naïf ----------
 
@@ -250,10 +258,8 @@ class Hustler(Personality):
         return e
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        root = analyser.analyse(board, multipv=min(board.legal_moves.count(), self.max_candidates),
-                                depth=self.soundness_depth)
-        best = root[0]
-        sound = [l for l in root if regret(best, l) <= self.tolerance][: self.max_candidates]
+        sound, converting = self.soundness().lines(board, analyser)
+        best = sound[0]
 
         # Premier passage : un seul coup adverse simulé, pour tous les candidats.
         self.model.prefetch([_after(board, line.move) for line in sound])
@@ -275,7 +281,7 @@ class Hustler(Personality):
         ]
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=self.explain(board, san, chosen),
+                        explanation=(CONVERTING if converting else "") + self.explain(board, san, chosen),
                         candidates=candidates, reality=self.cost(board, chosen, best))
 
     def explain(self, board: chess.Board, san: str, e: CandidateEval) -> str:

@@ -109,6 +109,44 @@ def regret(best: "Line", line: "Line") -> int:
     return max(0, best.score - line.score)
 
 
+@dataclass
+class Soundness:
+    """Premier étage commun : les coups qui perdent au plus `tolerance` cp si l'adversaire répond juste.
+
+    **Conversion** : quand la position est gagnante (éval ≥ `convert_above` cp, ou mat forcé),
+    on revérifie à `convert_depth` avec une tolérance de `convert_tolerance` cp. Les étages
+    suivants (attaque, pièges, style) ne choisissent alors qu'entre des coups qui gagnent :
+    à faible profondeur, un pion passé qui file à dame reste sinon invisible. 0 = désactivé.
+    """
+
+    tolerance: int
+    depth: int
+    max_candidates: int
+    convert_above: int = 500
+    convert_depth: int = 14
+    convert_tolerance: int = 30
+
+    def lines(self, board: chess.Board, analyser: "Analyser") -> tuple[list["Line"], bool]:
+        """(coups sains, le meilleur en premier ; mode conversion ?)."""
+        multipv = min(board.legal_moves.count(), self.max_candidates)
+        root = analyser.analyse(board, multipv=multipv, depth=self.depth)
+        tolerance, converting = self.tolerance, False
+        if self.convert_above > 0 and root[0].score >= self.convert_above:
+            deep = analyser.analyse(board, multipv=multipv, depth=max(self.depth, self.convert_depth))
+            if deep[0].score >= self.convert_above:
+                root, tolerance, converting = deep, min(self.tolerance, self.convert_tolerance), True
+        best = root[0]
+        return [l for l in root if regret(best, l) <= tolerance], converting
+
+
+CONVERTING = "Position gagnante : il joue sûr pour conclure. "
+CONVERT_HELP = {
+    "convert_above": "Conversion : au-delà de cette éval (cp), il joue sûr pour conclure (0 = jamais)",
+    "convert_depth": "Conversion : profondeur de vérification",
+    "convert_tolerance": "Conversion : perte maximale acceptée (centipions)",
+}
+
+
 def softmax(scores: Sequence[float], temperature: float) -> list[float]:
     """Probabilités proportionnelles à exp(score / température). Température ≤ 0 : argmax."""
     if not scores:

@@ -54,6 +54,11 @@ fun-fish play --port 9000 --no-browser
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
+Le cogneur et l'arnaqueur partagent un premier étage, le filtre de santé (`Soundness` dans
+`personalities/base.py`). Quand la position est gagnante (au-delà de `convert_above`, +5 par
+défaut), il passe en mode conversion : vérification à profondeur 14 et tolérance de 0,3 pion,
+pour conclure au lieu de tourner en rond.
+
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.
 
