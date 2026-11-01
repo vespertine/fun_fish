@@ -162,7 +162,10 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [x] Modèle d'adversaire commun (`opponent.py` : instinct ou Maia, Maia en lot)
 - [x] Personnalité agressive, le cogneur (`attacker`) : probabilité de mater ou de gagner
       ≥ 3 pions en 3 coups contre les réponses probables de Maia. Sur 12 parties par
-      tranche : mat médian en 20 coups à 1100, 16 à 1500, 34 à 1900 (l'arnaqueur : 20, 20, 26)
+      tranche : mat médian en 20 coups à 1100, 16 à 1500, 34 à 1900 (l'arnaqueur : 20, 20, 26).
+      Sur 200 parties par tranche, l'écart se resserre : cogneur 20/22/25, arnaqueur 21/22/23 ;
+      98-99 % de score pour les deux, le cogneur gagne plus de matériel (+15 au coup 40 contre +8).
+      Toutes les nulles (2-3 %) étaient des répétitions en position gagnante, corrigées depuis
 - [ ] Croiser cogneur et arnaqueur (score combiné, comparaison sur les mêmes positions)
 - [ ] Un seul curseur de niveau pour l'utilisateur (Elo visé), validé par simulations
 
