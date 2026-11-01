@@ -17,7 +17,7 @@ def test_encoding_ignores_unplayable_en_passant():
     assert planes[12].sum() == 0  # trait aux Noirs
 
 
-@pytest.mark.skipif(not (maia.onnx_ready() and maia.torch_ready()), reason="ONNX et PyTorch requis")
+@pytest.mark.skipif(not (maia.onnx_ready(download=False) and maia.torch_ready()), reason="ONNX et PyTorch requis")
 def test_onnx_and_torch_backends_agree():
     board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3")
     board.push_san("Qh5")

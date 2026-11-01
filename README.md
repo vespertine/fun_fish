@@ -69,11 +69,11 @@ pour éviter les 2 Go de CUDA) :
 
 Les poids (280 Mo) sont téléchargés au premier lancement dans le cache de fun_fish.
 
-**Sans PyTorch.** `fun-fish maia-export` (fait par `make sim-install`) exporte Maia-2 en
-ONNX dans le cache (93 Mo, avec la liste de ses coups). Ensuite, l'extra `maia`
-(`pip install -e '.[maia]'`, onnxruntime, 24 Mo) suffit : fun_fish préfère ce moteur, plus
-léger et plus rapide, avec les mêmes probabilités. C'est la piste pour utiliser Maia en
-partie réelle sans installer PyTorch.
+**Sans PyTorch.** L'extra `maia` (`pip install -e '.[maia]'` : onnxruntime, 24 Mo) suffit.
+Maia-2 exporté en ONNX (93 Mo) est alors téléchargé depuis la release GitHub du projet,
+avec vérification SHA-256. fun_fish préfère ce moteur, plus léger et plus rapide, avec les
+mêmes probabilités. `fun-fish maia-export` refait l'export à partir de PyTorch (fait par
+`make sim-install`).
 
 ```bash
 # 20 parties par tranche de 1100 à 1900 (pas de 200), couleurs alternées, en parallèle

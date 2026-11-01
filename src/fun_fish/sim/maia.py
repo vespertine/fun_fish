@@ -6,7 +6,9 @@ Le modèle couvre les tranches < 1100, 1100-1199, ..., 1900-1999 et ≥ 2000. De
   le cache de fun_fish. Pas besoin de PyTorch ; c'est aussi le plus rapide.
 - **PyTorch** (`maia2`, extra `sim`) : les poids d'origine (280 Mo), téléchargés par maia2.
 
-`fun-fish maia-export` produit les fichiers ONNX à partir de PyTorch (une seule fois).
+Les fichiers ONNX sont téléchargés depuis la release GitHub du projet (vérifiés par SHA-256)
+quand onnxruntime est installé ; `fun-fish maia-export` les produit aussi à partir de PyTorch.
+Maia-2 : https://github.com/CSSLab/maia2 (licence MIT).
 """
 
 from __future__ import annotations
@@ -23,6 +25,11 @@ import chess
 
 from fun_fish.engines import cache_dir
 
+RELEASE_URL = "https://github.com/vespertine/fun_fish/releases/download/maia2-onnx-v1"
+SHA256 = {
+    "rapid_model.onnx": "ac1842eac72070cb9771895fc2d32a5f926b0aefdd9ae64244f534ce05d7f7f8",
+    "rapid_moves.json": "f0dd3915826cb6c3dffb3d2b5ba0bb6ab448e11ed4d2a881bea5005f006eda0c",
+}
 PIECES = (chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING)
 
 
@@ -40,8 +47,45 @@ def _has(module: str) -> bool:
     return importlib.util.find_spec(module) is not None
 
 
-def onnx_ready(kind: str = "rapid") -> bool:
-    return _has("onnxruntime") and all(f.exists() for f in onnx_files(kind))
+def onnx_ready(kind: str = "rapid", download: bool = True) -> bool:
+    """onnxruntime est installé et les fichiers ONNX sont là (téléchargés au besoin)."""
+    if not _has("onnxruntime"):
+        return False
+    if all(f.exists() for f in onnx_files(kind)):
+        return True
+    if not download:
+        return False
+    try:
+        download_onnx(kind)
+    except OSError as exc:
+        import sys
+
+        print(f"Téléchargement de Maia-2 (ONNX) impossible : {exc}", file=sys.stderr)
+        return False
+    return True
+
+
+def download_onnx(kind: str = "rapid") -> None:
+    import hashlib
+    import sys
+
+    from fun_fish.engines import _download
+
+    model_dir().mkdir(parents=True, exist_ok=True)
+    for dest in onnx_files(kind):
+        if dest.exists():
+            continue
+        expected = SHA256.get(dest.name)
+        if expected is None:
+            raise OSError(f"pas de fichier publié pour {dest.name}")
+        print(f"Téléchargement de Maia-2 : {dest.name}", file=sys.stderr)
+        tmp = dest.with_suffix(dest.suffix + ".part")
+        _download(f"{RELEASE_URL}/{dest.name}", tmp, lambda m: print(m, file=sys.stderr))
+        digest = hashlib.sha256(tmp.read_bytes()).hexdigest()
+        if digest != expected:
+            tmp.unlink()
+            raise OSError(f"empreinte SHA-256 inattendue pour {dest.name}")
+        tmp.replace(dest)
 
 
 def torch_ready() -> bool:
@@ -49,7 +93,7 @@ def torch_ready() -> bool:
 
 
 def available(kind: str = "rapid") -> bool:
-    """Maia-2 est-il utilisable (ONNX ou PyTorch) ?"""
+    """Maia-2 est-il utilisable (ONNX, téléchargé au besoin, ou PyTorch) ?"""
     return onnx_ready(kind) or torch_ready()
 
 
