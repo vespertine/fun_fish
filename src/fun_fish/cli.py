@@ -192,6 +192,12 @@ def cmd_maia_export(args: argparse.Namespace) -> None:
     print(f"Modèle ONNX : {model} ({model.stat().st_size // 1_000_000} Mo)\nCoups : {moves}")
 
 
+def cmd_book_build(args: argparse.Namespace) -> None:
+    from fun_fish import book
+
+    book.build(args.month, args.games, Path(args.out), workers=args.workers)
+
+
 def cmd_stockfish(args: argparse.Namespace) -> None:
     print(find_stockfish(args.stockfish))
 
@@ -252,6 +258,12 @@ def build_parser() -> argparse.ArgumentParser:
     replay.set_defaults(func=cmd_replay)
     export = sub.add_parser("maia-export", help="exporter Maia-2 en ONNX (pour s'en servir sans PyTorch)")
     export.set_defaults(func=cmd_maia_export)
+    book_build = sub.add_parser("book-build", help="reconstruire le livre d'ouverture humain (base Lichess, extra sim)")
+    book_build.add_argument("--month", default="2025-09", help="mois de la base Lichess (AAAA-MM)")
+    book_build.add_argument("--games", type=int, default=2_000_000, help="parties lues")
+    book_build.add_argument("--workers", type=int, default=8)
+    book_build.add_argument("-o", "--out", default=str(Path(__file__).parent / "data" / "book.json.gz"))
+    book_build.set_defaults(func=cmd_book_build)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)
     return parser

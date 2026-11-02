@@ -9,6 +9,9 @@ Le modèle couvre les tranches < 1100, 1100-1199, ..., 1900-1999 et ≥ 2000. De
 Les fichiers ONNX sont téléchargés depuis la release GitHub du projet (vérifiés par SHA-256)
 quand onnxruntime est installé ; `fun-fish maia-export` les produit aussi à partir de PyTorch.
 Maia-2 : https://github.com/CSSLab/maia2 (licence MIT).
+
+Maia-2 n'a pas été entraîné sur les 10 premiers demi-coups des parties : dans ces positions,
+`Maia` répond avec le livre d'ouverture humain (`fun_fish.book`) quand il les connaît.
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ from pathlib import Path
 
 import chess
 
+from fun_fish.book import PLIES as BOOK_PLIES
 from fun_fish.engines import cache_dir
 
 RELEASE_URL = "https://github.com/vespertine/fun_fish/releases/download/maia2-onnx-v1"
@@ -178,6 +182,11 @@ def export_onnx(kind: str = "rapid") -> tuple[Path, Path]:
     return model, moves
 
 
+def _book():
+    from fun_fish import book
+
+    return book.shared()
+
 _shared: dict[str, "Maia"] = {}
 _shared_lock = threading.Lock()
 
@@ -215,7 +224,14 @@ class Maia:
         """Comme `probabilities`, pour plusieurs positions en un seul passage du réseau (bien plus rapide)."""
         opponent_elo = opponent_elo if opponent_elo is not None else elo
         keys = [(b.fen(), elo, opponent_elo) for b in boards]
+        opening = _book()
         with self._lock:
+            if opening is not None:  # en ouverture, ce que jouent vraiment les humains (voir book.py)
+                for k, b in zip(keys, boards):
+                    if k not in self._cache and b.ply() <= BOOK_PLIES:
+                        found = opening.probabilities(b, elo)
+                        if found is not None:
+                            self._cache[k] = found
             missing = {k: b for k, b in zip(keys, boards) if k not in self._cache and not b.is_game_over()}
             if missing:
                 for key, result in zip(missing, self._compute(list(missing.values()), elo, opponent_elo)):

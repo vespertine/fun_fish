@@ -104,6 +104,13 @@ fait jouer l'arnaqueur contre un Maia qu'il modélise exactement.
 Un fichier existant est repris là où il s'est arrêté. Ordres de grandeur sur 22 cœurs :
 le blitzeur joue ~3 parties par seconde, l'arnaqueur ~1 partie par minute et par cœur.
 
+### Livre d'ouverture
+
+Maia-2 n'a pas été entraîné sur les 10 premiers demi-coups des parties. En ouverture, les
+probabilités humaines viennent donc d'un livre (`src/fun_fish/data/book.json.gz`) construit à
+partir de la base publique de Lichess (CC0) : `fun-fish book-build --month 2025-09 --games
+2000000` le reconstruit (environ 600 Mo lus en flux, extra `sim`).
+
 ## Développement
 
 ```bash

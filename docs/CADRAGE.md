@@ -190,6 +190,16 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       un pion), les goûts de milieu de partie (lignes, roi, activité) s'effacent quand les
       pièces disparaissent, et la vérification plus profonde s'applique toujours en finale
       (il laissait filer un pion à dame à profondeur 5)
+- [x] Maia-2 n'a pas été entraîné sur les 10 premiers demi-coups (`first_n_moves: 10`) : en
+      ouverture il jouait n'importe quoi (1.Cc3 Cf6 2.Cb1 à 83 %). Livre d'ouverture humain
+      (`book.py`, 1,7 Mo, 32 575 positions) tiré de 2 millions de parties Lichess de septembre
+      2025 (CC0), par tranche de 200 Elo, utilisé avant Maia. Contre Maia 1500 avec le livre :
+      toujours 100 %, mais mat médian en 34 coups pour le cogneur (19 avant) et 26 pour le
+      romantique (22) ; matériel au coup 10 du cogneur : −0,2 (+2,5 avant). Les anciens
+      résultats étaient flattés par les ouvertures absurdes de Maia
+- [ ] Hors du livre avant le 10e demi-coup (la moitié des cas aux demi-coups 6 à 9, nos agents
+      sortant vite des sentiers battus) : remplacer Maia par autre chose (Stockfish peu
+      profond avec un tirage au sort dépendant de l'Elo ?)
 - [ ] Curseur « dark forest » (`w_surprise`, branché, pas encore évalué), surtout en ouverture : sortir l'adversaire de la théorie (coups
       peu probables pour Maia 2000). À manier avec prudence : comparer coups très humains et
       coups très surprenants, et ce que ça change au ressenti

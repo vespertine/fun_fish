@@ -15,7 +15,7 @@ python-chess seul (pas d'appel à Stockfish), du point de vue du camp qui joue :
 - **technique** (conversion) : quand on mène nettement, simplifier, pousser ses pions passés,
   freiner ceux de l'adversaire et activer son roi en finale. Son poids vient du degré de
   conversion de l'étage de santé (voir `Soundness`), pas d'un réglage de style ;
-- **surprise** : peu probable pour un humain fort (Maia à 2000), en ouverture seulement.
+- **surprise** : rare chez les humains forts (livre d'ouverture à 2000, sinon Maia), en ouverture.
   Sortir l'adversaire de la théorie (« dark forest ») ; à manier avec prudence.
 
 Les mesures sont centrées et réduites parmi les candidats : un poids de 1 vaut à peu près
@@ -125,8 +125,14 @@ def _standardise(values: list[float]) -> list[float]:
 
 
 def _maia_probabilities(board: chess.Board) -> dict[chess.Move, float]:
+    """Ce que jouerait un humain fort : le livre d'ouverture, sinon Maia."""
+    from fun_fish import book
     from fun_fish.sim import maia
 
+    opening = book.shared()
+    found = opening.probabilities(board, SURPRISE_ELO) if opening is not None else None
+    if found is not None:
+        return found
     if not maia.available():
         return {}
     return maia.shared().probabilities(board, SURPRISE_ELO)
@@ -162,7 +168,10 @@ def middlegame_weight(board: chess.Board) -> float:
 
 
 def development(board: chess.Board, color: chess.Color) -> float:
+    """Pièces mineures sorties, un demi-point par fou libéré (1.e4, 1.d4...) et le roque."""
     minors = sum(1 for p in MINORS for sq in board.pieces(p, color) if not chess.BB_SQUARES[sq] & HOME[color])
+    minors += 0.5 * sum(1 for sq in board.pieces(chess.BISHOP, color)
+                        if chess.BB_SQUARES[sq] & HOME[color] and board.attacks_mask(sq) & ~board.occupied_co[color])
     king = board.king(color)
     castled = king in CASTLED_KING[color] and not board.has_castling_rights(color)
     return minors + 1.5 * castled
