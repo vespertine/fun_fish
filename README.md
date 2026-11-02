@@ -83,10 +83,13 @@ L'humeur redistribue les goûts sans changer leur poids total.
 `vision_elo` limite ses coups calmes à ceux qu'un humain de cet Elo jouerait (probabilité Maia ≥
 `vision_min`) : un coup d'attente ou prophylactique trop « machine » lui échappe. Les coups
 forcés (échecs, prises, promotions) restent toujours visibles, comme pour un attaquant qui les
-regarde d'abord : les fulgurances survivent. `w_human` ajoute un goût pour les coups naturels
+regarde d'abord : les fulgurances survivent. Ses `vision_breadth` (6) coups les plus naturels sont toujours
+envisagés, et quand ça brûle (ce qu'il voit perd au moins `vision_panic` cp sur le vrai meilleur
+coup), il voit tout. `w_human` ajoute un goût pour les coups naturels
 (log-probabilité Maia, coups forcés exemptés) : un coup bizarre doit rapporter pour passer.
 En difficulté (de `defend_from` à `defend_full` cp de retard), `w_counterplay` lui fait
-préférer les coups qui posent des questions : échecs, menaces, roi adverse visé.
+préférer les coups qui posent des questions : échecs, menaces, roi adverse visé. Sa tolérance
+descend alors comme en conversion : le contre-jeu doit rester sain.
 En conversion,
 `convert_elo` fait monter l'adversaire imaginé (il compte moins sur les gaffes), `w_repeat`
 pénalise le retour à une position déjà vue, et le mat est cherché un coup plus loin.

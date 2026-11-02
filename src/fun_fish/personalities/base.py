@@ -130,9 +130,12 @@ class Soundness:
 
     **Vision** : si `seen` est donné (probabilité de chaque coup chez un humain d'un certain
     niveau), seuls les coups qu'il jouerait avec au moins `vision_min` de probabilité sont
-    envisagés, plus tous les coups forcés (échecs, prises, promotions), qu'un attaquant regarde
+    envisagés, plus ses `vision_breadth` coups les plus naturels et tous les coups forcés (échecs, prises, promotions), qu'un attaquant regarde
     toujours ; la tolérance se mesure au meilleur d'entre eux. Un coup calme trop « machine »
-    (prophylaxie, attente, retraite subtile) passe alors inaperçu. `truth` garde le vrai meilleur coup, pour le verdict.
+    (prophylaxie, attente, retraite subtile) passe alors inaperçu, sauf quand ça brûle : si le
+    meilleur coup vu perd au moins `vision_panic` cp sur le vrai meilleur, il voit tout.
+    **Défense** : de `defend_from` à `defend_full` cp de retard, la tolérance descend comme en
+    conversion ; le contre-jeu doit rester sain. `truth` garde le vrai meilleur coup, pour le verdict.
     """
 
     tolerance: int
@@ -143,6 +146,10 @@ class Soundness:
     convert_depth: int = 4
     convert_tolerance: int = 60
     vision_min: float = 0.02
+    vision_breadth: int = 6
+    vision_panic: int = 150
+    defend_from: int = 0
+    defend_full: int = 0
     truth: "Line | None" = None
 
     def analyse_only(self, board: chess.Board, analyser: "Analyser", only: list[chess.Move]) -> list["Line"]:
@@ -170,13 +177,16 @@ class Soundness:
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
         visible = None
         if seen:
-            visible = ({m for m in board.legal_moves if seen.get(m, 0.0) >= self.vision_min or forcing(board, m)}
-                       or {max(seen, key=seen.get)})
-            self.truth = root[0]
+            likely = sorted(seen, key=seen.get, reverse=True)[: max(1, self.vision_breadth)]
+            visible = set(likely) | {m for m in board.legal_moves
+                                     if seen.get(m, 0.0) >= self.vision_min or forcing(board, m)}
+            self.truth, full = root[0], root
             root = [l for l in root if l.move in visible]
             if len(root) < min(len(visible), multipv):  # coups vus hors des meilleures lignes
                 root = analyser.analyse(board, multipv=min(len(visible), multipv), depth=self.depth,
                                         moves=list(visible))
+            if self.vision_panic > 0 and self.truth.score - root[0].score >= self.vision_panic:
+                root, visible = full, None  # ça brûle : il cherche plus loin que ses coups naturels
         else:
             self.truth = root[0]
         tolerance, degree = self.tolerance, self.degree(root[0])
@@ -191,6 +201,9 @@ class Soundness:
             degree = self.degree(root[0])
         if degree > 0 and self.convert_tolerance < self.tolerance:
             tolerance = round(self.tolerance - degree * (self.tolerance - self.convert_tolerance))
+        trouble = defending(root[0].score, self.defend_from, self.defend_full)
+        if trouble > 0 and self.convert_tolerance < self.tolerance:  # en difficulté, chaque erreur compte
+            tolerance = round(self.tolerance - trouble * (self.tolerance - self.convert_tolerance))
         best = root[0]
         return [l for l in root if regret(best, l) <= tolerance], degree
 

@@ -79,12 +79,14 @@ def test_vision_hides_moves_a_human_would_not_play():
     from fun_fish.personalities.base import Soundness
     board = chess.Board()
     fake = FakeAnalyser({"g1h3": 300, "e2e4": 30, "d2d4": 25, "c2c4": 10})
-    s = Soundness(tolerance=50, depth=5, max_candidates=12, convert_from=0)
+    s = Soundness(tolerance=50, depth=5, max_candidates=12, convert_from=0, vision_breadth=3, vision_panic=0)
     assert [l.move.uci() for l in s.lines(board, fake)[0]] == ["g1h3"]  # tout voir : seul Ch3 est sain
     seen = {chess.Move.from_uci(u): p for u, p in {"e2e4": 0.6, "d2d4": 0.3, "c2c4": 0.09, "g1h3": 0.01}.items()}
     lines, _ = s.lines(board, fake, seen)
     assert [l.move.uci() for l in lines] == ["e2e4", "d2d4", "c2c4"]  # Ch3 n'est pas vu
     assert s.truth.move.uci() == "g1h3"
+    s.vision_panic = 200  # Ch3 vaut 2,7 pions de plus : ça brûle, il voit tout
+    assert [l.move.uci() for l in s.lines(board, fake, seen)[0]] == ["g1h3"]
 
 
 

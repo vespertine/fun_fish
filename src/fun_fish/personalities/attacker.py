@@ -97,6 +97,8 @@ class Attacker(Personality):
         "min_probability": "Probabilité minimale pour suivre une réponse (0 à 1)",
         "vision_elo": "Vision : n'envisage que les coups qu'un humain de cet Elo jouerait (Maia ; 0 = tous les coups sains)",
         "vision_min": "Vision : probabilité minimale (selon Maia) pour qu'un coup soit vu",
+        "vision_breadth": "Vision : ses N coups les plus naturels sont toujours envisagés",
+        "vision_panic": "Vision : si ce qu'il voit perd au moins autant (cp) sur le vrai meilleur coup, il voit tout (0 = jamais)",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
         "w_repeat": "Conversion : pénalité pour revenir à une position déjà vue (× degré de conversion)",
@@ -128,7 +130,7 @@ class Attacker(Personality):
                  w_center: float = 0.0, w_threat: float = 0.0, mood: float = 0.0,
                  w_repertoire: float = 0.0, repertoire_rate: float = 0.0,
                  style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02,
-                 w_human: float = 0.0, defend_from: int = 100, defend_full: int = 400, w_counterplay: float = 0.0,
+                 vision_breadth: int = 6, vision_panic: int = 150, w_human: float = 0.0, defend_from: int = 100, defend_full: int = 400, w_counterplay: float = 0.0,
                  convert_elo: int = 0, w_repeat: float = 0.0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
@@ -156,6 +158,7 @@ class Attacker(Personality):
         self.style_margin = style_margin
         self.vision_elo, self.vision_min = vision_elo, vision_min
         self.w_human = w_human
+        self.vision_breadth, self.vision_panic = vision_breadth, vision_panic
         self.defend_from, self.defend_full, self.w_counterplay = defend_from, defend_full, w_counterplay
         self.convert_elo, self.w_repeat = convert_elo, w_repeat
         self._models: dict[int, OpponentModel] = {}
@@ -185,7 +188,8 @@ class Attacker(Personality):
     def soundness(self) -> Soundness:
         return Soundness(self.tolerance, self.soundness_depth, self.max_candidates,
                          self.convert_from, self.convert_full, self.convert_depth, self.convert_tolerance,
-                         self.vision_min)
+                         self.vision_min, self.vision_breadth, self.vision_panic, self.defend_from,
+                         self.defend_full)
 
     def seen(self, board: chess.Board, analyser: Analyser) -> dict[chess.Move, float] | None:
         """Ce qu'un humain de `vision_elo` jouerait ici (None : il voit tout)."""
