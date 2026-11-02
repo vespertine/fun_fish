@@ -26,18 +26,22 @@ def test_plays_a_legal_move_with_fake_engine(fake_analyser):
 
 
 def test_goes_for_scholars_mate_against_naive_opponent(stockfish_analyser):
-    """Après 1.e4 e5 2.Fc4 Cc6, Dh5 menace Dxf7# : un joueur à 1100 Elo répond Cf6?? 15 % du temps."""
+    """Après 1.e4 e5 2.Fc4 Cc6, Dh5 menace Dxf7# : sur Lichess, sous 1000 Elo, Cf6?? 9 % du temps."""
     pytest.importorskip("maia2")
     board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3")
-    attacker = Attacker(rng=random.Random(0), temperature=0.05, opponent_elo=1100)
+    attacker = Attacker(rng=random.Random(0), temperature=0.05, opponent_elo=900)
     evals = {}
     root = stockfish_analyser.analyse(board, multipv=12, depth=10)
     for line in root:
         if board.san(line.move) in ("Qh5", "Nf3"):
             evals[board.san(line.move)] = attacker.scored(
                 attacker.evaluate(board, line, root[0], stockfish_analyser, moves=2), root[0])
-    assert evals["Qh5"].outcome.mate > 0.05
-    assert evals["Qh5"].score > evals["Nf3"].score
+    assert evals["Qh5"].outcome.mate > 0.05 and "Qxf7#" in evals["Qh5"].outcome.best[1]
+    assert evals["Nf3"].outcome.mate == 0
+    # 9 % de mat ne paient pas le demi-pion que coûte Dh5... sauf pour qui tient vraiment à mater.
+    assert evals["Qh5"].score < evals["Nf3"].score
+    attacker.w_mate = 10
+    assert attacker.scored(evals["Qh5"], root[0]).score > attacker.scored(evals["Nf3"], root[0]).score
 
 
 def test_maia_model_mentions_elo(stockfish_analyser):
