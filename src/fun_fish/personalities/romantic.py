@@ -24,7 +24,7 @@ class Romantic(Attacker):
                    "Ses ouvertures changent avec son humeur.")
     DEFAULTS = {"w_develop": 0.6, "w_open": 0.4, "w_king": 0.4, "w_activity": 0.2,
                 "w_initiative": 0.4, "w_sacrifice": 0.3,
-                "w_center": 0.5, "w_threat": 0.4, "mood": 0.3, "convert_elo": 1200, "w_repeat": 1.0, "w_technique": 0.6, "w_repertoire": 2.0, "repertoire_rate": 0.2, "mate_within": 4}
+                "w_center": 0.5, "w_threat": 0.4, "mood": 0.3, "convert_elo": 1200, "w_repeat": 1.0, "w_technique": 0.6, "w_counterplay": 0.6, "vision_elo": 1800, "w_human": 0.3, "w_repertoire": 2.0, "repertoire_rate": 0.2, "mate_within": 4}
 
     def __init__(self, **kwargs):
         super().__init__(**{**self.DEFAULTS, **kwargs})

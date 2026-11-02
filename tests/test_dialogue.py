@@ -87,23 +87,36 @@ def test_vision_hides_moves_a_human_would_not_play():
     assert s.truth.move.uci() == "g1h3"
 
 
-def test_widen_only_for_a_spark_or_an_emergency():
-    from fun_fish.personalities.attacker import Attacker, CandidateEval, Outcome, Thought
+
+def test_vision_always_sees_forcing_moves():
+    from fun_fish.personalities.base import Soundness
+    board = chess.Board("4k3/8/8/8/3q4/5N2/8/R6K w - - 0 1")
+    fake = FakeAnalyser({"a1a8": 900, "f3d4": 880, "a1a2": -500})
+    s = Soundness(tolerance=50, depth=5, max_candidates=12, convert_from=0, convert_depth=0)
+    seen = {chess.Move.from_uci("a1a2"): 0.9, chess.Move.from_uci("f3d4"): 0.01, chess.Move.from_uci("a1a8"): 0.01}
+    lines, _ = s.lines(board, fake, seen)
+    assert [l.move.uci() for l in lines] == ["a1a8", "f3d4"]  # l'échec et la prise sont vus, même improbables
+
+
+def test_naturalness_spares_forcing_moves():
+    from fun_fish.personalities.attacker import Attacker
     board = chess.Board()
-    mv = lambda u: chess.Move.from_uci(u)  # noqa: E731
-    line = lambda u, s: Line(mv(u), s, None, None, (mv(u),), 5)  # noqa: E731
-    ev = lambda u, s, win: CandidateEval(line(u, s), 0, Outcome(win=win))  # noqa: E731
-    a = Attacker(w_eval=0.0)
-    full = Thought([ev("e2e4", 30, 0.0), ev("g1h3", 20, 0.9), ev("a2a3", 25, 0.1)], {}, line("e2e4", 30), 0.0, None)
-    a.think = lambda *args: full
+    a = Attacker(vision_min=0.02)
+    seen = {chess.Move.from_uci("e2e4"): 0.5, chess.Move.from_uci("a2a3"): 0.05}
+    value = a.naturalness(board, list(seen) + [chess.Move.from_uci("h2h3")], seen)
+    assert value[chess.Move.from_uci("e2e4")] == 0.0
+    assert value[chess.Move.from_uci("a2a3")] < 0
+    assert value[chess.Move.from_uci("h2h3")] < value[chess.Move.from_uci("a2a3")]  # jamais vu : plancher
 
-    calm = Thought([ev("e2e4", 30, 0.0)], {}, line("e2e4", 30), 0.0, line("e2e4", 30))
-    widened, why = a.widen(board, None, calm, None, None)
-    assert [e.line.move.uci() for e in widened.evals] == ["e2e4", "g1h3"]  # la fulgurance, pas le coup d'attente
-    assert "plus loin" in why
 
-    excited = Thought([ev("e2e4", 30, 0.8)], {}, line("e2e4", 30), 0.0, line("e2e4", 30))
-    assert a.widen(board, None, excited, None, None)[0] is excited  # ce qu'il voit lui plaît
-
-    burning = Thought([ev("e2e4", -300, 0.8)], {}, line("e2e4", -300), 0.0, line("d2d4", 0))
-    assert a.widen(board, None, burning, None, None)[0] is full  # ça brûle : tout ce qui sauve
+def test_counterplay_when_in_trouble():
+    from fun_fish.personalities.base import defending
+    from fun_fish.style import Style
+    assert defending(-100, 150, 500) == 0.0 and defending(-500, 150, 500) == 1.0
+    board = chess.Board("4k3/8/8/8/8/8/1q6/R3K3 w - - 0 1")  # en retard d'une dame
+    quiet, check = chess.Move.from_uci("e1f1"), chess.Move.from_uci("a1a8")
+    lines = [Line(quiet, -800, None, None, (quiet,), 5), Line(check, -810, None, None, (check,), 5)]
+    calm = Style().bonuses(board, lines, lines[0])
+    assert calm[quiet] == calm[check] == 0.0
+    fight = Style().bonuses(board, lines, lines[0], counterplay=0.6)
+    assert fight[check] > fight[quiet]  # l'échec pose une question

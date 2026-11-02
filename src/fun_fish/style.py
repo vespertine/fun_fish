@@ -49,10 +49,10 @@ SURPRISE_ELO = 2000
 LABELS = {"develop": "il se développe", "open": "il ouvre les lignes", "king": "il vise le roi",
           "activity": "il active ses pièces", "initiative": "il joue l'initiative plutôt que le matériel",
           "sacrifice": "il sacrifie", "surprise": "il sort des sentiers battus",
-          "technique": "il convertit", "center": "il occupe le centre", "threat": "il gagne du temps"}
+          "technique": "il convertit", "counterplay": "il cherche du contre-jeu", "center": "il occupe le centre", "threat": "il gagne du temps"}
 # écart type minimal de chaque mesure, dans ses unités : en deçà, pas d'opinion tranchée
 FLOORS = {"develop": 0.5, "open": 1.0, "king": 1.0, "activity": 3.0, "initiative": 0.3, "sacrifice": 0.5,
-          "surprise": 0.5, "technique": 1.0, "center": 0.5, "threat": 0.5}
+          "surprise": 0.5, "technique": 1.0, "counterplay": 0.5, "center": 0.5, "threat": 0.5}
 CENTER = chess.BB_D4 | chess.BB_E4 | chess.BB_D5 | chess.BB_E5
 FLANK_CENTER = chess.BB_C4 | chess.BB_F4 | chess.BB_C5 | chess.BB_F5
 VALUES = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
@@ -99,14 +99,15 @@ class Style:
         return any(getattr(self, f.name) for f in fields(self))
 
     def bonuses(self, board: chess.Board, lines: list[Line], best: Line,
-                conversion: float = 0.0, planned: tuple[chess.Move, str] | None = None) -> dict[chess.Move, float]:
+                conversion: float = 0.0, planned: tuple[chess.Move, str] | None = None,
+                counterplay: float = 0.0) -> dict[chess.Move, float]:
         """Bonus de style de chaque coup (somme pondérée des mesures normalisées) ; `conversion`
-        est le poids de la technique de conversion."""
-        if not (self.active() or conversion > 0) or len(lines) < 2:
+        est le poids de la technique de conversion, `counterplay` celui du contre-jeu en défense."""
+        if not (self.active() or conversion > 0 or counterplay > 0) or len(lines) < 2:
             self.reasons = {}
             return {line.move: 0.0 for line in lines}
         weights = {f.name[2:]: getattr(self, f.name) for f in fields(self) if f.name != "w_repertoire"}
-        weights |= {"technique": conversion}
+        weights |= {"technique": conversion, "counterplay": counterplay}
         raw = {name: [] for name in weights}
         opening = max(0.0, 1.0 - board.ply() / OPENING_PLIES)
         equal = math.exp(-abs(best.score) / 200)  # 1 à position égale, ~0 quand l'un domine
@@ -129,6 +130,7 @@ class Style:
             p = human.get(line.move)
             raw["surprise"].append(opening * -math.log(max(p, 1e-4)) if p is not None else 0.0)
             raw["technique"].append(technique(settled, us) if conversion > 0 else 0.0)
+            raw["counterplay"].append(questions(after, us) if counterplay > 0 else 0.0)
             raw["center"].append(middlegame * center(after, us))
             raw["threat"].append(threats(after, us))
         bonus = [0.0] * len(lines)
@@ -166,6 +168,11 @@ def center(board: chess.Board, color: chess.Color) -> float:
     pawns = board.pieces_mask(chess.PAWN, color)
     score = chess.popcount(pawns & CENTER) + 0.5 * chess.popcount(pawns & FLANK_CENTER)
     return score + 0.2 * sum(len(board.attackers(color, sq)) for sq in chess.SquareSet(CENTER))
+
+
+def questions(board: chess.Board, color: chess.Color) -> float:
+    """Ce que le coup demande à l'adversaire : un échec, des pièces menacées, son roi visé."""
+    return 1.5 * board.is_check() + threats(board, color) + 0.3 * king_pressure(board, color)
 
 
 def threats(board: chess.Board, color: chess.Color) -> float:

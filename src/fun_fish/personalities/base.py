@@ -129,8 +129,9 @@ class Soundness:
 
     **Vision** : si `seen` est donné (probabilité de chaque coup chez un humain d'un certain
     niveau), seuls les coups qu'il jouerait avec au moins `vision_min` de probabilité sont
-    envisagés, et la tolérance se mesure au meilleur d'entre eux. Un sauvetage ou un gain trop
-    « machine » passe alors inaperçu. `truth` garde le vrai meilleur coup, pour le verdict.
+    envisagés, plus tous les coups forcés (échecs, prises, promotions), qu'un attaquant regarde
+    toujours ; la tolérance se mesure au meilleur d'entre eux. Un coup calme trop « machine »
+    (prophylaxie, attente, retraite subtile) passe alors inaperçu. `truth` garde le vrai meilleur coup, pour le verdict.
     """
 
     tolerance: int
@@ -156,7 +157,8 @@ class Soundness:
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
         visible = None
         if seen:
-            visible = {m for m, p in seen.items() if p >= self.vision_min} or {max(seen, key=seen.get)}
+            visible = ({m for m in board.legal_moves if seen.get(m, 0.0) >= self.vision_min or forcing(board, m)}
+                       or {max(seen, key=seen.get)})
             self.truth = root[0]
             root = [l for l in root if l.move in visible]
             if len(root) < min(len(visible), multipv):  # coups vus hors des meilleures lignes
@@ -180,8 +182,20 @@ class Soundness:
         return [l for l in root if regret(best, l) <= tolerance], degree
 
 
+def forcing(board: chess.Board, move: chess.Move) -> bool:
+    """Échec, prise ou promotion : ce qu'un humain regarde d'abord, même quand c'est improbable."""
+    return board.is_capture(move) or move.promotion is not None or board.gives_check(move)
+
+
 def converting_note(degree: float) -> str:
     return "Avec un net avantage, il cherche à conclure. " if degree >= 0.5 else ""
+
+
+def defending(score: int, start: int, full: int) -> float:
+    """Degré de difficulté (0 à 1) : de −`start` à −`full` cp pour le meilleur coup."""
+    if start <= 0 or full <= start:
+        return 0.0
+    return max(0.0, min(1.0, (-score - start) / (full - start)))
 
 
 CONVERT_HELP = {
@@ -190,6 +204,9 @@ CONVERT_HELP = {
     "convert_depth": "Conversion et finales : demi-coups de vérification en plus, au maximum",
     "convert_tolerance": "Conversion : perte maximale acceptée quand elle est complète (centipions)",
     "w_technique": "Conversion : poids de la technique (simplifier, pions passés, roi actif)",
+    "defend_from": "Défense : retard (cp) à partir duquel il cherche du contre-jeu (0 = jamais)",
+    "defend_full": "Défense : retard (cp) où la recherche de contre-jeu est complète",
+    "w_counterplay": "Défense : poids du contre-jeu (échecs, menaces, roi adverse visé), × degré de difficulté",
 }
 
 
