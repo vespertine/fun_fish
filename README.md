@@ -80,7 +80,11 @@ type plancher : une différence minuscule entre coups ne fait pas une opinion tr
 L'humeur redistribue les goûts sans changer leur poids total.
 
 `vision_elo` limite ses coups à ceux qu'un humain de cet Elo jouerait (probabilité Maia ≥
-`vision_min`) : il peut rater un sauvetage ou un gain trop « machine ». En conversion,
+`vision_min`) : il peut rater un gain trop « machine ». Il ne cherche plus loin que dans deux
+cas : la position brûle (ce qu'il voit perd au moins `vision_panic` cp sur le vrai meilleur
+coup) et il prend tout ce qui sauve ; ou rien de ce qu'il voit n'a d'occasion d'attaque
+(moins de `vision_spark` points) et il ne retient alors qu'une fulgurance cachée, jamais un
+coup d'attente ou prophylactique. En conversion,
 `convert_elo` fait monter l'adversaire imaginé (il compte moins sur les gaffes), `w_repeat`
 pénalise le retour à une position déjà vue, et le mat est cherché un coup plus loin.
 

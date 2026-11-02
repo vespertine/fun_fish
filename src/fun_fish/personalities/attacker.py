@@ -48,6 +48,17 @@ CLIP = 1000  # évals bornées à ±10 pions
 
 
 @dataclass
+class Thought:
+    """Une réflexion : les coups examinés, les goûts, le meilleur coup vu, le degré de conversion."""
+
+    evals: list
+    bonus: dict
+    best: Line
+    degree: float
+    truth: Line | None
+
+
+@dataclass
 class Outcome:
     """Bilan d'un sous-arbre, pondéré par les probabilités de l'adversaire. Point de vue : nous."""
 
@@ -97,6 +108,8 @@ class Attacker(Personality):
         "min_probability": "Probabilité minimale pour suivre une réponse (0 à 1)",
         "vision_elo": "Vision : n'envisage que les coups qu'un humain de cet Elo jouerait (Maia ; 0 = tous les coups sains)",
         "vision_min": "Vision : probabilité minimale (selon Maia) pour qu'un coup soit vu",
+        "vision_panic": "Vision : s'il voit perdre au moins autant (cp) sur le vrai meilleur coup, il cherche parmi tous les coups (0 = jamais)",
+        "vision_spark": "Vision : sans occasion d'attaque de cette force dans ce qu'il voit, il cherche une fulgurance parmi les autres coups (0 = jamais)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
         "w_repeat": "Conversion : pénalité pour revenir à une position déjà vue (× degré de conversion)",
         "mate_within": "Un mat forcé en N coups ou moins compte comme un mat (vérifié plus profond si l'éval est écrasante)",
@@ -127,7 +140,7 @@ class Attacker(Personality):
                  w_center: float = 0.0, w_threat: float = 0.0, mood: float = 0.0,
                  w_repertoire: float = 0.0, repertoire_rate: float = 0.0,
                  style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02,
-                 convert_elo: int = 0, w_repeat: float = 0.0,
+                 vision_panic: int = 200, vision_spark: float = 1.0, convert_elo: int = 0, w_repeat: float = 0.0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -153,6 +166,7 @@ class Attacker(Personality):
         self.w_center, self.w_threat, self.mood = w_center, w_threat, mood
         self.style_margin = style_margin
         self.vision_elo, self.vision_min = vision_elo, vision_min
+        self.vision_panic, self.vision_spark = vision_panic, vision_spark
         self.convert_elo, self.w_repeat = convert_elo, w_repeat
         self._models: dict[int, OpponentModel] = {}
         self._elo_now = opponent_elo
@@ -311,15 +325,15 @@ class Attacker(Personality):
             self._planner = Planner(openings, self.rng, self.repertoire_rate)
         return self._planner.next(board)
 
-    def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        seen = self.seen(board, analyser)
+    def think(self, board: chess.Board, analyser: Analyser, seen: dict[chess.Move, float] | None,
+              style: Style, planned: tuple[chess.Move, str] | None) -> Thought:
+        """Filtre de santé, puis attaque et style sur les coups sains (ceux qu'il voit)."""
         soundness = self.soundness()
         sound, degree = soundness.lines(board, analyser, seen)
         best = sound[0]
         self._elo_now = self.imagined_elo(degree)
         self._mate_now = self.mate_within + round(degree)  # gagnant : il cherche le mat un coup plus loin
-        style = self.style(board)
-        bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique, planned=self.planned(board))
+        bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique, planned=planned)
         if self.style_first > 0 and bonus:
             sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
         children = []
@@ -337,6 +351,46 @@ class Attacker(Personality):
                 self.scored(self.evaluate(board, e.line, best, analyser, moves=self.attack_moves), best)
                 for e in evals[: self.deep_candidates]
             ]
+        return Thought(evals, bonus, best, degree, soundness.truth)
+
+    def widen(self, board: chess.Board, analyser: Analyser, first: Thought, style: Style,
+              planned: tuple[chess.Move, str] | None) -> tuple[Thought, str]:
+        """Ce qu'il voit ne lui plaît pas : il cherche plus loin, parmi tous les coups sains.
+
+        Deux raisons de chercher : la position brûle (le meilleur coup qu'il voit perd au moins
+        `vision_panic` cp sur le vrai meilleur), et il prend alors tout ce qui sauve ; ou rien
+        de ce qu'il voit n'a d'occasion d'attaque d'au moins `vision_spark` points, et il ne
+        retient alors que les coups cachés qui en ont nettement plus (une fulgurance), pas les
+        coups d'attente ou prophylactiques d'une machine.
+        """
+        top = max((self.opportunity(e) for e in first.evals), default=0.0)
+        truth = first.truth
+        panic = (self.vision_panic > 0 and truth is not None
+                 and truth.score - first.best.score >= self.vision_panic)
+        bored = self.vision_spark > 0 and top < self.vision_spark
+        if not (panic or bored):
+            return first, ""
+        full = self.think(board, analyser, None, style, planned)
+        if panic:
+            return full, "Ça sent le roussi : il cherche plus loin que ses coups naturels. "
+        visible = {e.line.move for e in first.evals}
+        sparks = [e for e in full.evals
+                  if e.line.move not in visible and self.opportunity(e) >= top + self.vision_spark]
+        if not sparks:
+            return first, ""
+        kept = [e for e in full.evals if e.line.move in visible] + sparks
+        return (Thought(kept, full.bonus, full.best, full.degree, full.truth),
+                "Rien d'excitant dans ses coups naturels : il cherche plus loin. ")
+
+    def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
+        seen = self.seen(board, analyser)
+        style = self.style(board)
+        planned = self.planned(board)
+        thought = self.think(board, analyser, seen, style, planned)
+        searched = ""
+        if seen is not None:
+            thought, searched = self.widen(board, analyser, thought, style, planned)
+        evals, bonus, best, degree = thought.evals, thought.bonus, thought.best, thought.degree
 
         scores = self.combine(evals, bonus)
         if self.w_repeat and degree > 0:  # en conversion, ne pas tourner en rond
@@ -353,11 +407,12 @@ class Attacker(Personality):
             for e, p in sorted(zip(evals, probabilities), key=lambda x: -x[1])
         ]
         san = board.san(chosen.line.move)
+        hidden = seen is not None and seen.get(chosen.line.move, 0.0) < self.vision_min
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=converting_note(degree) + self.explain(san, chosen,
-                                                                                      style.reasons.get(chosen.line.move)),
+                        explanation=converting_note(degree) + (searched if hidden else "")
+                        + self.explain(san, chosen, style.reasons.get(chosen.line.move)),
                         candidates=candidates,
-                        reality=self.cost(board, chosen, best, soundness.truth))
+                        reality=self.cost(board, chosen, best, thought.truth))
 
     def explain(self, san: str, e: CandidateEval, taste: str | None = None) -> str:
         o = e.outcome

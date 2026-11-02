@@ -85,3 +85,25 @@ def test_vision_hides_moves_a_human_would_not_play():
     lines, _ = s.lines(board, fake, seen)
     assert [l.move.uci() for l in lines] == ["e2e4", "d2d4", "c2c4"]  # Ch3 n'est pas vu
     assert s.truth.move.uci() == "g1h3"
+
+
+def test_widen_only_for_a_spark_or_an_emergency():
+    from fun_fish.personalities.attacker import Attacker, CandidateEval, Outcome, Thought
+    board = chess.Board()
+    mv = lambda u: chess.Move.from_uci(u)  # noqa: E731
+    line = lambda u, s: Line(mv(u), s, None, None, (mv(u),), 5)  # noqa: E731
+    ev = lambda u, s, win: CandidateEval(line(u, s), 0, Outcome(win=win))  # noqa: E731
+    a = Attacker(w_eval=0.0)
+    full = Thought([ev("e2e4", 30, 0.0), ev("g1h3", 20, 0.9), ev("a2a3", 25, 0.1)], {}, line("e2e4", 30), 0.0, None)
+    a.think = lambda *args: full
+
+    calm = Thought([ev("e2e4", 30, 0.0)], {}, line("e2e4", 30), 0.0, line("e2e4", 30))
+    widened, why = a.widen(board, None, calm, None, None)
+    assert [e.line.move.uci() for e in widened.evals] == ["e2e4", "g1h3"]  # la fulgurance, pas le coup d'attente
+    assert "plus loin" in why
+
+    excited = Thought([ev("e2e4", 30, 0.8)], {}, line("e2e4", 30), 0.0, line("e2e4", 30))
+    assert a.widen(board, None, excited, None, None)[0] is excited  # ce qu'il voit lui plaît
+
+    burning = Thought([ev("e2e4", -300, 0.8)], {}, line("e2e4", -300), 0.0, line("d2d4", 0))
+    assert a.widen(board, None, burning, None, None)[0] is full  # ça brûle : tout ce qui sauve
