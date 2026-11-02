@@ -10,6 +10,10 @@
   --chosen: rgba(127, 166, 80, 0.22);
   --danger: #d27560;
   --board-size: min(92vw, calc(100vh - 110px), 720px);
+  --square-light: #f0d9b5;
+  --square-dark: #b0835b;
+  --coord-on-light: #8a6240;
+  --coord-on-dark: #f6e7cf;
 }
 
 * { box-sizing: border-box; }
@@ -146,6 +150,28 @@ button.primary { background: var(--accent); color: var(--accent-text); border-co
   background: var(--panel-2); border: 1px solid var(--danger); border-radius: 8px;
   padding: 10px 16px; z-index: 20; max-width: 90vw;
 }
+
+/* Échiquier : cases foncées plus marquées que le thème brun de chessground (a1 foncée). */
+cg-board {
+  background: repeating-conic-gradient(var(--square-dark) 0 25%, var(--square-light) 0 50%) 0 0 / 25% 25%;
+}
+
+/* Coordonnées : plus grandes, minuscules, dans la couleur opposée à leur case. */
+.cg-wrap coords {
+  opacity: 1;
+  font-weight: 600;
+  font-size: clamp(11px, calc(var(--board-size) / 48), 15px);
+}
+.cg-wrap coords.files { text-transform: lowercase; bottom: 1px; }
+/* a1 est foncée : chiffres et lettres impairs sur case foncée côté Blancs, l'inverse côté Noirs. */
+.cg-wrap.orientation-white coords.ranks coord:nth-child(odd),
+.cg-wrap.orientation-white coords.files coord:nth-child(odd),
+.cg-wrap.orientation-black coords.ranks coord:nth-child(even),
+.cg-wrap.orientation-black coords.files coord:nth-child(even) { color: var(--coord-on-dark); }
+.cg-wrap.orientation-white coords.ranks coord:nth-child(even),
+.cg-wrap.orientation-white coords.files coord:nth-child(even),
+.cg-wrap.orientation-black coords.ranks coord:nth-child(odd),
+.cg-wrap.orientation-black coords.files coord:nth-child(odd) { color: var(--coord-on-light); }
 
 @media (max-width: 760px) {
   .layout { padding: 8px; gap: 12px; }
