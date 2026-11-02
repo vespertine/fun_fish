@@ -13,13 +13,22 @@
    - **gain** = probabilité de gagner au moins `big_gain` pions de matériel ;
    - **éval** = éval attendue au bout, par rapport à un jeu correct de l'adversaire.
 
-score = w_mate × mat + w_win × gain + w_eval × éval (pions) − w_loss × perte (pions), puis
-tirage softmax de température `temperature`. On évalue d'abord tous les candidats sur un
+score = w_mate × mat + w_win × gain + w_eval × éval (pions) − w_loss × perte (pions).
+
+5. **Dialogue avec le style** : le bonus de style (voir `fun_fish.style`) s'ajoute au score,
+   mais il se tait quand l'attaque a une idée nettement meilleure. L'occasion d'un coup
+   (mat, gain, et ce que l'attaque espère au-delà de l'éval du coup) est comparée à la
+   meilleure occasion : à `style_margin` points d'écart, son style ne compte plus qu'au tiers.
+   Quand l'attaque n'a pas d'idée tranchée, le style décide ; quand elle en a une, il ne peut
+   plus la renverser.
+
+Puis tirage softmax de température `temperature`. On évalue d'abord tous les candidats sur un
 seul coup adverse, puis les `deep_candidates` meilleurs sur tout l'horizon.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import chess
@@ -29,6 +38,7 @@ from fun_fish.opponent import MaiaModel, OpponentModel, make_model
 from fun_fish.personalities.base import (CONVERT_HELP, Candidate, Decision, Personality, Soundness, converting_note,
                                          format_score,
                                          pick, regret, softmax)
+from fun_fish.repertoire import REPERTOIRES, Planner
 from fun_fish.style import STYLE_HELP, Style, material, settled_material
 
 
@@ -85,7 +95,7 @@ class Attacker(Personality):
         "branching": "Réponses adverses suivies à chaque coup",
         "plausible_mass": "Probabilité cumulée des réponses suivies (0 à 1)",
         "min_probability": "Probabilité minimale pour suivre une réponse (0 à 1)",
-        "mate_within": "Un mat forcé en N coups ou moins compte comme un mat",
+        "mate_within": "Un mat forcé en N coups ou moins compte comme un mat (vérifié plus profond si l'éval est écrasante)",
         "big_gain": "Gain de matériel qui compte comme une réussite (pions)",
         "w_mate": "Poids de la probabilité de mater",
         "w_win": "Poids de la probabilité de gros gain matériel",
@@ -109,7 +119,8 @@ class Attacker(Personality):
                  convert_from: int = 300, convert_full: int = 800, convert_depth: int = 4,
                  convert_tolerance: int = 60, w_technique: float = 1.0,
                  w_develop: float = 0.0, w_open: float = 0.0, w_king: float = 0.0, w_activity: float = 0.0,
-                 w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0, style_first: int = 0,
+                 w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0,
+                 w_repertoire: float = 0.0, style_margin: float = 1.0, style_first: int = 0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -132,7 +143,9 @@ class Attacker(Personality):
         self.w_technique = w_technique
         self.w_develop, self.w_open, self.w_king, self.w_activity = w_develop, w_open, w_king, w_activity
         self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
+        self.w_repertoire, self.style_margin = w_repertoire, style_margin
         self.style_first = style_first
+        self._planner: Planner | None = None
         self._model: OpponentModel | None = None
 
     @property
@@ -182,6 +195,9 @@ class Attacker(Personality):
                  base: int) -> Outcome:
         """À nous : le meilleur coup de Stockfish, jusqu'à l'horizon ou à un mat en vue."""
         line = analyser.analyse(position, multipv=1, depth=self.attack_depth)[0]
+        deep = 2 * self.mate_within - 1  # demi-coups d'un mat en mate_within
+        if line.mate is None and line.score >= 500 and deep > self.attack_depth:
+            line = analyser.analyse(position, multipv=1, depth=deep)[0]  # écrasant : un mat plus loin ?
         if line.mate is not None and 0 < line.mate <= self.mate_within:
             return Outcome(mate=1.0, win=1.0, value=CLIP, best=(1.0, [position.san(line.move), f"(mat en {line.mate})"]))
         gain = settled_material(position, line.pv, us) - base
@@ -221,17 +237,36 @@ class Attacker(Personality):
 
     # ---------- choix ----------
 
-    @staticmethod
-    def styled(e, bonus: dict[chess.Move, float]):
-        e.style = bonus.get(e.line.move, 0.0)
-        e.score += e.style
-        return e
+    def opportunity(self, e: CandidateEval) -> float:
+        """Ce que l'attaque espère de ce coup au-delà de son éval : mat, gain, éval attendue en plus."""
+        o = e.outcome
+        hope = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, e.line.score))) / 100
+        return self.w_mate * o.mate + self.w_win * o.win + self.w_eval * hope
+
+    def combine(self, evals: list[CandidateEval], bonus: dict[chess.Move, float]) -> list[float]:
+        """Score final : attaque + style, le style étant tempéré quand l'attaque voit mieux ailleurs."""
+        chances = [self.opportunity(e) for e in evals]
+        top = max(chances, default=0.0)
+        scores = []
+        for e, chance in zip(evals, chances):
+            voice = math.exp(-(top - chance) / self.style_margin) if self.style_margin > 0 else 1.0
+            e.style = voice * bonus.get(e.line.move, 0.0)
+            scores.append(e.score + e.style)
+        return scores
+
+    def planned(self, board: chess.Board) -> tuple[chess.Move, str] | None:
+        openings = REPERTOIRES.get(self.key)
+        if not (self.w_repertoire and openings):
+            return None
+        if self._planner is None:
+            self._planner = Planner(openings, self.rng)
+        return self._planner.next(board)
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         sound, degree = self.soundness().lines(board, analyser)
         best = sound[0]
         style = Style.of(self)
-        bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique)
+        bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique, planned=self.planned(board))
         if self.style_first > 0 and bonus:
             sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
         children = []
@@ -241,15 +276,16 @@ class Attacker(Personality):
             children.append(child)
         self.model.prefetch(children)
 
-        evals = [self.styled(self.scored(self.evaluate(board, line, best, analyser, moves=1), best), bonus) for line in sound]
+        evals = [self.scored(self.evaluate(board, line, best, analyser, moves=1), best) for line in sound]
         if self.attack_moves > 1:
-            evals.sort(key=lambda e: -e.score)
+            first = self.combine(evals, bonus)
+            evals = [e for _, e in sorted(zip(first, evals), key=lambda x: -x[0])]
             evals[: self.deep_candidates] = [
-                self.styled(self.scored(self.evaluate(board, e.line, best, analyser, moves=self.attack_moves), best), bonus)
+                self.scored(self.evaluate(board, e.line, best, analyser, moves=self.attack_moves), best)
                 for e in evals[: self.deep_candidates]
             ]
 
-        probabilities = softmax([e.score for e in evals], self.temperature)
+        probabilities = softmax(self.combine(evals, bonus), self.temperature)
         chosen = evals[pick(probabilities, self.rng)]
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,

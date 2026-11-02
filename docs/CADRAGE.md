@@ -197,6 +197,20 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       toujours 100 %, mais mat médian en 34 coups pour le cogneur (19 avant) et 26 pour le
       romantique (22) ; matériel au coup 10 du cogneur : −0,2 (+2,5 avant). Les anciens
       résultats étaient flattés par les ouvertures absurdes de Maia
+- [x] Après une deuxième partie contre le bot à 2750 (ouverture sage, 1.d4 Cf3 Cc3 e3 Fe2 O-O
+      b3 ; au coup 25, `Ra5` tiré à 90 % contre `dxe5`, qui gagnait du matériel, parce que le
+      style l'emportait de 3 points) :
+      - **Dialogue attaque-style** (`Attacker.combine`) : le style d'un coup est tempéré par
+        l'écart entre son occasion d'attaque (mat, gain, éval espérée au-delà de l'éval du coup)
+        et la meilleure occasion (÷3 à `style_margin` = 1 point). Sans idée d'attaque tranchée,
+        le style décide ; avec une idée nette, il ne la renverse plus (`dxe5` à 99 %) ;
+      - **Répertoire** (`repertoire.py`) : une ligne tirée au sort par partie parmi des
+        gambits (roi, danois, Evans, Smith-Morra, Albin, Budapest, Benko, Traxler…), chacun
+        coûtant moins de 1,5 pion selon Stockfish ; un goût de plus (`w_repertoire` = 3 pour le
+        romantique), soumis au filtre de santé et au dialogue ;
+      - **Mat en 4** pour le romantique (`mate_within` = 4) : quand l'éval est écrasante (+5),
+        on vérifie à 2N−1 demi-coups s'il y a un mat.
+      Contre Maia 1500 (16 parties) : 100 %, mat médian en 20 coups (26 avant)
 - [ ] Hors du livre avant le 10e demi-coup (la moitié des cas aux demi-coups 6 à 9, nos agents
       sortant vite des sentiers battus) : remplacer Maia par autre chose (Stockfish peu
       profond avec un tirage au sort dépendant de l'Elo ?)

@@ -19,7 +19,11 @@ python-chess seul (pas d'appel à Stockfish), du point de vue du camp qui joue :
   Sortir l'adversaire de la théorie (« dark forest ») ; à manier avec prudence.
 
 Les mesures sont centrées et réduites parmi les candidats : un poids de 1 vaut à peu près
-un écart type. Le bonus total s'ajoute au score de la personnalité.
+un écart type. S'y ajoute **repertoire** : `w_repertoire` pour le coup prévu par le
+répertoire d'ouvertures de la personnalité (voir `fun_fish.repertoire`).
+
+Le bonus total s'ajoute au score de la personnalité, qui le tempère quand l'attaque a une
+idée nettement meilleure (voir `Attacker.combine`).
 """
 
 from __future__ import annotations
@@ -50,6 +54,8 @@ STYLE_HELP = {
     "w_initiative": "Style : initiative plutôt que matériel (éval moins matériel)",
     "w_sacrifice": "Style : goût du sacrifice sain, surtout à position égale",
     "w_surprise": "Style : coups peu théoriques en ouverture, selon Maia (dark forest)",
+    "w_repertoire": "Style : suivre son répertoire d'ouvertures (une ligne tirée au sort par partie)",
+    "style_margin": "Dialogue attaque-style : écart d'occasion (en points de score) qui fait taire le style d'un tiers",
     "style_first": "Style d'abord : ne garde que les N coups les plus à son goût avant de calculer (0 = non)",
 }
 
@@ -63,25 +69,28 @@ class Style:
     w_initiative: float = 0.0
     w_sacrifice: float = 0.0
     w_surprise: float = 0.0
+    w_repertoire: float = 0.0
 
     def __post_init__(self):
         self.reasons: dict[chess.Move, str] = {}  # ce qui plaît le plus dans chaque coup
 
     @classmethod
     def of(cls, obj) -> "Style":
-        return cls(**{f.name: getattr(obj, f.name) for f in fields(cls)})
+        return cls(**{f.name: getattr(obj, f.name, f.default) for f in fields(cls)})
 
     def active(self) -> bool:
         return any(getattr(self, f.name) for f in fields(self))
 
     def bonuses(self, board: chess.Board, lines: list[Line], best: Line,
-                conversion: float = 0.0) -> dict[chess.Move, float]:
+                conversion: float = 0.0, planned: tuple[chess.Move, str] | None = None) -> dict[chess.Move, float]:
         """Bonus de style de chaque coup (somme pondérée des mesures normalisées) ; `conversion`
-        est le poids de la technique de conversion."""
+        est le poids de la technique de conversion, `planned` le coup prévu par le répertoire
+        (et le nom de la ligne)."""
         if not (self.active() or conversion > 0) or len(lines) < 2:
             self.reasons = {}
             return {line.move: 0.0 for line in lines}
-        weights = {f.name[2:]: getattr(self, f.name) for f in fields(self)} | {"technique": conversion}
+        weights = {f.name[2:]: getattr(self, f.name) for f in fields(self) if f.name != "w_repertoire"}
+        weights |= {"technique": conversion}
         raw = {name: [] for name in weights}
         opening = max(0.0, 1.0 - board.ply() / OPENING_PLIES)
         equal = math.exp(-abs(best.score) / 200)  # 1 à position égale, ~0 quand l'un domine
@@ -114,6 +123,11 @@ class Style:
                     bonus[i] += weight * z
                     if name not in ("initiative", "sacrifice") or gave[i]:  # pas pour une prise
                         top[i] = max(top[i], (weight * z, LABELS[name]))
+        if planned is not None and self.w_repertoire:
+            for i, line in enumerate(lines):
+                if line.move == planned[0]:
+                    bonus[i] += self.w_repertoire
+                    top[i] = (math.inf, f"son répertoire : {planned[1]}")
         self.reasons = {line.move: reason for line, (_, reason) in zip(lines, top) if reason}
         return {line.move: b for line, b in zip(lines, bonus)}
 
