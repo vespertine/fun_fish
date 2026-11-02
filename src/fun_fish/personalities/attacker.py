@@ -39,7 +39,7 @@ from fun_fish.personalities.base import (CONVERT_HELP, Candidate, Decision, Pers
                                          format_score,
                                          pick, regret, softmax)
 from fun_fish.repertoire import REPERTOIRES, Planner
-from fun_fish.style import STYLE_HELP, Style, material, settled_material
+from fun_fish.style import STYLE_HELP, STYLE_WEIGHTS, Style, material, settled_material
 
 
 CLIP = 1000  # évals bornées à ±10 pions
@@ -120,7 +120,9 @@ class Attacker(Personality):
                  convert_tolerance: int = 60, w_technique: float = 1.0,
                  w_develop: float = 0.0, w_open: float = 0.0, w_king: float = 0.0, w_activity: float = 0.0,
                  w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0,
-                 w_repertoire: float = 0.0, style_margin: float = 1.0, style_first: int = 0,
+                 w_center: float = 0.0, w_threat: float = 0.0, mood: float = 0.0,
+                 w_repertoire: float = 0.0, repertoire_rate: float = 0.0,
+                 style_margin: float = 1.0, style_first: int = 0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -143,9 +145,12 @@ class Attacker(Personality):
         self.w_technique = w_technique
         self.w_develop, self.w_open, self.w_king, self.w_activity = w_develop, w_open, w_king, w_activity
         self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
-        self.w_repertoire, self.style_margin = w_repertoire, style_margin
-        self.style_first = style_first
+        self.w_center, self.w_threat, self.mood = w_center, w_threat, mood
+        self.style_margin = style_margin
+        self.w_repertoire, self.repertoire_rate = w_repertoire, repertoire_rate
         self._planner: Planner | None = None
+        self.style_first = style_first
+        self._mood: dict[str, float] = {}
         self._model: OpponentModel | None = None
 
     @property
@@ -254,18 +259,27 @@ class Attacker(Personality):
             scores.append(e.score + e.style)
         return scores
 
+    def style(self, board: chess.Board) -> Style:
+        """Ses goûts, teintés par l'humeur de la partie (tirée au début de chaque partie)."""
+        if self.mood <= 0:
+            return Style.of(self)
+        if board.ply() < 2 or not self._mood:
+            self._mood = {name: math.exp(self.rng.gauss(0.0, self.mood)) for name in STYLE_WEIGHTS}
+        return Style.of(self).moody(self._mood)
+
     def planned(self, board: chess.Board) -> tuple[chess.Move, str] | None:
+        """Le coup de la ligne connue qu'il a envie de jouer dans cette partie, s'il en a envie."""
         openings = REPERTOIRES.get(self.key)
-        if not (self.w_repertoire and openings):
+        if not (self.w_repertoire and self.repertoire_rate > 0 and openings):
             return None
         if self._planner is None:
-            self._planner = Planner(openings, self.rng)
+            self._planner = Planner(openings, self.rng, self.repertoire_rate)
         return self._planner.next(board)
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         sound, degree = self.soundness().lines(board, analyser)
         best = sound[0]
-        style = Style.of(self)
+        style = self.style(board)
         bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique, planned=self.planned(board))
         if self.style_first > 0 and bonus:
             sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]

@@ -51,7 +51,7 @@ fun-fish play --port 9000 --no-browser
 | `blitz` | Le blitzeur | Perception à profondeur 8, lecture humaine à 2 demi-coups : mat visible > niveau d'avantage > matériel, hasard entre coups jugés équivalents. Le panneau montre ce que dit la réalité (profondeur 16) |
 | `hustler` | L'arnaqueur | Parmi les coups sains (perte ≤ `tolerance`), préfère ceux où un adversaire naïf (instinct : prises, échecs, fourchettes ; voir `naive.py`), simulé sur 2 coups, se trompe souvent et cher. Avec `-s opponent_elo=1300` (extra `sim`), l'adversaire imaginé est Maia-2 à cet Elo. Réglable avec `-s param=valeur` (voir `personalities/hustler.py`) |
 | `attacker` | Le cogneur | Parmi les coups sains (perte ≤ 1,5 pion), cherche ceux qui matent ou gagnent ≥ 3 pions en 3 coups contre les réponses probables de l'adversaire (Maia à `opponent_elo`, ou l'instinct). Brutal contre les faibles, réfutable par une bonne défense |
-| `romantic` | Le romantique | Le cogneur avec un profil de style : développe vite, ouvre les lignes, vise le roi, préfère l'initiative au matériel, apprécie un sacrifice sain à position égale. En ouverture, il suit son répertoire de gambits (une ligne tirée au sort par partie) ; il voit les mats en 4 |
+| `romantic` | Le romantique | Le cogneur avec un profil de style : développe vite, ouvre les lignes, vise le roi, préfère l'initiative au matériel, apprécie un sacrifice sain à position égale. Il aime les pions au centre et gagner du temps sur les pièces adverses ; son humeur, tirée à chaque partie, varie ses goûts et donc ses ouvertures ; une partie sur cinq, il a envie d'un gambit connu. Il voit les mats en 4 |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
@@ -72,7 +72,11 @@ moins cher.
 Le style et l'attaque dialoguent : quand l'attaque voit une occasion nettement meilleure
 (mat, gain de matériel), le style des autres coups est tempéré (`style_margin`) et ne peut
 plus la renverser ; quand elle n'a pas d'idée tranchée, le style décide. `w_repertoire` donne
-du poids au répertoire d'ouvertures de la personnalité (`repertoire.py`).
+du poids au répertoire d'ouvertures de la personnalité (`repertoire.py`), dans la part
+`repertoire_rate` des parties où il en a envie. `w_center` (pions et contrôle au centre) et
+`w_threat` (gagner du temps sur les pièces adverses) donnent une opinion d'ouverture ; `mood`
+multiplie chaque goût par un facteur aléatoire tiré à chaque partie. Chaque mesure a un écart
+type plancher : une différence minuscule entre coups ne fait pas une opinion tranchée.
 
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.

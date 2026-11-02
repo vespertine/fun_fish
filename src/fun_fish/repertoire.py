@@ -1,7 +1,8 @@
-"""Répertoires d'ouvertures : la signature d'une personnalité, avec un peu de hasard.
+"""Répertoires d'ouvertures : une envie occasionnelle de jouer une ligne connue.
 
-Un répertoire est une liste de lignes nommées et pondérées. À chaque partie, la personnalité
-tire au sort une ligne compatible avec les coups déjà joués et la suit tant que l'adversaire
+Ce n'est pas la manière dominante de choisir l'ouverture (ce sont ses goûts, voir
+`fun_fish.style`) : seulement dans une partie sur `rate` en moyenne, la personnalité tire au
+sort une ligne compatible avec les coups déjà joués et la suit tant que l'adversaire
 reste dedans ; s'il en sort, elle en tire une autre qui colle encore, sinon elle joue à sa
 façon. Un coup de répertoire n'est qu'un goût de plus : il doit passer le filtre de santé, et
 une vraie occasion d'attaque passe devant (voir `Style.bonuses`).
@@ -79,9 +80,11 @@ REPERTOIRES = {
 class Planner:
     """Suit une ligne du répertoire au fil d'une partie."""
 
-    def __init__(self, openings: dict[chess.Color, list[Opening]], rng: random.Random):
+    def __init__(self, openings: dict[chess.Color, list[Opening]], rng: random.Random, rate: float = 1.0):
         self.openings = openings
         self.rng = rng
+        self.rate = rate
+        self.active = False
         self.current: Opening | None = None
 
     def next(self, board: chess.Board) -> tuple[chess.Move, str] | None:
@@ -92,6 +95,9 @@ class Planner:
         n = len(played)
         if n < 2:
             self.current = None  # nouvelle partie : nouveau tirage
+            self.active = self.rng.random() < self.rate
+        if not self.active:
+            return None
 
         def fits(o: Opening) -> bool:
             return len(o.moves) > n and o.moves[:n] == played

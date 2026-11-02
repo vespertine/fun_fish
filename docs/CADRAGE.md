@@ -204,13 +204,17 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
         l'écart entre son occasion d'attaque (mat, gain, éval espérée au-delà de l'éval du coup)
         et la meilleure occasion (÷3 à `style_margin` = 1 point). Sans idée d'attaque tranchée,
         le style décide ; avec une idée nette, il ne la renverse plus (`dxe5` à 99 %) ;
-      - **Répertoire** (`repertoire.py`) : une ligne tirée au sort par partie parmi des
-        gambits (roi, danois, Evans, Smith-Morra, Albin, Budapest, Benko, Traxler…), chacun
-        coûtant moins de 1,5 pion selon Stockfish ; un goût de plus (`w_repertoire` = 3 pour le
-        romantique), soumis au filtre de santé et au dialogue ;
+      - **Ouverture par goût, pas par répertoire** : nouvelles dimensions `center` (pions et
+        contrôle au centre) et `threat` (gagner du temps sur les pièces adverses), écart type
+        plancher par dimension (avant, ½ point de développement de Fd2 valait +2), et humeur
+        (`mood`) : chaque goût multiplié par un facteur tiré à chaque partie. Il invente ses
+        lignes (1.e4 Cf6 2.Cc3 d5 3.d4 dxe4 4.f3, gambit du centre, 2...d5 avec les Noirs) ;
+      - **Répertoire occasionnel** (`repertoire.py`) : une partie sur cinq, il a envie d'un
+        gambit connu (roi, danois, Evans, Smith-Morra, Albin, Budapest…, chacun coûtant moins
+        de 1,5 pion selon Stockfish) ; un goût de plus, soumis au filtre et au dialogue ;
       - **Mat en 4** pour le romantique (`mate_within` = 4) : quand l'éval est écrasante (+5),
         on vérifie à 2N−1 demi-coups s'il y a un mat.
-      Contre Maia 1500 (16 parties) : 100 %, mat médian en 20 coups (26 avant)
+      Contre Maia 1500 (16 parties) : 100 %, mat médian en 22 coups (26 avant)
 - [ ] Hors du livre avant le 10e demi-coup (la moitié des cas aux demi-coups 6 à 9, nos agents
       sortant vite des sentiers battus) : remplacer Maia par autre chose (Stockfish peu
       profond avec un tirage au sort dépendant de l'Elo ?)

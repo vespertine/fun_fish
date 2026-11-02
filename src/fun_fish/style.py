@@ -18,9 +18,14 @@ python-chess seul (pas d'appel à Stockfish), du point de vue du camp qui joue :
 - **surprise** : rare chez les humains forts (livre d'ouverture à 2000, sinon Maia), en ouverture.
   Sortir l'adversaire de la théorie (« dark forest ») ; à manier avec prudence.
 
-Les mesures sont centrées et réduites parmi les candidats : un poids de 1 vaut à peu près
-un écart type. S'y ajoute **repertoire** : `w_repertoire` pour le coup prévu par le
-répertoire d'ouvertures de la personnalité (voir `fun_fish.repertoire`).
+- **center** : pions au centre (d4, e4, d5, e5, et à moitié sur c et f) et contrôle des
+  cases centrales ;
+- **threat** : gain de temps, pièces adverses attaquées par moins fort qu'elles ou sans
+  défense (harceler la dame avec un cavalier).
+
+Les mesures sont centrées et réduites parmi les candidats, avec un écart type plancher propre
+à chaque dimension (`FLOORS`) : une différence minuscule entre coups ne devient pas une
+opinion tranchée. Un poids de 1 vaut à peu près une unité naturelle de la dimension.
 
 Le bonus total s'ajoute au score de la personnalité, qui le tempère quand l'attaque a une
 idée nettement meilleure (voir `Attacker.combine`).
@@ -44,7 +49,13 @@ SURPRISE_ELO = 2000
 LABELS = {"develop": "il se développe", "open": "il ouvre les lignes", "king": "il vise le roi",
           "activity": "il active ses pièces", "initiative": "il joue l'initiative plutôt que le matériel",
           "sacrifice": "il sacrifie", "surprise": "il sort des sentiers battus",
-          "technique": "il convertit"}
+          "technique": "il convertit", "center": "il occupe le centre", "threat": "il gagne du temps"}
+# écart type minimal de chaque mesure, dans ses unités : en deçà, pas d'opinion tranchée
+FLOORS = {"develop": 0.5, "open": 1.0, "king": 1.0, "activity": 3.0, "initiative": 0.3, "sacrifice": 0.5,
+          "surprise": 0.5, "technique": 1.0, "center": 0.5, "threat": 0.5}
+CENTER = chess.BB_D4 | chess.BB_E4 | chess.BB_D5 | chess.BB_E5
+FLANK_CENTER = chess.BB_C4 | chess.BB_F4 | chess.BB_C5 | chess.BB_F5
+VALUES = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
 
 STYLE_HELP = {
     "w_develop": "Style : développement, roque (ouverture)",
@@ -54,7 +65,11 @@ STYLE_HELP = {
     "w_initiative": "Style : initiative plutôt que matériel (éval moins matériel)",
     "w_sacrifice": "Style : goût du sacrifice sain, surtout à position égale",
     "w_surprise": "Style : coups peu théoriques en ouverture, selon Maia (dark forest)",
-    "w_repertoire": "Style : suivre son répertoire d'ouvertures (une ligne tirée au sort par partie)",
+    "w_center": "Style : pions et contrôle au centre",
+    "w_threat": "Style : gagner du temps en attaquant les pièces adverses",
+    "w_repertoire": "Répertoire : poids du coup prévu, les parties où il en a envie",
+    "repertoire_rate": "Répertoire : part des parties où il a envie de suivre une ligne connue (0 à 1)",
+    "mood": "Humeur : variation aléatoire des goûts, tirée à chaque partie (0 = aucune, 0.3 = sensible)",
     "style_margin": "Dialogue attaque-style : écart d'occasion (en points de score) qui fait taire le style d'un tiers",
     "style_first": "Style d'abord : ne garde que les N coups les plus à son goût avant de calculer (0 = non)",
 }
@@ -69,6 +84,8 @@ class Style:
     w_initiative: float = 0.0
     w_sacrifice: float = 0.0
     w_surprise: float = 0.0
+    w_center: float = 0.0
+    w_threat: float = 0.0
     w_repertoire: float = 0.0
 
     def __post_init__(self):
@@ -84,8 +101,7 @@ class Style:
     def bonuses(self, board: chess.Board, lines: list[Line], best: Line,
                 conversion: float = 0.0, planned: tuple[chess.Move, str] | None = None) -> dict[chess.Move, float]:
         """Bonus de style de chaque coup (somme pondérée des mesures normalisées) ; `conversion`
-        est le poids de la technique de conversion, `planned` le coup prévu par le répertoire
-        (et le nom de la ligne)."""
+        est le poids de la technique de conversion."""
         if not (self.active() or conversion > 0) or len(lines) < 2:
             self.reasons = {}
             return {line.move: 0.0 for line in lines}
@@ -113,29 +129,55 @@ class Style:
             p = human.get(line.move)
             raw["surprise"].append(opening * -math.log(max(p, 1e-4)) if p is not None else 0.0)
             raw["technique"].append(technique(settled, us) if conversion > 0 else 0.0)
+            raw["center"].append(middlegame * center(after, us))
+            raw["threat"].append(threats(after, us))
         bonus = [0.0] * len(lines)
         gave = [g > 0 for g in raw["sacrifice"]]  # coups qui donnent du matériel
         top = [(0.5, "")] * len(lines)  # (contribution, dimension) : au moins un demi-point pour être cité
         for name, values in raw.items():
             weight = weights[name]
             if weight:
-                for i, z in enumerate(_standardise(values)):
+                for i, z in enumerate(_standardise(values, FLOORS[name])):
                     bonus[i] += weight * z
                     if name not in ("initiative", "sacrifice") or gave[i]:  # pas pour une prise
                         top[i] = max(top[i], (weight * z, LABELS[name]))
-        if planned is not None and self.w_repertoire:
+        if planned is not None and self.w_repertoire:  # pas de normalisation : un goût franc
             for i, line in enumerate(lines):
                 if line.move == planned[0]:
                     bonus[i] += self.w_repertoire
-                    top[i] = (math.inf, f"son répertoire : {planned[1]}")
+                    top[i] = (math.inf, f"envie de jouer : {planned[1]}")
         self.reasons = {line.move: reason for line, (_, reason) in zip(lines, top) if reason}
         return {line.move: b for line, b in zip(lines, bonus)}
 
 
-def _standardise(values: list[float]) -> list[float]:
+    def moody(self, factors: dict[str, float]) -> "Style":
+        """Le même style, chaque goût multiplié par son facteur d'humeur."""
+        return Style(**{f.name: getattr(self, f.name) * factors.get(f.name, 1.0) for f in fields(self)})
+
+
+def _standardise(values: list[float], floor: float = 0.0) -> list[float]:
     mean = sum(values) / len(values)
-    sd = math.sqrt(sum((v - mean) ** 2 for v in values) / len(values))
+    sd = max(floor, math.sqrt(sum((v - mean) ** 2 for v in values) / len(values)))
     return [0.0] * len(values) if sd < 1e-9 else [(v - mean) / sd for v in values]
+
+
+def center(board: chess.Board, color: chess.Color) -> float:
+    """Pions au centre (moitié sur les colonnes c et f), plus 0,2 par attaque sur une case centrale."""
+    pawns = board.pieces_mask(chess.PAWN, color)
+    score = chess.popcount(pawns & CENTER) + 0.5 * chess.popcount(pawns & FLANK_CENTER)
+    return score + 0.2 * sum(len(board.attackers(color, sq)) for sq in chess.SquareSet(CENTER))
+
+
+def threats(board: chess.Board, color: chess.Color) -> float:
+    """Pièces adverses (hors pions) attaquées par moins fort qu'elles, ou sans défense : en
+    valeur, sur 3 (un cavalier menacé vaut 1, la dame 3)."""
+    total = 0.0
+    for sq in chess.SquareSet(board.occupied_co[not color] & ~board.pawns & ~board.kings):
+        target = VALUES[board.piece_type_at(sq)]
+        attackers = [VALUES[board.piece_type_at(a)] or 100 for a in board.attackers(color, sq)]
+        if attackers and (min(attackers) < target or not board.attackers(not color, sq)):
+            total += target / 3
+    return total
 
 
 def _maia_probabilities(board: chess.Board) -> dict[chess.Move, float]:
@@ -266,3 +308,6 @@ def activity(board: chess.Board, color: chess.Color) -> float:
             board.pieces(chess.ROOK, color) | board.pieces(chess.QUEEN, color):
         controlled += chess.popcount(board.attacks_mask(sq) & enemy_half)
     return mobility + 0.5 * controlled
+
+
+STYLE_WEIGHTS = [f.name for f in fields(Style)]
