@@ -167,10 +167,17 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       98-99 % de score pour les deux, le cogneur gagne plus de matériel (+15 au coup 40 contre +8).
       Toutes les nulles (2-3 %) étaient des répétitions en position gagnante, corrigées depuis
 - [x] Chaîne d'étages : un premier étage commun (`Soundness`, filtre de santé) puis le choix
-      de la personnalité. Mode **conversion** : au-delà de +5 (`convert_above`), il revérifie à
-      profondeur 14 avec 0,3 pion de tolérance. Sur une partie réelle où le cogneur tournait
-      en rond à +6 (profondeur 4), puis laissait passer un pion à dame : mat contre Stockfish
-      profondeur 16 en 22 et 33 coups depuis la même position
+      de la personnalité. **Conversion progressive** (pas de bascule vers un niveau Stockfish) :
+      de +3 à +8, il vérifie jusqu'à 4 demi-coups plus loin, sa tolérance descend jusqu'à
+      0,6 pion, et une technique de conversion (simplifier, pousser ses pions passés, freiner
+      ceux de l'adversaire, activer son roi) entre dans le style. Sur une partie réelle où le
+      cogneur (profondeur 4) tournait en rond à +6, depuis le coup 21 contre Stockfish
+      profondeur 16 : 6 mats sur 6 (dont un en 61 coups, après être retombé sous +5), contre
+      2 mats, 1 pat, 1 répétition, 1 partie perdue et 1 inachevée sans conversion ; 6 sur 6
+      contre Maia 1900. Coût : ~1,2 s par coup au lieu de ~1 s
+- [x] Fin de partie stricte (`rules.py`) : `outcome(claim_draw=True)` de python-chess
+      déclarait nulle une position où le camp au trait *pouvait* répéter. Les nulles « par
+      répétition en position gagnante » des séries de 200 parties en venaient en partie
 - [x] Étage de style (`style.py`, presque gratuit, calculé avec python-chess) : développement,
       lignes ouvertes, pression sur le roi, activité, initiative plutôt que matériel (Morphy),
       goût du sacrifice à position égale ; `style_first` place le style avant le calcul.

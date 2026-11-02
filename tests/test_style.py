@@ -64,3 +64,23 @@ def test_style_first_keeps_only_favourites(fake_analyser):
     decision = attacker.choose_move(chess.Board(), fake_analyser)
     assert len(decision.candidates) == 4
     assert all(chess.Board().piece_type_at(c.move.from_square) == chess.KNIGHT for c in decision.candidates)
+
+
+def test_technique_pushes_passed_pawns_and_stops_theirs():
+    from fun_fish.style import passed_pawns, technique
+
+    board = chess.Board("6k1/8/P7/8/8/8/6p1/R5K1 w - - 0 1")
+    assert passed_pawns(board, chess.WHITE) == [chess.A6]
+    pushed = chess.Board("6k1/P7/8/8/8/8/6p1/R5K1 b - - 0 1")
+    assert technique(pushed, chess.WHITE) > technique(board, chess.WHITE)
+    stopped = chess.Board("6k1/8/P7/8/8/8/6p1/4K1R1 b - - 0 1")  # la tour bloque g1
+    assert technique(stopped, chess.WHITE) > technique(chess.Board("6k1/8/P7/8/8/8/6p1/R3K3 b - - 0 1"), chess.WHITE)
+
+
+def test_conversion_weight_alone_activates_technique():
+    board = chess.Board("6k1/8/P7/8/8/8/6p1/R5K1 w - - 0 1")
+    lines = [_line(board, "a6a7", 600), _line(board, "a1b1", 600)]
+    style = Style()
+    assert set(style.bonuses(board, lines, lines[0]).values()) == {0.0}
+    bonus = style.bonuses(board, lines, lines[0], conversion=1.0)
+    assert bonus[chess.Move.from_uci("a6a7")] > bonus[chess.Move.from_uci("a1b1")]

@@ -40,7 +40,8 @@ import chess
 
 from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import OpponentModel, make_model
-from fun_fish.personalities.base import (CONVERT_HELP, CONVERTING, Candidate, Decision, Personality, Soundness, format_score,
+from fun_fish.personalities.base import (CONVERT_HELP, Candidate, Decision, Personality, Soundness, converting_note,
+                                         format_score,
                                          pick, regret, softmax)
 from fun_fish.style import STYLE_HELP, Style
 from fun_fish.reading import VISIBLE_MATE
@@ -131,7 +132,8 @@ class Hustler(Personality):
                  sharp_plies: int = 2, branching: int = 3, min_temptation: float = 0.1, our_options: int = 2,
                  w_trap: float = 1.0, w_sharp: float = 1.0, w_loss: float = 1.0, temperature: float = 0.3,
                  max_candidates: int = 15, deep_candidates: int = 6,
-                 convert_above: int = 500, convert_depth: int = 14, convert_tolerance: int = 30,
+                 convert_from: int = 300, convert_full: int = 800, convert_depth: int = 4,
+                 convert_tolerance: int = 60, w_technique: float = 1.0,
                  w_develop: float = 0.0, w_open: float = 0.0, w_king: float = 0.0, w_activity: float = 0.0,
                  w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0, style_first: int = 0, **kwargs):
         super().__init__(**kwargs)
@@ -156,7 +158,9 @@ class Hustler(Personality):
         self.temperature = temperature  # en pions de score
         self.max_candidates = max_candidates  # coups sains examinés
         self.deep_candidates = deep_candidates  # dont simulés sur sharp_plies coups
-        self.convert_above, self.convert_depth, self.convert_tolerance = convert_above, convert_depth, convert_tolerance
+        self.convert_from, self.convert_full = convert_from, convert_full
+        self.convert_depth, self.convert_tolerance = convert_depth, convert_tolerance
+        self.w_technique = w_technique
         self.w_develop, self.w_open, self.w_king, self.w_activity = w_develop, w_open, w_king, w_activity
         self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
         self.style_first = style_first
@@ -164,7 +168,7 @@ class Hustler(Personality):
 
     def soundness(self) -> Soundness:
         return Soundness(self.tolerance, self.soundness_depth, self.max_candidates,
-                         self.convert_above, self.convert_depth, self.convert_tolerance)
+                         self.convert_from, self.convert_full, self.convert_depth, self.convert_tolerance)
 
     # ---------- adversaire naïf ----------
 
@@ -273,10 +277,10 @@ class Hustler(Personality):
         return e
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        sound, converting = self.soundness().lines(board, analyser)
+        sound, degree = self.soundness().lines(board, analyser)
         best = sound[0]
         style = Style.of(self)
-        bonus = {} if converting else style.bonuses(board, sound, best)
+        bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique)
         if self.style_first > 0 and bonus:
             sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
 
@@ -300,7 +304,7 @@ class Hustler(Personality):
         ]
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=(CONVERTING if converting else "")
+                        explanation=converting_note(degree)
                         + self.explain(board, san, chosen, style.reasons.get(chosen.line.move)),
                         candidates=candidates, reality=self.cost(board, chosen, best))
 

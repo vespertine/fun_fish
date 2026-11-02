@@ -56,9 +56,12 @@ fun-fish play --port 9000 --no-browser
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
 Le cogneur et l'arnaqueur partagent un premier étage, le filtre de santé (`Soundness` dans
-`personalities/base.py`). Quand la position est gagnante (au-delà de `convert_above`, +5 par
-défaut), il passe en mode conversion : vérification à profondeur 14 et tolérance de 0,3 pion,
-pour conclure au lieu de tourner en rond.
+`personalities/base.py`). Quand la position devient gagnante, il passe progressivement en
+conversion, sans changer de niveau : de `convert_from` (+3) à `convert_full` (+8), il vérifie
+jusqu'à `convert_depth` (4) demi-coups plus loin, sa tolérance descend jusqu'à
+`convert_tolerance` (0,6 pion), et la technique de conversion (`w_technique` : simplifier,
+pions passés, roi actif) pèse dans son choix. Il peut encore gâcher une position gagnante,
+mais il ne tourne plus en rond.
 
 Le style (`style.py`) départage les coups sains : `w_develop`, `w_open`, `w_king`,
 `w_activity`, `w_initiative`, `w_sacrifice` et `w_surprise` (coups peu théoriques en

@@ -8,6 +8,7 @@ import time
 import chess
 import chess.pgn
 
+from fun_fish import rules
 from fun_fish.analysis import Analyser
 from fun_fish.personalities import Decision, Personality
 
@@ -41,7 +42,7 @@ class Game:
 
     @property
     def over(self) -> bool:
-        return self.board.outcome(claim_draw=True) is not None
+        return rules.outcome(self.board) is not None
 
     @property
     def engine_to_move(self) -> bool:
@@ -94,7 +95,7 @@ class Game:
 
     def state(self) -> dict:
         board = self.board
-        outcome = board.outcome(claim_draw=True)
+        outcome = rules.outcome(board)
 
         dests: dict[str, list[str]] = {}
         if outcome is None and board.turn == self.human_color:
@@ -185,6 +186,6 @@ class Game:
         game.headers["Event"] = "fun_fish"
         game.headers["White"] = "Humain" if self.human_color == chess.WHITE else ai
         game.headers["Black"] = ai if self.human_color == chess.WHITE else "Humain"
-        outcome = self.board.outcome(claim_draw=True)
+        outcome = rules.outcome(self.board)
         game.headers["Result"] = outcome.result() if outcome else "*"
         return str(game)

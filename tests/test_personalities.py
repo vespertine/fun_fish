@@ -92,15 +92,31 @@ def test_repetition_changes_the_analysis(stockfish_analyser):
     assert stockfish_analyser.analyse(board, depth=6) is not stockfish_analyser.analyse(fresh, depth=6)
 
 
-def test_soundness_tightens_when_winning(fake_analyser):
+def test_soundness_tightens_gradually_when_winning(fake_analyser):
     from fun_fish.personalities.base import Soundness
 
     board = chess.Board()
-    stage = Soundness(tolerance=300, depth=4, max_candidates=12, convert_above=500, convert_tolerance=30)
-    lines, converting = stage.lines(board, fake_analyser)  # meilleur coup à 0 : rien à convertir
-    assert not converting and len(lines) == 8  # 0, -40, ..., -280
-    fake_analyser.scores = {"e2e4": 700, "d2d4": 680, "g1f3": 600}
-    lines, converting = stage.lines(board, fake_analyser)
-    assert converting and [l.move.uci() for l in lines] == ["e2e4", "d2d4"]
-    lines, converting = Soundness(300, 4, 12, convert_above=0).lines(board, fake_analyser)
-    assert not converting and len(lines) == 3  # tolérance normale : tout ce qui est au-dessus de +4
+    stage = Soundness(tolerance=300, depth=4, max_candidates=12, convert_from=300, convert_full=800,
+                      convert_tolerance=60)
+    lines, degree = stage.lines(board, fake_analyser)  # meilleur coup à 0 : rien à convertir
+    assert degree == 0 and len(lines) == 8  # 0, -40, ..., -280
+    fake_analyser.scores = {"e2e4": 550, "d2d4": 450, "g1f3": 300}
+    lines, degree = stage.lines(board, fake_analyser)  # à mi-chemin : tolérance 180
+    assert degree == 0.5 and [l.move.uci() for l in lines] == ["e2e4", "d2d4"]
+    fake_analyser.scores = {"e2e4": 900, "d2d4": 850, "g1f3": 800}
+    lines, degree = stage.lines(board, fake_analyser)  # complète : tolérance 60
+    assert degree == 1 and [l.move.uci() for l in lines] == ["e2e4", "d2d4"]
+    lines, degree = Soundness(300, 4, 12, convert_from=0).lines(board, fake_analyser)
+    assert degree == 0 and len(lines) == 3  # tolérance normale : tout ce qui est au-dessus de +6
+
+
+def test_threefold_only_when_it_happened():
+    from fun_fish import rules
+
+    board = chess.Board()
+    for uci in ["g1f3", "g8f6", "f3g1", "f6g8", "g1f3", "g8f6", "f3g1"]:
+        board.push_uci(uci)
+    assert board.outcome(claim_draw=True) is not None  # python-chess : les Noirs pourraient répéter
+    assert rules.outcome(board) is None  # mais ils ont d'autres coups
+    board.push_uci("f6g8")
+    assert rules.outcome(board).termination == chess.Termination.THREEFOLD_REPETITION

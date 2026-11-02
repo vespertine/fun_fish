@@ -9,6 +9,7 @@ from typing import Protocol
 import chess
 import chess.pgn
 
+from fun_fish import rules
 from fun_fish.analysis import Analyser
 from fun_fish.personalities import Personality
 from fun_fish.reading import PIECE_VALUES
@@ -67,7 +68,7 @@ def play_game(agent: Personality, opponent: Player, opponent_elo: int, agent_col
         record.snapshots[str(board.fullmove_number - 1)] = {"eval": max(-10_000, min(10_000, score)),
                                                             "material": material(board, agent_color)}
 
-    while board.outcome(claim_draw=True) is None and len(board.move_stack) < max_plies:
+    while rules.outcome(board) is None and len(board.move_stack) < max_plies:
         if board.turn == agent_color:
             t = time.time()
             move = agent.choose_move(board.copy(), analyser).move
@@ -79,7 +80,7 @@ def play_game(agent: Personality, opponent: Player, opponent_elo: int, agent_col
         if board.turn == chess.WHITE and board.fullmove_number - 1 in SNAPSHOT_MOVES:
             snapshot()
 
-    outcome = board.outcome(claim_draw=True)
+    outcome = rules.outcome(board)
     if outcome is not None:
         record.result = outcome.result()
         record.termination = outcome.termination.name.lower()

@@ -116,37 +116,53 @@ def regret(best: "Line", line: "Line") -> int:
 class Soundness:
     """Premier étage commun : les coups qui perdent au plus `tolerance` cp si l'adversaire répond juste.
 
-    **Conversion** : quand la position est gagnante (éval ≥ `convert_above` cp, ou mat forcé),
-    on revérifie à `convert_depth` avec une tolérance de `convert_tolerance` cp. Les étages
-    suivants (attaque, pièges, style) ne choisissent alors qu'entre des coups qui gagnent :
-    à faible profondeur, un pion passé qui file à dame reste sinon invisible. 0 = désactivé.
+    **Conversion progressive** : plus la position est gagnante, plus il s'applique, sans changer
+    de niveau. Entre `convert_from` et `convert_full` cp (ou mat forcé), le degré de conversion
+    passe de 0 à 1 : il vérifie jusqu'à `convert_depth` demi-coups plus loin (un pion passé qui
+    file à dame doit rester visible) et sa tolérance descend jusqu'à `convert_tolerance`. Le
+    style y ajoute une technique de conversion (simplifier, pousser ses pions passés, freiner
+    ceux de l'adversaire, activer son roi) : un plan, pas la force de Stockfish.
     """
 
     tolerance: int
     depth: int
     max_candidates: int
-    convert_above: int = 500
-    convert_depth: int = 14
-    convert_tolerance: int = 30
+    convert_from: int = 300
+    convert_full: int = 800
+    convert_depth: int = 4
+    convert_tolerance: int = 60
 
-    def lines(self, board: chess.Board, analyser: "Analyser") -> tuple[list["Line"], bool]:
-        """(coups sains, le meilleur en premier ; mode conversion ?)."""
+    def degree(self, line: "Line") -> float:
+        """Degré de conversion (0 à 1) d'après l'éval du meilleur coup."""
+        if self.convert_from <= 0 or self.convert_full <= self.convert_from:
+            return 0.0
+        return max(0.0, min(1.0, (line.score - self.convert_from) / (self.convert_full - self.convert_from)))
+
+    def lines(self, board: chess.Board, analyser: "Analyser") -> tuple[list["Line"], float]:
+        """(coups sains, le meilleur en premier ; degré de conversion)."""
         multipv = min(board.legal_moves.count(), self.max_candidates)
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
-        tolerance, converting = self.tolerance, False
-        if self.convert_above > 0 and root[0].score >= self.convert_above:
-            deep = analyser.analyse(board, multipv=multipv, depth=max(self.depth, self.convert_depth))
-            if deep[0].score >= self.convert_above:
-                root, tolerance, converting = deep, min(self.tolerance, self.convert_tolerance), True
+        tolerance, degree = self.tolerance, self.degree(root[0])
+        extra = round(degree * self.convert_depth)
+        if extra > 0:
+            root = analyser.analyse(board, multipv=multipv, depth=self.depth + extra)
+            degree = self.degree(root[0])
+        if degree > 0 and self.convert_tolerance < self.tolerance:
+            tolerance = round(self.tolerance - degree * (self.tolerance - self.convert_tolerance))
         best = root[0]
-        return [l for l in root if regret(best, l) <= tolerance], converting
+        return [l for l in root if regret(best, l) <= tolerance], degree
 
 
-CONVERTING = "Position gagnante : il joue sûr pour conclure. "
+def converting_note(degree: float) -> str:
+    return "Avec un net avantage, il cherche à conclure. " if degree >= 0.5 else ""
+
+
 CONVERT_HELP = {
-    "convert_above": "Conversion : au-delà de cette éval (cp), il joue sûr pour conclure (0 = jamais)",
-    "convert_depth": "Conversion : profondeur de vérification",
-    "convert_tolerance": "Conversion : perte maximale acceptée (centipions)",
+    "convert_from": "Conversion : éval (cp) à partir de laquelle il commence à jouer pour conclure (0 = jamais)",
+    "convert_full": "Conversion : éval (cp) où elle est complète",
+    "convert_depth": "Conversion : demi-coups de vérification en plus, au maximum",
+    "convert_tolerance": "Conversion : perte maximale acceptée quand elle est complète (centipions)",
+    "w_technique": "Conversion : poids de la technique (simplifier, pions passés, roi actif)",
 }
 
 
