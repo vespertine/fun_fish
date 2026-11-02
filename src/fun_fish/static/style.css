@@ -162,7 +162,13 @@ cg-board {
   font-weight: 600;
   font-size: clamp(11px, calc(var(--board-size) / 48), 15px);
 }
-.cg-wrap coords.files { text-transform: lowercase; bottom: 1px; }
+/* Chiffres collés au coin haut gauche des cases de la première colonne, lettres au coin bas
+   droit de la première rangée : le moins possible sous les pièces. */
+.cg-wrap coords { line-height: 1; }
+.cg-wrap coords.ranks { top: 0; left: 0; width: auto; }
+.cg-wrap coords.ranks coord { transform: none; padding: 0.18em 0 0 0.22em; }
+.cg-wrap coords.files { text-transform: lowercase; bottom: 0; left: 0; height: auto; }
+.cg-wrap coords.files coord { flex: 1 1 0; text-align: right; align-self: flex-end; padding: 0 0.25em 0.15em 0; }
 /* a1 est foncée : chiffres et lettres impairs sur case foncée côté Blancs, l'inverse côté Noirs. */
 .cg-wrap.orientation-white coords.ranks coord:nth-child(odd),
 .cg-wrap.orientation-white coords.files coord:nth-child(odd),
