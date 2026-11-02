@@ -185,6 +185,11 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       même score (100 %, mat médian 20 coups contre 19) et même coût, mais pièces développées au
       coup 6 : 3,2 contre 1,6 ; roque avant le coup 12 : 62 % contre 17 % ; coups de pion dans
       les 8 premiers : 2,9 contre 4,0 ; matériel au coup 10 : +0,4 contre +2,5 à éval égale
+- [x] Corrections après une partie du romantique contre un bot à 2750 (position gagnante
+      perdue) : l'initiative ne pénalise plus les prises gratuites (il refusait de reprendre
+      un pion), les goûts de milieu de partie (lignes, roi, activité) s'effacent quand les
+      pièces disparaissent, et la vérification plus profonde s'applique toujours en finale
+      (il laissait filer un pion à dame à profondeur 5)
 - [ ] Curseur « dark forest » (`w_surprise`, branché, pas encore évalué), surtout en ouverture : sortir l'adversaire de la théorie (coups
       peu probables pour Maia 2000). À manier avec prudence : comparer coups très humains et
       coups très surprenants, et ce que ça change au ressenti

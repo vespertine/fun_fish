@@ -7,8 +7,9 @@ python-chess seul (pas d'appel à Stockfish), du point de vue du camp qui joue :
 - **open** : colonnes ouvertes ou semi-ouvertes pour nous, et tension (prises possibles) ;
 - **king** : cases autour du roi adverse attaquées, et échecs à notre disposition ;
 - **activity** : mobilité de nos pièces et cases contrôlées dans le camp adverse ;
-- **initiative** : éval moins le bilan matériel. Garder une bonne éval avec moins de matériel,
-  c'est jouer la compensation dynamique plutôt que le matériel garanti (Morphy) ;
+- **initiative** : éval plus le matériel donné. Garder une bonne éval avec moins de matériel,
+  c'est jouer la compensation dynamique plutôt que le matériel garanti (Morphy). Prendre du
+  matériel gratuit n'est pas pénalisé : ce serait refuser les cadeaux ;
 - **sacrifice** : matériel donné (une fois les échanges finis) par un coup qui reste sain ;
   pèse surtout quand la position est équilibrée ;
 - **technique** (conversion) : quand on mène nettement, simplifier, pousser ses pions passés,
@@ -84,6 +85,7 @@ class Style:
         raw = {name: [] for name in weights}
         opening = max(0.0, 1.0 - board.ply() / OPENING_PLIES)
         equal = math.exp(-abs(best.score) / 200)  # 1 à position égale, ~0 quand l'un domine
+        middlegame = middlegame_weight(board)  # lignes, roi, activité : des goûts de milieu de partie
         human = _maia_probabilities(board) if self.w_surprise and opening > 0 else {}
         us = board.turn
         base = material(board, us)
@@ -94,22 +96,24 @@ class Style:
             delta = material(settled, us) - base
             given = max(0, -delta)
             raw["develop"].append(opening * (development(after, us) - development(board, us)))
-            raw["open"].append(open_lines(after, us))
-            raw["king"].append(king_pressure(after, us))
-            raw["activity"].append(activity(after, us))
-            raw["initiative"].append(max(-1000, min(1000, line.score)) / 100 - delta)
+            raw["open"].append(middlegame * open_lines(after, us))
+            raw["king"].append(middlegame * king_pressure(after, us))
+            raw["activity"].append(middlegame * activity(after, us))
+            raw["initiative"].append(max(-1000, min(1000, line.score)) / 100 + given)
             raw["sacrifice"].append(equal * given)
             p = human.get(line.move)
             raw["surprise"].append(opening * -math.log(max(p, 1e-4)) if p is not None else 0.0)
             raw["technique"].append(technique(settled, us) if conversion > 0 else 0.0)
         bonus = [0.0] * len(lines)
+        gave = [g > 0 for g in raw["sacrifice"]]  # coups qui donnent du matériel
         top = [(0.5, "")] * len(lines)  # (contribution, dimension) : au moins un demi-point pour être cité
         for name, values in raw.items():
             weight = weights[name]
             if weight:
                 for i, z in enumerate(_standardise(values)):
                     bonus[i] += weight * z
-                    top[i] = max(top[i], (weight * z, LABELS[name]))
+                    if name not in ("initiative", "sacrifice") or gave[i]:  # pas pour une prise
+                        top[i] = max(top[i], (weight * z, LABELS[name]))
         self.reasons = {line.move: reason for line, (_, reason) in zip(lines, top) if reason}
         return {line.move: b for line, b in zip(lines, bonus)}
 
@@ -149,6 +153,12 @@ def settle(board: chess.Board, pv: tuple[chess.Move, ...], plies: int = 6) -> ch
 def settled_material(board: chess.Board, pv: tuple[chess.Move, ...], color: chess.Color, plies: int = 6) -> int:
     """Bilan matériel une fois les prises en cours terminées le long de la variation."""
     return material(settle(board, pv, plies), color)
+
+
+def middlegame_weight(board: chess.Board) -> float:
+    """1 avec 12 pièces (hors pions et rois) ou plus, 0 avec 4 ou moins."""
+    pieces = chess.popcount(board.occupied & ~board.pawns & ~board.kings)
+    return max(0.0, min(1.0, (pieces - 4) / 8))
 
 
 def development(board: chess.Board, color: chess.Color) -> float:

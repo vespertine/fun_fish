@@ -112,6 +112,9 @@ def regret(best: "Line", line: "Line") -> int:
     return max(0, best.score - line.score)
 
 
+ENDGAME_PIECES = 6  # pièces (hors pions et rois) : en deçà, c'est une finale
+
+
 @dataclass
 class Soundness:
     """Premier étage commun : les coups qui perdent au plus `tolerance` cp si l'adversaire répond juste.
@@ -121,7 +124,8 @@ class Soundness:
     passe de 0 à 1 : il vérifie jusqu'à `convert_depth` demi-coups plus loin (un pion passé qui
     file à dame doit rester visible) et sa tolérance descend jusqu'à `convert_tolerance`. Le
     style y ajoute une technique de conversion (simplifier, pousser ses pions passés, freiner
-    ceux de l'adversaire, activer son roi) : un plan, pas la force de Stockfish.
+    ceux de l'adversaire, activer son roi) : un plan, pas la force de Stockfish. En finale
+    (au plus `ENDGAME_PIECES` pièces), la vérification plus profonde s'applique toujours.
     """
 
     tolerance: int
@@ -144,6 +148,8 @@ class Soundness:
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
         tolerance, degree = self.tolerance, self.degree(root[0])
         extra = round(degree * self.convert_depth)
+        if chess.popcount(board.occupied & ~board.pawns & ~board.kings) <= ENDGAME_PIECES:
+            extra = self.convert_depth  # finale : vérifier plus loin coûte peu, et les pions passés vont vite
         if extra > 0:
             root = analyser.analyse(board, multipv=multipv, depth=self.depth + extra)
             degree = self.degree(root[0])
@@ -160,7 +166,7 @@ def converting_note(degree: float) -> str:
 CONVERT_HELP = {
     "convert_from": "Conversion : éval (cp) à partir de laquelle il commence à jouer pour conclure (0 = jamais)",
     "convert_full": "Conversion : éval (cp) où elle est complète",
-    "convert_depth": "Conversion : demi-coups de vérification en plus, au maximum",
+    "convert_depth": "Conversion et finales : demi-coups de vérification en plus, au maximum",
     "convert_tolerance": "Conversion : perte maximale acceptée quand elle est complète (centipions)",
     "w_technique": "Conversion : poids de la technique (simplifier, pions passés, roi actif)",
 }
