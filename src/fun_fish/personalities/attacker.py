@@ -330,7 +330,7 @@ class Attacker(Personality):
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         seen = self.seen(board, analyser)
         soundness = self.soundness()
-        sound, degree = soundness.lines(board, analyser, seen)
+        sound, degree = soundness.lines(board, analyser, seen, self.restrict)
         best = sound[0]
         self._elo_now = self.imagined_elo(degree)
         self._mate_now = self.mate_within + round(degree)  # gagnant : il cherche le mat un coup plus loin

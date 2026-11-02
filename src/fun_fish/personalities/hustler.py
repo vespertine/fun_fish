@@ -277,7 +277,7 @@ class Hustler(Personality):
         return e
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        sound, degree = self.soundness().lines(board, analyser)
+        sound, degree = self.soundness().lines(board, analyser, only=self.restrict)
         best = sound[0]
         style = Style.of(self)
         bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique)

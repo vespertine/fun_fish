@@ -52,6 +52,7 @@ fun-fish play --port 9000 --no-browser
 | `hustler` | L'arnaqueur | Parmi les coups sains (perte ≤ `tolerance`), préfère ceux où un adversaire naïf (instinct : prises, échecs, fourchettes ; voir `naive.py`), simulé sur 2 coups, se trompe souvent et cher. Avec `-s opponent_elo=1300` (extra `sim`), l'adversaire imaginé est Maia-2 à cet Elo. Réglable avec `-s param=valeur` (voir `personalities/hustler.py`) |
 | `attacker` | Le cogneur | Parmi les coups sains (perte ≤ 1,5 pion), cherche ceux qui matent ou gagnent ≥ 3 pions en 3 coups contre les réponses probables de l'adversaire (Maia à `opponent_elo`, ou l'instinct). Brutal contre les faibles, réfutable par une bonne défense |
 | `romantic` | Le romantique | Le cogneur avec un profil de style : développe vite, ouvre les lignes, vise le roi, préfère l'initiative au matériel, apprécie un sacrifice sain à position égale. Il aime les pions au centre et gagner du temps sur les pièces adverses ; son humeur, tirée à chaque partie, varie ses goûts et donc ses ouvertures ; une partie sur cinq, il a envie d'un gambit connu. Il voit les mats en 4. Il joue des coups calmes humains (vision à 1800 Elo), mais voit toujours les coups forcés ; en difficulté, il cherche du contre-jeu |
+| `duo` | Le duo | Le romantique choisit ; quand il hésite entre plusieurs coups, l'arnaqueur départage en faveur du meilleur piège |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
 
@@ -89,6 +90,12 @@ préférer les coups qui posent des questions : échecs, menaces, roi adverse vi
 En conversion,
 `convert_elo` fait monter l'adversaire imaginé (il compte moins sur les gaffes), `w_repeat`
 pénalise le retour à une position déjà vue, et le mat est cherché un coup plus loin.
+
+**Conseils à plusieurs étages** (`personalities/council.py`) : une personnalité propose, la
+suivante départage. Le premier étage juge tous les coups et garde ceux qu'il aime presque autant
+que son favori (`keep`) ; s'il a un avis tranché, il est suivi. Sinon l'étage suivant ne juge que
+ces coups-là, et les deux distributions se multiplient. Pour un nouveau conseil, sous-classer
+`Council` avec la liste `STAGES`.
 
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.

@@ -95,6 +95,7 @@ class Personality(ABC):
 
     def __init__(self, rng: random.Random | None = None):
         self.rng = rng or random.Random()
+        self.restrict: list[chess.Move] | None = None  # posé par un conseil : ne juger que ces coups
 
     @abstractmethod
     def choose_move(self, board: chess.Board, analyser: "Analyser") -> Decision:
@@ -144,6 +145,11 @@ class Soundness:
     vision_min: float = 0.02
     truth: "Line | None" = None
 
+    def analyse_only(self, board: chess.Board, analyser: "Analyser", only: list[chess.Move]) -> list["Line"]:
+        root = analyser.analyse(board, multipv=len(only), depth=self.depth, moves=list(only))
+        self.truth = None
+        return root
+
     def degree(self, line: "Line") -> float:
         """Degré de conversion (0 à 1) d'après l'éval du meilleur coup."""
         if self.convert_from <= 0 or self.convert_full <= self.convert_from:
@@ -151,8 +157,15 @@ class Soundness:
         return max(0.0, min(1.0, (line.score - self.convert_from) / (self.convert_full - self.convert_from)))
 
     def lines(self, board: chess.Board, analyser: "Analyser",
-              seen: dict[chess.Move, float] | None = None) -> tuple[list["Line"], float]:
-        """(coups sains, le meilleur en premier ; degré de conversion)."""
+              seen: dict[chess.Move, float] | None = None,
+              only: list[chess.Move] | None = None) -> tuple[list["Line"], float]:
+        """(coups sains, le meilleur en premier ; degré de conversion).
+
+        `only` : coups déjà jugés sains par un étage précédent (voir `council.py`) ; ils sont
+        tous gardés, sans nouveau filtre ni vision."""
+        if only:
+            root = self.analyse_only(board, analyser, only)
+            return root, self.degree(root[0])
         multipv = min(board.legal_moves.count(), self.max_candidates)
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
         visible = None
