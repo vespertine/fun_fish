@@ -95,6 +95,10 @@ class Attacker(Personality):
         "branching": "Réponses adverses suivies à chaque coup",
         "plausible_mass": "Probabilité cumulée des réponses suivies (0 à 1)",
         "min_probability": "Probabilité minimale pour suivre une réponse (0 à 1)",
+        "vision_elo": "Vision : n'envisage que les coups qu'un humain de cet Elo jouerait (Maia ; 0 = tous les coups sains)",
+        "vision_min": "Vision : probabilité minimale (selon Maia) pour qu'un coup soit vu",
+        "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
+        "w_repeat": "Conversion : pénalité pour revenir à une position déjà vue (× degré de conversion)",
         "mate_within": "Un mat forcé en N coups ou moins compte comme un mat (vérifié plus profond si l'éval est écrasante)",
         "big_gain": "Gain de matériel qui compte comme une réussite (pions)",
         "w_mate": "Poids de la probabilité de mater",
@@ -122,7 +126,8 @@ class Attacker(Personality):
                  w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0,
                  w_center: float = 0.0, w_threat: float = 0.0, mood: float = 0.0,
                  w_repertoire: float = 0.0, repertoire_rate: float = 0.0,
-                 style_margin: float = 1.0, style_first: int = 0,
+                 style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02,
+                 convert_elo: int = 0, w_repeat: float = 0.0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -147,22 +152,48 @@ class Attacker(Personality):
         self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
         self.w_center, self.w_threat, self.mood = w_center, w_threat, mood
         self.style_margin = style_margin
+        self.vision_elo, self.vision_min = vision_elo, vision_min
+        self.convert_elo, self.w_repeat = convert_elo, w_repeat
+        self._models: dict[int, OpponentModel] = {}
+        self._elo_now = opponent_elo
+        self._mate_now = mate_within
+        self._vision: MaiaModel | None = None
         self.w_repertoire, self.repertoire_rate = w_repertoire, repertoire_rate
         self._planner: Planner | None = None
         self.style_first = style_first
         self._mood: dict[str, float] = {}
-        self._model: OpponentModel | None = None
 
     @property
     def model(self) -> OpponentModel:
-        if self._model is None:
-            self._model = make_model(self.opponent_elo, instinct=self.instinct, caution=self.caution,
-                                     naivety=self.naivety)
-        return self._model
+        """L'adversaire imaginé, à l'Elo du moment (`_elo_now`, qui monte pendant la conversion)."""
+        if self._elo_now not in self._models:
+            self._models[self._elo_now] = make_model(self._elo_now, instinct=self.instinct, caution=self.caution,
+                                                     naivety=self.naivety)
+        return self._models[self._elo_now]
+
+    def imagined_elo(self, degree: float) -> int:
+        """Plus la conversion avance, moins il compte sur les gaffes : l'adversaire imaginé monte
+        de `opponent_elo` vers `convert_elo` (par paliers de 100, ceux de Maia)."""
+        if self.opponent_elo <= 0 or self.convert_elo <= self.opponent_elo:
+            return self.opponent_elo
+        return round((self.opponent_elo + degree * (self.convert_elo - self.opponent_elo)) / 100) * 100
 
     def soundness(self) -> Soundness:
         return Soundness(self.tolerance, self.soundness_depth, self.max_candidates,
-                         self.convert_from, self.convert_full, self.convert_depth, self.convert_tolerance)
+                         self.convert_from, self.convert_full, self.convert_depth, self.convert_tolerance,
+                         self.vision_min)
+
+    def seen(self, board: chess.Board, analyser: Analyser) -> dict[chess.Move, float] | None:
+        """Ce qu'un humain de `vision_elo` jouerait ici (None : il voit tout)."""
+        if self.vision_elo <= 0:
+            return None
+        if self._vision is None:
+            from fun_fish.sim import maia
+
+            if not maia.available():
+                return None
+            self._vision = MaiaModel(self.vision_elo)
+        return self._vision.probabilities(board, analyser)
 
     # ---------- simulation ----------
 
@@ -200,10 +231,10 @@ class Attacker(Personality):
                  base: int) -> Outcome:
         """À nous : le meilleur coup de Stockfish, jusqu'à l'horizon ou à un mat en vue."""
         line = analyser.analyse(position, multipv=1, depth=self.attack_depth)[0]
-        deep = 2 * self.mate_within - 1  # demi-coups d'un mat en mate_within
+        deep = 2 * self._mate_now - 1  # demi-coups d'un mat en _mate_now
         if line.mate is None and line.score >= 500 and deep > self.attack_depth:
             line = analyser.analyse(position, multipv=1, depth=deep)[0]  # écrasant : un mat plus loin ?
-        if line.mate is not None and 0 < line.mate <= self.mate_within:
+        if line.mate is not None and 0 < line.mate <= self._mate_now:
             return Outcome(mate=1.0, win=1.0, value=CLIP, best=(1.0, [position.san(line.move), f"(mat en {line.mate})"]))
         gain = settled_material(position, line.pv, us) - base
         if moves_left <= 1:
@@ -264,7 +295,11 @@ class Attacker(Personality):
         if self.mood <= 0:
             return Style.of(self)
         if board.ply() < 2 or not self._mood:
-            self._mood = {name: math.exp(self.rng.gauss(0.0, self.mood)) for name in STYLE_WEIGHTS}
+            # l'humeur redistribue ses goûts sans les éteindre : leur poids total ne change pas
+            draws = {name: math.exp(self.rng.gauss(0.0, self.mood)) for name in STYLE_WEIGHTS}
+            active = [n for n in STYLE_WEIGHTS if getattr(self, n, 0)]
+            mean = sum(draws[n] for n in active) / len(active) if active else 1.0
+            self._mood = {n: f / mean for n, f in draws.items()}
         return Style.of(self).moody(self._mood)
 
     def planned(self, board: chess.Board) -> tuple[chess.Move, str] | None:
@@ -277,8 +312,12 @@ class Attacker(Personality):
         return self._planner.next(board)
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
-        sound, degree = self.soundness().lines(board, analyser)
+        seen = self.seen(board, analyser)
+        soundness = self.soundness()
+        sound, degree = soundness.lines(board, analyser, seen)
         best = sound[0]
+        self._elo_now = self.imagined_elo(degree)
+        self._mate_now = self.mate_within + round(degree)  # gagnant : il cherche le mat un coup plus loin
         style = self.style(board)
         bonus = style.bonuses(board, sound, best, conversion=degree * self.w_technique, planned=self.planned(board))
         if self.style_first > 0 and bonus:
@@ -299,7 +338,14 @@ class Attacker(Personality):
                 for e in evals[: self.deep_candidates]
             ]
 
-        probabilities = softmax(self.combine(evals, bonus), self.temperature)
+        scores = self.combine(evals, bonus)
+        if self.w_repeat and degree > 0:  # en conversion, ne pas tourner en rond
+            for i, e in enumerate(evals):
+                child = board.copy()
+                child.push(e.line.move)
+                if child.is_repetition(2):
+                    scores[i] -= self.w_repeat * degree
+        probabilities = softmax(scores, self.temperature)
         chosen = evals[pick(probabilities, self.rng)]
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,
@@ -311,7 +357,7 @@ class Attacker(Personality):
                         explanation=converting_note(degree) + self.explain(san, chosen,
                                                                                       style.reasons.get(chosen.line.move)),
                         candidates=candidates,
-                        reality=self.cost(board, chosen, best))
+                        reality=self.cost(board, chosen, best, soundness.truth))
 
     def explain(self, san: str, e: CandidateEval, taste: str | None = None) -> str:
         o = e.outcome
@@ -325,15 +371,19 @@ class Attacker(Personality):
         if o.win - o.mate >= 0.05:
             parts.append(f"perd au moins {self.big_gain} pions dans {o.win - o.mate:.0%} des cas")
         maia = isinstance(self.model, MaiaModel)
-        subject = f"un joueur à {self.opponent_elo} Elo" if maia else "l'adversaire, à courte vue,"
+        subject = f"un joueur à {self._elo_now} Elo" if maia else "l'adversaire, à courte vue,"
         text = f"Joue {san} pour attaquer : en {self.attack_moves} coups, {subject} {' et '.join(parts)}."
         if o.best is not None and o.best[1]:
             text += f" Scénario le plus probable ({o.best[0]:.0%}) : {' '.join(o.best[1])}."
         return text
 
-    def cost(self, board: chess.Board, chosen: CandidateEval, best: Line) -> str:
+    def cost(self, board: chess.Board, chosen: CandidateEval, best: Line, truth: Line | None = None) -> str:
         sign = 1 if board.turn == chess.WHITE else -1
         fmt = lambda line: format_score(sign * line.score, None if line.mate is None else sign * line.mate)  # noqa: E731
+        if truth is not None and truth.move != best.move and truth.score - best.score >= 50:
+            return (f"Il ne voit pas {board.san(truth.move)} ({fmt(truth)}), trop peu naturel à "
+                    f"{self.vision_elo} Elo ; parmi ce qu'il voit, le meilleur est {board.san(best.move)} "
+                    f"({fmt(best)}), il joue {board.san(chosen.line.move)} ({fmt(chosen.line)}).")
         if chosen.line.move == best.move:
             return f"C'est aussi le meilleur coup selon Stockfish ({fmt(best)})."
         return (f"Prix de l'attaque : {chosen.loss / 100:.2f} si l'adversaire se défend bien "

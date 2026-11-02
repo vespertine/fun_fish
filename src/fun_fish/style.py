@@ -122,7 +122,7 @@ class Style:
             given = max(0, -delta)
             raw["develop"].append(opening * (development(after, us) - development(board, us)))
             raw["open"].append(middlegame * open_lines(after, us))
-            raw["king"].append(middlegame * king_pressure(after, us))
+            raw["king"].append(king_pressure(after, us))  # viser le roi reste un goût jusqu'au mat
             raw["activity"].append(middlegame * activity(after, us))
             raw["initiative"].append(max(-1000, min(1000, line.score)) / 100 + given)
             raw["sacrifice"].append(equal * given)

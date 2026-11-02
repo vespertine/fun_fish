@@ -215,6 +215,20 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
       - **Mat en 4** pour le romantique (`mate_within` = 4) : quand l'éval est écrasante (+5),
         on vérifie à 2N−1 demi-coups s'il y a un mat.
       Contre Maia 1500 (16 parties) : 100 %, mat médian en 22 coups (26 avant)
+- [x] Vision (`vision_elo`, `vision_min`) : n'envisager que les coups qu'un humain de cet Elo
+      jouerait (Maia ≥ 2 %), tolérance mesurée au meilleur coup vu, verdict « il ne voit pas X ».
+      Contre Maia 1900 (16 parties chacun) : 100 % avec ou sans vision (1500 ou 1900), mat
+      médian 21 à 24 coups ; Maia 1900 est trop faible pour mesurer l'effet sur la force
+- [x] Conversion avec du style : l'adversaire imaginé monte jusqu'à `convert_elo` (1200 pour le
+      romantique), pénalité de répétition (`w_repeat`), mat cherché un coup plus loin, le roi
+      adverse reste une cible en finale, technique moins lourde (0,6). L'humeur redistribue les
+      goûts au lieu de pouvoir les éteindre (une partie s'était jouée toute en e3, Fe2, b3)
+- [x] Arnaqueur et cogneur sur 147 positions réelles (Maia 1500 pour les deux) : même coup
+      préféré dans 62 % des cas, aucun avis tranché dans 35 positions. « Cogneur, puis
+      arnaqueur pour départager quand le cogneur hésite » change 10 % des choix et baisse la
+      perte moyenne de 10 à 7 cp (produit des deux : 9 ; arnaqueur d'abord : 11)
+- [ ] Monter le duo cogneur → arnaqueur ; défense avec contre-jeu (symétrique de la
+      conversion) ; adversaire Stockfish bridé dans `sim` pour mesurer la vision
 - [ ] Hors du livre avant le 10e demi-coup (la moitié des cas aux demi-coups 6 à 9, nos agents
       sortant vite des sentiers battus) : remplacer Maia par autre chose (Stockfish peu
       profond avec un tirage au sort dépendant de l'Elo ?)

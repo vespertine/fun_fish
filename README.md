@@ -77,6 +77,12 @@ du poids au répertoire d'ouvertures de la personnalité (`repertoire.py`), dans
 `w_threat` (gagner du temps sur les pièces adverses) donnent une opinion d'ouverture ; `mood`
 multiplie chaque goût par un facteur aléatoire tiré à chaque partie. Chaque mesure a un écart
 type plancher : une différence minuscule entre coups ne fait pas une opinion tranchée.
+L'humeur redistribue les goûts sans changer leur poids total.
+
+`vision_elo` limite ses coups à ceux qu'un humain de cet Elo jouerait (probabilité Maia ≥
+`vision_min`) : il peut rater un sauvetage ou un gain trop « machine ». En conversion,
+`convert_elo` fait monter l'adversaire imaginé (il compte moins sur les gaffes), `w_repeat`
+pénalise le retour à une position déjà vue, et le mat est cherché un coup plus loin.
 
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.

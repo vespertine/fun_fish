@@ -126,6 +126,11 @@ class Soundness:
     style y ajoute une technique de conversion (simplifier, pousser ses pions passés, freiner
     ceux de l'adversaire, activer son roi) : un plan, pas la force de Stockfish. En finale
     (au plus `ENDGAME_PIECES` pièces), la vérification plus profonde s'applique toujours.
+
+    **Vision** : si `seen` est donné (probabilité de chaque coup chez un humain d'un certain
+    niveau), seuls les coups qu'il jouerait avec au moins `vision_min` de probabilité sont
+    envisagés, et la tolérance se mesure au meilleur d'entre eux. Un sauvetage ou un gain trop
+    « machine » passe alors inaperçu. `truth` garde le vrai meilleur coup, pour le verdict.
     """
 
     tolerance: int
@@ -135,6 +140,8 @@ class Soundness:
     convert_full: int = 800
     convert_depth: int = 4
     convert_tolerance: int = 60
+    vision_min: float = 0.02
+    truth: "Line | None" = None
 
     def degree(self, line: "Line") -> float:
         """Degré de conversion (0 à 1) d'après l'éval du meilleur coup."""
@@ -142,16 +149,30 @@ class Soundness:
             return 0.0
         return max(0.0, min(1.0, (line.score - self.convert_from) / (self.convert_full - self.convert_from)))
 
-    def lines(self, board: chess.Board, analyser: "Analyser") -> tuple[list["Line"], float]:
+    def lines(self, board: chess.Board, analyser: "Analyser",
+              seen: dict[chess.Move, float] | None = None) -> tuple[list["Line"], float]:
         """(coups sains, le meilleur en premier ; degré de conversion)."""
         multipv = min(board.legal_moves.count(), self.max_candidates)
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
+        visible = None
+        if seen:
+            visible = {m for m, p in seen.items() if p >= self.vision_min} or {max(seen, key=seen.get)}
+            self.truth = root[0]
+            root = [l for l in root if l.move in visible]
+            if len(root) < min(len(visible), multipv):  # coups vus hors des meilleures lignes
+                root = analyser.analyse(board, multipv=min(len(visible), multipv), depth=self.depth,
+                                        moves=list(visible))
+        else:
+            self.truth = root[0]
         tolerance, degree = self.tolerance, self.degree(root[0])
         extra = round(degree * self.convert_depth)
         if chess.popcount(board.occupied & ~board.pawns & ~board.kings) <= ENDGAME_PIECES:
             extra = self.convert_depth  # finale : vérifier plus loin coûte peu, et les pions passés vont vite
         if extra > 0:
-            root = analyser.analyse(board, multipv=multipv, depth=self.depth + extra)
+            root = analyser.analyse(board, multipv=multipv if visible is None else min(len(visible), multipv),
+                                    depth=self.depth + extra, moves=None if visible is None else list(visible))
+            if visible is None:
+                self.truth = root[0]
             degree = self.degree(root[0])
         if degree > 0 and self.convert_tolerance < self.tolerance:
             tolerance = round(self.tolerance - degree * (self.tolerance - self.convert_tolerance))

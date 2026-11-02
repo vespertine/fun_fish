@@ -61,3 +61,27 @@ def test_repertoire_is_an_occasional_wish():
     sometimes = Planner(REPERTOIRES["romantic"], random.Random(2), rate=0.2)
     wished = sum(sometimes.next(chess.Board()) is not None for _ in range(500))
     assert 60 < wished < 140
+
+
+class FakeAnalyser:
+    """Scores fixes par coup ; respecte multipv et la restriction `moves`."""
+
+    def __init__(self, scores):
+        self.scores = scores
+
+    def analyse(self, board, multipv=1, depth=None, moves=None, **_):
+        pool = [m for m in board.legal_moves if moves is None or m in moves]
+        lines = [Line(m, self.scores.get(m.uci(), -500), None, None, (m,), depth or 0) for m in pool]
+        return sorted(lines, key=lambda l: -l.score)[:multipv]
+
+
+def test_vision_hides_moves_a_human_would_not_play():
+    from fun_fish.personalities.base import Soundness
+    board = chess.Board()
+    fake = FakeAnalyser({"g1h3": 300, "e2e4": 30, "d2d4": 25, "c2c4": 10})
+    s = Soundness(tolerance=50, depth=5, max_candidates=12, convert_from=0)
+    assert [l.move.uci() for l in s.lines(board, fake)[0]] == ["g1h3"]  # tout voir : seul Ch3 est sain
+    seen = {chess.Move.from_uci(u): p for u, p in {"e2e4": 0.6, "d2d4": 0.3, "c2c4": 0.09, "g1h3": 0.01}.items()}
+    lines, _ = s.lines(board, fake, seen)
+    assert [l.move.uci() for l in lines] == ["e2e4", "d2d4", "c2c4"]  # Ch3 n'est pas vu
+    assert s.truth.move.uci() == "g1h3"

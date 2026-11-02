@@ -6,7 +6,9 @@ et garder l'initiative plutôt que le matériel ; à position égale, un sacrifi
 En ouverture, il aime les pions au centre et gagner du temps sur les pièces adverses ; son
 humeur, tirée à chaque partie, varie ses goûts (et donc ses ouvertures). Une partie sur
 cinq environ, il a envie d'un gambit connu (voir `fun_fish.repertoire`). Il voit les mats
-jusqu'en 4 coups.
+jusqu'en 4 coups (5 quand il gagne nettement). En conversion, il garde l'envie de mater et vise
+toujours le roi ; il compte un peu moins sur les gaffes (adversaire imaginé jusqu'à 1200) et
+évite de repasser par les mêmes positions.
 """
 
 from __future__ import annotations
@@ -22,7 +24,7 @@ class Romantic(Attacker):
                    "Ses ouvertures changent avec son humeur.")
     DEFAULTS = {"w_develop": 0.6, "w_open": 0.4, "w_king": 0.4, "w_activity": 0.2,
                 "w_initiative": 0.4, "w_sacrifice": 0.3,
-                "w_center": 0.5, "w_threat": 0.4, "mood": 0.35, "w_repertoire": 2.0, "repertoire_rate": 0.2, "mate_within": 4}
+                "w_center": 0.5, "w_threat": 0.4, "mood": 0.3, "convert_elo": 1200, "w_repeat": 1.0, "w_technique": 0.6, "w_repertoire": 2.0, "repertoire_rate": 0.2, "mate_within": 4}
 
     def __init__(self, **kwargs):
         super().__init__(**{**self.DEFAULTS, **kwargs})
