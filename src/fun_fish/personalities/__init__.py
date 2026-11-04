@@ -7,12 +7,13 @@ import random
 from fun_fish.personalities.attacker import Attacker
 from fun_fish.personalities.base import Candidate, Decision, Personality
 from fun_fish.personalities.blitz import Blitz
+from fun_fish.personalities.corsair import Corsair
 from fun_fish.personalities.council import Duo
 from fun_fish.personalities.hustler import Hustler
 from fun_fish.personalities.reference import Casual, PureStockfish
 from fun_fish.personalities.romantic import Romantic
 
-PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Duo, Casual, PureStockfish)}
+PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Duo, Casual, PureStockfish)}
 DEFAULT_PERSONALITY = Blitz.key
 
 
