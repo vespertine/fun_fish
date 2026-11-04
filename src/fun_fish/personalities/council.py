@@ -37,14 +37,44 @@ class Council(Personality):
     }
 
     def __init__(self, keep: float = 0.5, floor: float = 0.02, opponent_elo: int = 1500, tolerance: int = 150,
-                 soundness_depth: int = 10, rng: random.Random | None = None):
+                 soundness_depth: int = 10, rng: random.Random | None = None, **staged):
         super().__init__(rng=rng)
         from fun_fish.personalities import create
 
         self.keep, self.floor = keep, floor
         self.opponent_elo, self.tolerance, self.soundness_depth = opponent_elo, tolerance, soundness_depth
         shared = {name: getattr(self, name) for name in self.SHARED}
-        self.members = [create(key, rng=self.rng, **shared) for key in self.STAGES]
+        self.members = []
+        for key in self.STAGES:
+            prefix = self.prefix(key)
+            own = {name[len(prefix):]: value for name, value in staged.items() if name.startswith(prefix)}
+            self.members.append(create(key, rng=self.rng, **shared, **own))
+
+    @staticmethod
+    def prefix(key: str) -> str:
+        """Préfixe des réglages propres à un étage : « r_ » pour le romantique, « h_ » pour l'arnaqueur."""
+        return f"{key[0]}_"
+
+    @classmethod
+    def param_specs(cls) -> list[dict]:
+        """Réglages du conseil, puis ceux de chaque étage, préfixés (sauf les réglages communs)."""
+        from fun_fish.personalities import PERSONALITIES
+
+        specs = super().param_specs()
+        for key in cls.STAGES:
+            member = PERSONALITIES[key]
+            for spec in member.param_specs():
+                if spec["name"] not in cls.SHARED:
+                    specs.append({**spec, "name": cls.prefix(key) + spec["name"],
+                                  "help": f"{member.name} : {spec['help']}".rstrip(" :")})
+        return specs
+
+    def params(self) -> dict:
+        own = {name: getattr(self, name) for name in ("keep", "floor", *self.SHARED)}
+        for key, member in zip(self.STAGES, self.members):
+            own |= {self.prefix(key) + name: value for name, value in member.params().items()
+                    if name not in self.SHARED}
+        return own
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         decisions: list[Decision] = []

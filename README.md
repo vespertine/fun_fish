@@ -98,7 +98,10 @@ pénalise le retour à une position déjà vue, et le mat est cherché un coup p
 suivante départage. Le premier étage juge tous les coups et garde ceux qu'il aime presque autant
 que son favori (`keep`) ; s'il a un avis tranché, il est suivi. Sinon l'étage suivant ne juge que
 ces coups-là, et les deux distributions se multiplient. Pour un nouveau conseil, sous-classer
-`Council` avec la liste `STAGES`.
+`Council` avec la liste `STAGES`. Les réglages communs (`opponent_elo`, `tolerance`,
+`soundness_depth`) valent pour tous les étages ; ceux de chaque étage sont préfixés par
+l'initiale de sa clé : `-s r_convert_tolerance=150` pour le romantique du duo, `h_w_trap` pour
+l'arnaqueur.
 
 Pour en ajouter une, sous-classer `Personality` dans `src/fun_fish/personalities/`
 et l'inscrire dans le registre de `personalities/__init__.py`.

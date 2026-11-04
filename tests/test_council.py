@@ -45,3 +45,16 @@ def test_clear_opinion_is_not_discussed():
     c = council({"e2e4": 0.9, "d2d4": 0.1}, {"d2d4": 1.0})
     d = c.choose_move(chess.Board(), None)
     assert d.san == "e4" and c.members[1].asked == []
+
+
+def test_duo_exposes_each_stage_settings():
+    from fun_fish.personalities import create
+    from fun_fish.personalities.council import Duo
+    names = {s["name"]: s for s in Duo.param_specs()}
+    assert names["r_convert_tolerance"]["default"] == 60 and "h_w_trap" in names
+    assert "r_opponent_elo" not in names  # réglage commun, une seule fois
+    assert names["r_vision_elo"]["default"] == 1800  # profil du romantique
+    duo = create("duo", r_convert_tolerance=150, h_temperature=0.5, opponent_elo=300)
+    romantic, hustler = duo.members
+    assert romantic.convert_tolerance == 150 and romantic.opponent_elo == 300 and hustler.temperature == 0.5
+    assert duo.params()["r_convert_tolerance"] == 150
