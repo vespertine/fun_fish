@@ -31,12 +31,12 @@ class FunFish(Buccaneer):
 # échecs sans suite peu « fun », répertoire propre plus souvent tiré.
 FROZEN_2 = {**FROZEN, "w_center": 0.0, "w_creative": 1.2, "cheap_check": 0.3, "repertoire_rate": 0.35, "creative_slots": 2,
             "w_develop": 0.9, "opening_temperature": 0.8, "opening_plies": 6,
-            "vision_from": 10}
+            "vision_from": 10, "opening_vision_min": 0.005}
 
 
 class FunFish2(FunFish):
-    """Pas de vision « 1800 » sur les 10 premiers demi-coups (un cavalier qui sort n'est pas un coup de
-    machine), et pas de demi-point de développement pour un simple fou libéré (comme l'ancien) :
+    """Vision large sur les 10 premiers demi-coups : tout coup qu'un 1800 joue au moins 0,5 % du temps
+    (1...Cc6 oui, 2.Ca3 ou 1.h3 non ; un cavalier qui sort n'est pas un coup de machine), et pas de demi-point de développement pour un simple fou libéré (comme l'ancien) :
     sinon 1...d5 l'emporte toujours sur les coups de cavalier."""
     key = "fun_fish_2"
     name = "Fun Fish 2 (essai)"
