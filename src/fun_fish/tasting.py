@@ -118,13 +118,19 @@ def _init(stockfish: str) -> None:
     _worker["analyser"] = Analyser(stockfish, threads=1, hash_mb=64)
 
 
-def _taste(job: tuple[str, tuple[str, ...], int]) -> tuple[str, tuple[str, ...], dict[str, float], dict[str, str]]:
-    """Distribution moyenne des choix d'une personnalité dans une position."""
+def _taste(job: tuple) -> tuple[str, tuple[str, ...], dict[str, float], dict[str, str]]:
+    """Distribution moyenne des choix d'une personnalité dans une position.
+
+    `key` peut être « étiquette=personnalité » ; `extra` force des réglages (la config d'une partie).
+    """
     from fun_fish.personalities import PERSONALITIES, create
 
-    key, path, draws = job
+    label, path, draws, *rest = job
+    extra = rest[0] if rest else {}
+    key = label.split("=")[-1]
     names = {s["name"] for s in PERSONALITIES[key].param_specs()}
     params = {"w_repertoire": 0} if "w_repertoire" in names else {}
+    params |= extra
     board = chess.Board()
     for uci in path:
         board.push_uci(uci)
@@ -140,7 +146,7 @@ def _taste(job: tuple[str, tuple[str, ...], int]) -> tuple[str, tuple[str, ...],
         for uci, p in probs.items():
             total[uci] += p / norm / draws
             sans[uci] = board.san(chess.Move.from_uci(uci))
-    return key, path, dict(total), sans
+    return label, path, dict(total), sans
 
 
 def run(stockfish: str, keys: list[str], draws: int = 3, workers: int = 4, lines=LINES) -> dict:
@@ -181,7 +187,7 @@ __all__ = ["LINES", "nodes", "run", "verdicts"]
 
 def explore(stockfish: str, keys: list[str], plies: int = 10, min_weight: float = 0.03, draws: int = 3,
             workers: int = 4, opponent_elo: int = 1500, opponent_mass: float = 0.85,
-            opponent_min: float = 0.05) -> dict:
+            opponent_min: float = 0.05, extra: dict[str, dict] | None = None) -> dict:
     """L'arbre d'ouvertures que chaque personnalité joue d'elle-même, avec chaque couleur.
 
     Aux coups de la personnalité, sa propre distribution (sans répertoire) ; à ceux de
@@ -198,7 +204,7 @@ def explore(stockfish: str, keys: list[str], plies: int = 10, min_weight: float 
             mine = [(t, path, w) for t, path, w in frontier if (ply % 2 == 0) == t.endswith("|w")]
             theirs = [(t, path, w) for t, path, w in frontier if (ply % 2 == 0) != t.endswith("|w")]
             nxt = []
-            jobs = [(t.split("|")[0], path, draws) for t, path, _ in mine]
+            jobs = [(t.split("|")[0], path, draws, (extra or {}).get(t.split("|")[0], {})) for t, path, _ in mine]
             weights = {(t, path): w for t, path, w in mine}
             for key, path, probs, sans in pool.imap_unordered(_taste, jobs):
                 tree = next(t for t in trees if t.startswith(key + "|") and (t, path) in weights)
