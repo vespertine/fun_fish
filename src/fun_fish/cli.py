@@ -223,6 +223,50 @@ def cmd_sweep(args: argparse.Namespace) -> None:
     print(sweep.report(out))
 
 
+def cmd_taste(args: argparse.Namespace) -> None:
+    """Dégustation d'ouvertures : quelles lignes connues chaque personnalité choisit-elle seule ?"""
+    import json
+    import os
+    from pathlib import Path
+
+    from fun_fish import tasting
+
+    keys = args.personalities.split(",")
+    for key in keys:
+        if key not in personalities.PERSONALITIES:
+            raise SystemExit(f"Erreur : personnalité inconnue {key}")
+    out = Path(args.out)
+    tastes = json.loads(out.read_text()) if out.exists() else {}
+    todo = [k for k in keys if k not in tastes]
+    if todo:
+        workers = args.workers or max(1, (os.cpu_count() or 2) - 2)
+        tastes |= tasting.run(find_stockfish(args.stockfish), todo, args.draws, workers)
+        out.write_text(json.dumps(tastes, ensure_ascii=False))
+    print(taste_table(tasting.verdicts({k: tastes[k] for k in keys})))
+
+
+def taste_table(rows: list[dict]) -> str:
+    keys = list(rows[0]["by"]) if rows else []
+    width = max(len(r["line"]) for r in rows)
+    out = []
+    for side, title in (("w", "Avec les Blancs"), ("b", "Avec les Noirs")):
+        out.append(f"\n{title} : adhésion (probabilité de jouer toute la ligne si l'adversaire coopère)")
+        out.append(" " * width + "  " + "".join(f"{k[:10]:>11}" for k in keys))
+        for r in (r for r in rows if r["side"] == side):
+            out.append(f"{r['line']:<{width}}  " + "".join(f"{r['by'][k]['adhesion']:>10.0%} " for k in keys))
+    out.append("\nPrincipaux écarts (coup de la ligne le moins aimé → ce qu'elle préfère) :")
+    for r in rows:
+        moves = r["moves"].split()
+        notes = []
+        for k in keys:
+            p, top, q, i = r["by"][k]["worst"]
+            if p < 0.25:
+                notes.append(f"{k} {p:.0%}→{top} {q:.0%}")
+        if notes:
+            out.append(f"  {r['line']} : " + " ; ".join(notes))
+    return "\n".join(out)
+
+
 def cmd_sweep_report(args: argparse.Namespace) -> None:
     from pathlib import Path
 
@@ -322,6 +366,13 @@ def build_parser() -> argparse.ArgumentParser:
     sweep_cmd.add_argument("--seed", type=int, default=7)
     sweep_cmd.add_argument("-o", "--out", required=True, help="dossier des résultats (repris s'il existe)")
     sweep_cmd.set_defaults(func=cmd_sweep)
+    taste = sub.add_parser("taste", help="dégustation d'ouvertures connues par les personnalités")
+    taste.add_argument("-p", "--personalities", default="romantic,corsair,buccaneer,fun_fish,attacker,hustler,blitz,casual,stockfish")
+    taste.add_argument("-n", "--draws", type=int, default=3, help="tirages par position")
+    taste.add_argument("-w", "--workers", type=int, default=0)
+    taste.add_argument("-o", "--out", default="runs/tasting.json", help="résultats (repris s'ils existent)")
+    taste.add_argument("--stockfish")
+    taste.set_defaults(func=cmd_taste)
     sweep_report = sub.add_parser("sweep-report", help="tableau d'un réglage paramètre par paramètre")
     sweep_report.add_argument("dir")
     sweep_report.set_defaults(func=cmd_sweep_report)
