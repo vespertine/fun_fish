@@ -14,6 +14,7 @@ On peut ajouter ses propres parties dans un fichier JSON : une liste d'objets
 from __future__ import annotations
 
 import json
+import re
 import random
 from collections import Counter
 from dataclasses import dataclass
@@ -90,10 +91,13 @@ def probes(games: list[dict]) -> list[Probe]:
             number, san = target.split(".", 1)
             black = san.startswith("..")
             san = san.lstrip(".")
-            ply = 2 * (int(number) - 1) + (1 if black else 0)
-            board = chess.Board()
-            for s in sans[:ply]:
-                board.push_san(s)
+            board = chess.Board(game.get("fen", chess.STARTING_FEN))
+            ply = 0
+            while (board.fullmove_number, board.turn) != (int(number), not black):
+                if ply >= len(sans):
+                    raise ValueError(f"{game['name']} : {target} hors de la partie")
+                board.push_san(sans[ply])
+                ply += 1
             move = board.parse_san(san)
             if sans[ply] != san:
                 raise ValueError(f"{game['name']} : {target} ne correspond pas au coup joué ({sans[ply]})")
@@ -110,24 +114,33 @@ def load(path: str | None) -> list[dict]:
     return json.loads(Path(path).read_text())
 
 
+MOMENT = re.compile(r"Moment à rejouer : coup (\d+), trait aux (Blancs|Noirs)")
+
+
 def from_pgn(text: str, marks: tuple[int, ...] = (1, 3)) -> list[dict]:
-    """Chaque partie d'un PGN, avec pour coups visés ceux que l'annotateur a notés ! (1) ou !! (3)."""
+    """Chaque partie d'un PGN, avec pour coups visés ceux que l'annotateur a notés ! (1) ou !! (3),
+    et le « moment à rejouer » qu'un commentaire désigne (« Moment à rejouer : coup 19, trait aux Blancs »)."""
     import io
 
     import chess.pgn
 
     games, stream = [], io.StringIO(text)
     while (game := chess.pgn.read_game(stream)) is not None:
+        moments = [(int(n), side == "Blancs") for n, side in MOMENT.findall(game.comment)]
         sans, targets = [], []
         for node in game.mainline():
             board = node.parent.board()
             sans.append(node.san())
-            if any(n in marks for n in node.nags):
-                targets.append(f"{board.fullmove_number}{'.' if board.turn else '...'}{node.san()}")
+            label = f"{board.fullmove_number}{'.' if board.turn else '...'}{node.san()}"
+            if any(n in marks for n in node.nags) or (board.fullmove_number, board.turn) in moments:
+                targets.append(label)
         if targets:
             h = game.headers
-            games.append({"name": f"{h.get('White', '?')}-{h.get('Black', '?')} ({h.get('Date', '?')[:4]})",
-                          "moves": " ".join(sans), "targets": targets})
+            name = h.get("ChapterName", "").split("|")[0].strip() or f"{h.get('White', '?')}-{h.get('Black', '?')}"
+            entry = {"name": f"{name} ({h.get('Date', '?')[:4]})", "moves": " ".join(sans), "targets": targets}
+            if "FEN" in h:
+                entry["fen"] = h["FEN"]
+            games.append(entry)
     return games
 
 
