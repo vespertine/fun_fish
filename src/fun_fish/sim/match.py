@@ -47,6 +47,7 @@ class GameRecord:
     seconds: float = 0.0
     moves: list = field(default_factory=list)  # UCI
     pgn: str = ""
+    plan: dict = field(default_factory=dict)  # plans d'attaque repris / poursuivis (cogneur et dérivés)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -98,6 +99,7 @@ def play_game(agent: Personality, opponent: Player, opponent_elo: int, agent_col
     record.score = 0.5 if winner is None else (1.0 if winner == agent_color else 0.0)
     record.plies = len(board.move_stack)
     record.moves = [m.uci() for m in board.move_stack]
+    record.plan = dict(getattr(agent, "plan_stats", {}))
     record.seconds = time.time() - start
 
     game = chess.pgn.Game.from_board(board)

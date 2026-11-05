@@ -122,3 +122,21 @@ def test_counterplay_when_in_trouble():
     assert calm[quiet] == calm[check] == 0.0
     fight = Style().bonuses(board, lines, lines[0], counterplay=0.6)
     assert fight[check] > fight[quiet]  # l'échec pose une question
+
+
+def test_forcing_moves_are_checked_deeper():
+    from fun_fish.personalities.base import Soundness
+
+    class Shallow(FakeAnalyser):
+        def analyse(self, board, multipv=1, depth=None, moves=None, **_):
+            lines = super().analyse(board, multipv, depth, moves)
+            if depth >= 10:  # en profondeur, le sacrifice mate
+                lines = [Line(l.move, 99_000, 3, None, l.pv, depth) if l.move.uci() == "a1a8" else l for l in lines]
+            return sorted(lines, key=lambda l: -l.score)
+
+    board = chess.Board("4k3/8/8/8/3q4/5N2/8/R6K w - - 0 1")
+    fake = Shallow({"a1a8": -900, "f3d4": 880, "a1a2": -500})
+    s = Soundness(tolerance=50, depth=5, max_candidates=12, convert_from=0, convert_depth=0, forcing_depth=0)
+    assert "a1a8" not in [l.move.uci() for l in s.lines(board, fake)[0]]
+    s.forcing_depth = 10
+    assert s.lines(board, fake)[0][0].move.uci() == "a1a8"

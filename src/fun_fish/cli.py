@@ -82,6 +82,28 @@ def cmd_choose(args: argparse.Namespace) -> None:
             print(f"\nSur {args.repeat} tirages : " + ", ".join(f"{san} ×{n}" for san, n in counts.most_common()))
 
 
+def cmd_brilliancies(args: argparse.Namespace) -> None:
+    """Coups célèbres : les voit-il, les joue-t-il ?"""
+    from fun_fish import brilliancies
+
+    try:
+        params = parse_params(args.set)
+        personalities.create(args.personality, **params)
+    except ValueError as exc:
+        raise SystemExit(f"Erreur : {exc}") from None
+    factory = lambda rng: personalities.create(args.personality, rng=rng, **params)  # noqa: E731
+    with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
+        rows = brilliancies.run(factory, analyser, brilliancies.load(args.file), args.repeat)
+    seen = played = 0
+    for r in rows:
+        loss = "  mat" if r["loss"] is None else f"{r['loss'] / 100:+5.1f}"
+        print(f"{r['target']:<10} {'vu' if r['candidate'] else '--':<3} {r['probability']:4.0%}  joué {r['played']}/{r['draws']}"
+              f"  perte {loss} (meilleur {r['best']:<6})  {r['game']}  · ses choix : {r['picks']}")
+        seen += r["candidate"]
+        played += r["played"] > 0
+    print(f"\n{seen}/{len(rows)} coups vus, {played}/{len(rows)} joués au moins une fois")
+
+
 def print_decision(decision) -> None:
     print(decision.explanation)
     if decision.reality:
@@ -225,6 +247,13 @@ def build_parser() -> argparse.ArgumentParser:
                         help="surcharge un réglage de la personnalité (répétable)")
     choose.add_argument("-n", "--repeat", type=int, default=1, help="nombre de tirages pour voir la distribution")
     choose.set_defaults(func=cmd_choose)
+
+    bril = sub.add_parser("brilliancies", parents=[common], help="coups célèbres : les voit-il, les joue-t-il ?")
+    bril.add_argument("-p", "--personality", default="romantic", choices=list(personalities.PERSONALITIES))
+    bril.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR")
+    bril.add_argument("-n", "--repeat", type=int, default=4, help="tirages par position")
+    bril.add_argument("--file", help="parties à tester (JSON : name, moves, targets), à la place des parties fournies")
+    bril.set_defaults(func=cmd_brilliancies)
 
     read = sub.add_parser("read", parents=[common], help="lecture humaine des meilleures lignes d'une position")
     read.add_argument("fen", nargs="?", default=chess.STARTING_FEN)

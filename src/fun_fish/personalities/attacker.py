@@ -99,6 +99,9 @@ class Attacker(Personality):
         "vision_min": "Vision : probabilité minimale (selon Maia) pour qu'un coup soit vu",
         "vision_breadth": "Vision : ses N coups les plus naturels sont toujours envisagés",
         "vision_panic": "Vision : si ce qu'il voit perd au moins autant (cp) sur le vrai meilleur coup, il voit tout (0 = jamais)",
+        "impatience": "Impatience : l'envie de mater et de gagner du matériel grandit avec les coups (0 = aucune)",
+        "impatience_half": "Impatience : nombre de coups pour que cette envie passe de 1 à 1 + impatience",
+        "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
         "w_repeat": "Conversion : pénalité pour revenir à une position déjà vue (× degré de conversion)",
@@ -131,6 +134,7 @@ class Attacker(Personality):
                  w_repertoire: float = 0.0, repertoire_rate: float = 0.0,
                  style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02,
                  vision_breadth: int = 6, vision_panic: int = 150, w_human: float = 0.0, defend_from: int = 100, defend_full: int = 400, w_counterplay: float = 0.0,
+                 impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  convert_elo: int = 0, w_repeat: float = 0.0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
@@ -158,6 +162,10 @@ class Attacker(Personality):
         self.style_margin = style_margin
         self.vision_elo, self.vision_min = vision_elo, vision_min
         self.w_human = w_human
+        self.impatience, self.impatience_half, self.w_plan = impatience, impatience_half, w_plan
+        self._move = 1
+        self._plan: tuple[str, chess.Move] | None = None
+        self.plan_stats = {"planned": 0, "kept": 0}
         self.vision_breadth, self.vision_panic = vision_breadth, vision_panic
         self.defend_from, self.defend_full, self.w_counterplay = defend_from, defend_full, w_counterplay
         self.convert_elo, self.w_repeat = convert_elo, w_repeat
@@ -275,7 +283,8 @@ class Attacker(Personality):
     def scored(self, e: CandidateEval, best: Line) -> CandidateEval:
         o = e.outcome
         reference = max(-CLIP, min(CLIP, best.score))
-        e.score = (self.w_mate * o.mate + self.w_win * o.win + self.w_eval * (o.value - reference) / 100
+        urge = self.urge()
+        e.score = (urge * (self.w_mate * o.mate + self.w_win * o.win) + self.w_eval * (o.value - reference) / 100
                    - self.w_loss * e.loss / 100)
         return e
 
@@ -285,7 +294,31 @@ class Attacker(Personality):
         """Ce que l'attaque espère de ce coup au-delà de son éval : mat, gain, éval attendue en plus."""
         o = e.outcome
         hope = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, e.line.score))) / 100
-        return self.w_mate * o.mate + self.w_win * o.win + self.w_eval * hope
+        return self.urge() * (self.w_mate * o.mate + self.w_win * o.win) + self.w_eval * hope
+
+    def urge(self) -> float:
+        """Impatience : 1 au début, puis exponentielle (plate au départ) avec les coups joués."""
+        if self.impatience <= 0:
+            return 1.0
+        return 1.0 + self.impatience * (2 ** (self._move / max(1, self.impatience_half)) - 1)
+
+    @staticmethod
+    def plan_key(board: chess.Board) -> str:
+        return " ".join(board.fen().split()[:4])
+
+    def remember_plan(self, board: chess.Board, chosen: CandidateEval) -> None:
+        """Le scénario d'attaque du coup choisi : après sa réponse prévue, notre coup suivant."""
+        self._plan = None
+        best = chosen.outcome.best
+        if best is None or len(best[1]) < 3:
+            return
+        position = board.copy(stack=False)
+        try:
+            position.push_san(best[1][0])
+            position.push_san(best[1][1])
+            self._plan = (self.plan_key(position), position.parse_san(best[1][2]))
+        except ValueError:
+            self._plan = None
 
     def combine(self, evals: list[CandidateEval], bonus: dict[chess.Move, float]) -> list[float]:
         """Score final : attaque + style, le style étant tempéré quand l'attaque voit mieux ailleurs."""
@@ -341,6 +374,7 @@ class Attacker(Personality):
         return {m: 0.0 if forcing(board, m) else math.log(max(seen.get(m, 0.0), floor) / top) for m in moves}
 
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
+        self._move = board.fullmove_number
         seen = self.seen(board, analyser)
         soundness = self.soundness()
         sound, degree = soundness.lines(board, analyser, seen, self.restrict)
@@ -356,6 +390,15 @@ class Attacker(Personality):
             for move, value in self.naturalness(board, [l.move for l in sound], seen).items():
                 bonus[move] = bonus.get(move, 0.0) + self.w_human * value
         self.more_bonus(board, sound, best, bonus, style)
+        planned = None
+        if self._plan is not None and self._plan[0] == self.plan_key(board):
+            planned = self._plan[1]
+            if any(line.move == planned for line in sound):
+                self.plan_stats["planned"] += 1
+                if self.w_plan:
+                    bonus[planned] = bonus.get(planned, 0.0) + self.w_plan
+            else:
+                planned = None
         if self.style_first > 0 and bonus:
             sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
         children = []
@@ -383,6 +426,9 @@ class Attacker(Personality):
                     scores[i] -= self.w_repeat * degree
         probabilities = softmax(scores, self.temperature)
         chosen = evals[pick(probabilities, self.rng)]
+        kept = planned is not None and chosen.line.move == planned
+        self.plan_stats["kept"] += kept
+        self.remember_plan(board, chosen)
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,
                       probability=p, note=e.note)
@@ -390,7 +436,7 @@ class Attacker(Personality):
         ]
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
-                        explanation=converting_note(degree)
+                        explanation=converting_note(degree) + ("Il poursuit son plan. " if kept else "")
                         + ("En difficulté, il cherche du contre-jeu. " if trouble >= 0.5 else "") + self.explain(san, chosen,
                                                                                       style.reasons.get(chosen.line.move)),
                         candidates=candidates,

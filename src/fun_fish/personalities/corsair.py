@@ -156,7 +156,8 @@ class Corsair(Romantic):
 
     def motives(self, o: Outcome, own: int) -> dict[str, float]:
         trap = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, own))) / 100
-        return {"mat": self.w_mate * o.mate, "gain": self.w_win * max(0.0, o.win - o.mate),
+        urge = self.urge()
+        return {"mat": urge * self.w_mate * o.mate, "gain": urge * self.w_win * max(0.0, o.win - o.mate),
                 "piège": self.w_trap * min(trap, self.trap_cap), "étroitesse": self.w_sharp * getattr(o, "error", 0.0)}
 
     def lead(self, motives: dict[str, float]) -> float:

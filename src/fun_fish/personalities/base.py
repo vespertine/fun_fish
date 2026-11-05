@@ -150,12 +150,24 @@ class Soundness:
     vision_panic: int = 150
     defend_from: int = 0
     defend_full: int = 0
+    forcing_depth: int = 10
     truth: "Line | None" = None
 
     def analyse_only(self, board: chess.Board, analyser: "Analyser", only: list[chess.Move]) -> list["Line"]:
         root = analyser.analyse(board, multipv=len(only), depth=self.depth, moves=list(only))
         self.truth = None
         return root
+
+    def forcing_check(self, board: chess.Board, analyser: "Analyser", root: list["Line"]) -> list["Line"]:
+        """Échecs et prises revus à `forcing_depth` : un sacrifice qui mate (Dd8+ de Réti) paraît
+        perdant à faible profondeur et serait écarté. Restreinte aux coups forcés, l'analyse coûte peu."""
+        forcing_moves = [m for m in board.legal_moves if forcing(board, m)]
+        if not forcing_moves:
+            return root
+        deep = analyser.analyse(board, multipv=len(forcing_moves), depth=self.forcing_depth, moves=forcing_moves)
+        merged = {line.move: line for line in root}
+        merged.update({line.move: line for line in deep})
+        return sorted(merged.values(), key=lambda line: -line.score)  # le score encode les mats
 
     def degree(self, line: "Line") -> float:
         """Degré de conversion (0 à 1) d'après l'éval du meilleur coup."""
@@ -175,6 +187,8 @@ class Soundness:
             return root, self.degree(root[0])
         multipv = min(board.legal_moves.count(), self.max_candidates)
         root = analyser.analyse(board, multipv=multipv, depth=self.depth)
+        if self.forcing_depth > self.depth:
+            root = self.forcing_check(board, analyser, root)
         visible = None
         if seen:
             likely = sorted(seen, key=seen.get, reverse=True)[: max(1, self.vision_breadth)]
