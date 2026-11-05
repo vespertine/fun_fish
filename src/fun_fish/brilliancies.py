@@ -6,7 +6,9 @@ le choix de la personnalité et on regarde : le coup est-il parmi ses candidats,
 probabilité, combien de fois est-il joué, et ce qu'il vaut pour Stockfish.
 
 On peut ajouter ses propres parties dans un fichier JSON : une liste d'objets
-{"name": ..., "moves": "e4 e5 Nf3 ...", "targets": ["10.Nxb5", "17...Be6"]}.
+{"name": ..., "moves": "e4 e5 Nf3 ...", "targets": ["10.Nxb5", "17...Be6"]} ; ou un PGN annoté
+(par exemple une étude Lichess : https://lichess.org/api/study/<id>.pgn), dont les coups notés
+! ou !! sont visés.
 """
 
 from __future__ import annotations
@@ -41,6 +43,18 @@ GAMES = [
      "moves": "e4 c5 Nf3 Nc6 Bb5 e6 O-O Nge7 d4 cxd4 Nxd4 Qb6 Be3 Nxd4 a4 Nxb5 Bxb6 axb6 Nd2 Nd6 e5 Ndf5 Ne4 "
               "Nc6 g4 Nh4 f4 h5 h3 hxg4 hxg4 d5 exd6 Ra5",
      "targets": ["8...Nxb5", "16...d5", "17...Ra5"]},
+    {"name": "Tal-Hecht, Varna (1962)",
+     "moves": "d4 Nf6 c4 e6 Nf3 b6 Nc3 Bb4 Bg5 Bb7 e3 h6 Bh4 Bxc3+ bxc3 d6 Nd2 e5 f3 Qe7 e4 Nbd7 Bd3 Nf8 c5 dxc5 "
+              "dxe5 Qxe5 Qa4+ c6 O-O Ng6 Nc4 Qe6 e5 b5 exf6 bxa4 fxg7 Rg8 Bf5",
+     "targets": ["13.c5", "17.Nc4", "19.exf6", "21.Bf5"]},
+    {"name": "Botvinnik-Tal, championnat du monde (1960)",
+     "moves": "c4 Nf6 Nf3 g6 g3 Bg7 Bg2 O-O d4 d6 Nc3 Nbd7 O-O e5 e4 c6 h3 Qb6 d5 cxd5 cxd5 Nc5 Ne1 Bd7 Nd3 Nxd3 "
+              "Qxd3 Rfc8 Rb1 Nh5 Be3 Qb4 Qe2 Rc4 Rfc1 Rac8 Kh2 f5 exf5 Bxf5 Ra1 Nf4",
+     "targets": ["21...Nf4"]},
+    {"name": "Tal-Smyslov, Bled (1959)",
+     "moves": "e4 c6 d3 d5 Nd2 e5 Ngf3 Nd7 d4 dxe4 Nxe4 exd4 Qxd4 Ngf6 Bg5 Be7 O-O-O O-O Nd6 Qa5 Bc4 b5 Bd2 Qa6 "
+              "Nf5 Bd8 Qh4 bxc4 Qg5 Nh5 Nh6+ Kh8 Qxh5",
+     "targets": ["12.Bd2", "14.Qh4"]},
     {"name": "Réti-Tartakower (1910)",
      "moves": "e4 c6 d4 d5 Nc3 dxe4 Nxe4 Nf6 Qd3 e5 dxe5 Qa5+ Bd2 Qxe5 O-O-O Nxe4 Qd8+ Kxd8 Bg5+ Kc7 Bd8#",
      "targets": ["9.Qd8+"]},
@@ -75,7 +89,33 @@ def probes(games: list[dict]) -> list[Probe]:
 
 
 def load(path: str | None) -> list[dict]:
-    return json.loads(Path(path).read_text()) if path else GAMES
+    """Les parties fournies, un fichier JSON, ou un PGN (coups visés : ceux notés ! ou !!)."""
+    if not path:
+        return GAMES
+    if path.endswith(".pgn"):
+        return from_pgn(Path(path).read_text())
+    return json.loads(Path(path).read_text())
+
+
+def from_pgn(text: str, marks: tuple[int, ...] = (1, 3)) -> list[dict]:
+    """Chaque partie d'un PGN, avec pour coups visés ceux que l'annotateur a notés ! (1) ou !! (3)."""
+    import io
+
+    import chess.pgn
+
+    games, stream = [], io.StringIO(text)
+    while (game := chess.pgn.read_game(stream)) is not None:
+        sans, targets = [], []
+        for node in game.mainline():
+            board = node.parent.board()
+            sans.append(node.san())
+            if any(n in marks for n in node.nags):
+                targets.append(f"{board.fullmove_number}{'.' if board.turn else '...'}{node.san()}")
+        if targets:
+            h = game.headers
+            games.append({"name": f"{h.get('White', '?')}-{h.get('Black', '?')} ({h.get('Date', '?')[:4]})",
+                          "moves": " ".join(sans), "targets": targets})
+    return games
 
 
 def run(personality_factory, analyser, games: list[dict], draws: int, seed: int = 0, depth: int = 18) -> list[dict]:

@@ -23,6 +23,7 @@ import chess
 
 from fun_fish.style import VALUES, king_pressure
 
+CAP = 1.5  # une dame donnée n'est pas trois fois plus fun qu'une pièce : sinon les gaffes passent devant
 FUN_WEIGHTS = ("hanging", "disdain", "unanswered", "sacrifice", "assault", "unexpected")
 FUN_LABELS = {"hanging": "il laisse une pièce en l'air", "disdain": "il ignore la menace",
               "unanswered": "il ne reprend pas", "sacrifice": "il sacrifie", "assault": "il monte à l'assaut",
@@ -71,6 +72,7 @@ def fun_features(board: chess.Board, move: chess.Move, seen: dict[chess.Move, fl
     if seen is not None and flair > 0:
         p = max(seen.get(move, 0.0), 1e-3)
         unexpected = max(0.0, min(2.0, -math.log10(p) - 1))  # 0 à 10 %, 1 à 1 %, 2 à 0,1 %
+    hanging, disdain, sacrifice = min(hanging, CAP), min(disdain, CAP), min(sacrifice, CAP)
     return {"hanging": hanging, "disdain": disdain, "unanswered": unanswered, "sacrifice": sacrifice,
             "assault": assault, "unexpected": unexpected}
 

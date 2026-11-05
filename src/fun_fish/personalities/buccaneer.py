@@ -40,7 +40,7 @@ class Buccaneer(Corsair):
         "w_unexpected": "Fun : coup inattendu (s'il a déjà de l'allure)",
     }
 
-    def __init__(self, fun_budget: int = 100, w_fun: float = 1.0, fun_list: int = 5, fun_elo: int = 1600,
+    def __init__(self, fun_budget: int = 100, w_fun: float = 1.0, fun_list: int = 8, fun_elo: int = 1600,
                  w_hanging: float = 1.0, w_disdain: float = 1.0, w_unanswered: float = 0.5,
                  w_sacrifice_fun: float = 1.0, w_assault: float = 1.0, w_unexpected: float = 0.5, **kwargs):
         super().__init__(**kwargs)
