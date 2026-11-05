@@ -96,6 +96,7 @@ class Attacker(Personality):
         "plausible_mass": "Probabilité cumulée des réponses suivies (0 à 1)",
         "min_probability": "Probabilité minimale pour suivre une réponse (0 à 1)",
         "vision_elo": "Vision : n'envisage que les coups qu'un humain de cet Elo jouerait (Maia ; 0 = tous les coups sains)",
+        "vision_from": "Vision : ne s'applique qu'à partir de ce demi-coup (avant, en ouverture, il voit tous les coups)",
         "vision_min": "Vision : probabilité minimale (selon Maia) pour qu'un coup soit vu",
         "vision_breadth": "Vision : ses N coups les plus naturels sont toujours envisagés",
         "vision_panic": "Vision : si ce qu'il voit perd au moins autant (cp) sur le vrai meilleur coup, il voit tout (0 = jamais)",
@@ -134,7 +135,7 @@ class Attacker(Personality):
                  w_initiative: float = 0.0, w_sacrifice: float = 0.0, w_surprise: float = 0.0,
                  w_center: float = 0.0, w_threat: float = 0.0, mood: float = 0.0,
                  w_repertoire: float = 0.0, repertoire_rate: float = 0.0,
-                 style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02,
+                 style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02, vision_from: int = 0,
                  vision_breadth: int = 6, vision_panic: int = 150, w_human: float = 0.0, defend_from: int = 100, defend_full: int = 400, w_counterplay: float = 0.0,
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
@@ -164,7 +165,7 @@ class Attacker(Personality):
         self.w_initiative, self.w_sacrifice, self.w_surprise = w_initiative, w_sacrifice, w_surprise
         self.w_center, self.w_threat, self.mood = w_center, w_threat, mood
         self.style_margin = style_margin
-        self.vision_elo, self.vision_min = vision_elo, vision_min
+        self.vision_elo, self.vision_min, self.vision_from = vision_elo, vision_min, vision_from
         self.w_human = w_human
         self.impatience, self.impatience_half, self.w_plan = impatience, impatience_half, w_plan
         self._move = 1
@@ -205,7 +206,7 @@ class Attacker(Personality):
 
     def seen(self, board: chess.Board, analyser: Analyser) -> dict[chess.Move, float] | None:
         """Ce qu'un humain de `vision_elo` jouerait ici (None : il voit tout)."""
-        if self.vision_elo <= 0:
+        if self.vision_elo <= 0 or board.ply() < self.vision_from:
             return None
         if self._vision is None:
             from fun_fish.sim import maia
