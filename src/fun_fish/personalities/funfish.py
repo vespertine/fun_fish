@@ -25,3 +25,21 @@ class FunFish(Buccaneer):
     @classmethod
     def param_specs(cls) -> list[dict]:
         return [{**spec, "default": FROZEN.get(spec["name"], spec["default"])} for spec in super().param_specs()]
+
+
+# Essai v2 : goût du centre réduit (le premier romantique, sans lui, jouait Cf3, Cc3 puis e4 !?),
+# échecs sans suite peu « fun », répertoire propre plus souvent tiré.
+FROZEN_2 = {**FROZEN, "w_center": 0.2, "cheap_check": 0.3, "repertoire_rate": 0.35}
+
+
+class FunFish2(FunFish):
+    key = "fun_fish_2"
+    name = "Fun Fish 2 (essai)"
+    description = "Fun Fish, plus varié en ouverture : deux cavaliers, gambits célèbres, moins d'échecs gratuits."
+
+    def __init__(self, **kwargs):
+        Buccaneer.__init__(self, **{**FROZEN_2, **kwargs})
+
+    @classmethod
+    def param_specs(cls) -> list[dict]:
+        return [{**spec, "default": FROZEN_2.get(spec["name"], spec["default"])} for spec in Buccaneer.param_specs()]
