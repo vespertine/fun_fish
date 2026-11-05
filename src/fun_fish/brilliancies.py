@@ -55,6 +55,19 @@ GAMES = [
      "moves": "e4 c6 d3 d5 Nd2 e5 Ngf3 Nd7 d4 dxe4 Nxe4 exd4 Qxd4 Ngf6 Bg5 Be7 O-O-O O-O Nd6 Qa5 Bc4 b5 Bd2 Qa6 "
               "Nf5 Bd8 Qh4 bxc4 Qg5 Nh5 Nh6+ Kh8 Qxh5",
      "targets": ["12.Bd2", "14.Qh4"]},
+    {"name": "Tal-Larsen, candidats (1965)",
+     "moves": "e4 c5 Nf3 Nc6 d4 cxd4 Nxd4 e6 Nc3 d6 Be3 Nf6 f4 Be7 Qf3 O-O O-O-O Qc7 Ndb5 Qb8 g4 a6 Nd4 Nxd4 "
+              "Bxd4 b5 g5 Nd7 Bd3 b4 Nd5 exd5 exd5 f5 Rde1 Rf7 h4 Bb7 Bxf5 Rxf5 Rxe7",
+     "targets": ["16.Nd5", "20.Bxf5", "21.Rxe7"]},
+    {"name": "Bobotsov-Tal, olympiade des moins de 26 ans (1958)",
+     "moves": "d4 Nf6 c4 g6 Nc3 Bg7 e4 d6 f3 O-O Nge2 c5 Be3 Nbd7 Qd2 a6 O-O-O Qa5 Kb1 b5 Nd5 Nxd5 Qxa5 Nxe3",
+     "targets": ["11...Nxd5"]},
+    {"name": "Tal-Hjartarson, Reykjavik (1987)",
+     "moves": "e4 e5 Nf3 Nc6 Bb5 a6 Ba4 Nf6 O-O Be7 Re1 b5 Bb3 O-O c3 d6 h3 Na5 Bc2 c5 d4 Qc7 Nbd2 Bd7 Nf1 cxd4 "
+              "cxd4 Rac8 Ne3 Nc6 d5 Nb4 Bb1 a5 a3 Na6 b4 g6 Bd2 axb4 axb4 Qb7 Bd3 Nc7 Nc2 Nh5 Be3 Ra8 Qd2 Rxa1 "
+              "Nxa1 f5 Bh6 Ng7 Nb3 f4 Na5 Qb6 Rc1 Ra8 Qc2 Nce8 Qb3 Bf6 Nc6 Nh5 Qb2 Bg7 Bxg7 Kxg7 Rc5 Qa6 Rxb5 "
+              "Nc7 Rb8 Qxd3 Ncxe5",
+     "targets": ["36.Rc5", "38.Rb8", "39.Ncxe5"]},
     {"name": "Réti-Tartakower (1910)",
      "moves": "e4 c6 d4 d5 Nc3 dxe4 Nxe4 Nf6 Qd3 e5 dxe5 Qa5+ Bd2 Qxe5 O-O-O Nxe4 Qd8+ Kxd8 Bg5+ Kc7 Bd8#",
      "targets": ["9.Qd8+"]},
