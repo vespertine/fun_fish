@@ -78,6 +78,11 @@ FUN_WHITE = [
     ("Deux cavaliers, puis e4 !?", "1. Nf3 Nf6 2. Nc3 d5 3. e4", 3),
     ("Deux cavaliers contre 1...d5", "1. Nf3 d5 2. Nc3 Nf6 3. e4", 2),
     ("Gambit Tennison", "1. Nf3 d5 2. e4", 1),
+    # le répertoire naturel du premier romantique (« L'ancien ») : Cf3, Cc3, puis le pion central
+    ("Réti, 2.c4", "1. Nf3 d5 2. c4", 2),
+    ("Cf3-Cc3 contre 1...Cc6, puis 4.Cd5", "1. Nf3 Nc6 2. Nc3 e5 3. d4 exd4 4. Nd5", 1),
+    ("Cf3-Cc3 puis e4, contre 1...e6", "1. Nf3 e6 2. Nc3 d5 3. e4", 1),
+    ("Cf3-Cc3 puis e4, contre 1...c6", "1. Nf3 c6 2. Nc3 d5 3. e4", 1),
     ("Deux cavaliers, Fried Liver", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 d5 5. exd5 Nxd5 6. Nxf7", 2),
     ("Deux cavaliers, Fegatello", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5", 2),
     ("Gambit écossais", "1. e4 e5 2. Nf3 Nc6 3. d4 exd4 4. Bc4", 2),
@@ -93,6 +98,13 @@ FUN_WHITE = [
     ("Gambit Blackmar-Diemer", "1. d4 d5 2. e4 dxe4 3. Nc3 Nf6 4. f3", 2),
 ]
 FUN_BLACK = [
+    # le répertoire naturel du premier romantique (« L'ancien ») : un cavalier d'abord
+    ("Nimzowitsch", "1. e4 Nc6", 3),
+    ("Nimzowitsch, 2...d5", "1. e4 Nc6 2. Nf3 d5", 1),
+    ("Alekhine", "1. e4 Nf6 2. e5 Nd5", 2),
+    ("Nimzo-indienne", "1. d4 Nf6 2. c4 e6 3. Nc3 Bb4", 2),
+    ("Tango des cavaliers noirs", "1. d4 Nf6 2. c4 Nc6", 1),
+    ("Contre le Londres, 2...c5", "1. d4 Nf6 2. Bf4 c5", 1),
     ("Deux cavaliers", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6", 3),
     ("Contre-attaque Traxler", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. Ng5 Bc5", 1),
     ("Gambit Stafford", "1. e4 e5 2. Nf3 Nf6 3. Nxe5 Nc6", 1),

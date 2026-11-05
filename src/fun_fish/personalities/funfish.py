@@ -30,7 +30,7 @@ class FunFish(Buccaneer):
 # Essai v2 : goût du centre réduit (le premier romantique, sans lui, jouait Cf3, Cc3 puis e4 !?),
 # échecs sans suite peu « fun », répertoire propre plus souvent tiré.
 FROZEN_2 = {**FROZEN, "w_center": 0.0, "w_creative": 1.2, "cheap_check": 0.3, "repertoire_rate": 0.35, "creative_slots": 2,
-            "w_develop": 0.9}
+            "w_develop": 0.9, "opening_temperature": 0.8, "opening_plies": 6}
 
 
 class FunFish2(FunFish):
