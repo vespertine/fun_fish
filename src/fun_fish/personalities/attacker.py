@@ -345,7 +345,9 @@ class Attacker(Personality):
 
     def planned(self, board: chess.Board) -> tuple[chess.Move, str] | None:
         """Le coup de la ligne connue qu'il a envie de jouer dans cette partie, s'il en a envie."""
-        openings = REPERTOIRES.get(self.key)
+        # le répertoire se transmet : le corsaire, le flibustier et Fun Fish jouent celui du romantique
+        openings = next((REPERTOIRES[c.key] for c in type(self).__mro__ if getattr(c, "key", None) in REPERTOIRES),
+                        None)
         if not (self.w_repertoire and self.repertoire_rate > 0 and openings):
             return None
         if self._planner is None:
