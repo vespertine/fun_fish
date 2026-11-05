@@ -261,7 +261,9 @@ def king_pressure(board: chess.Board, color: chess.Color) -> float:
     view = board.copy(stack=False)
     view.turn = color
     view.ep_square = None
-    checks = sum(1 for m in view.pseudo_legal_moves if view.gives_check(m)) if not view.is_check() else 0
+    # le roi adverse déjà en échec : chaque coup « donnerait échec » ; seule l'attaque présente compte (dans hits)
+    already = board.is_attacked_by(color, king)
+    checks = sum(1 for m in view.pseudo_legal_moves if view.gives_check(m)) if not (view.is_check() or already) else 0
     return hits + 0.5 * checks
 
 

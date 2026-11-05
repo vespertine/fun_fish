@@ -38,15 +38,18 @@ class Buccaneer(Corsair):
         "w_sacrifice_fun": "Fun : sacrifier une pièce (sans calcul)",
         "w_assault": "Fun : échec, pression sur le roi, pion à l'assaut",
         "w_unexpected": "Fun : coup inattendu (s'il a déjà de l'allure)",
+        "cheap_check": "Fun : un échec paré par une interposition ou une prise vaut tant (1 = comme un échec qui chasse le roi)",
     }
 
     def __init__(self, fun_budget: int = 100, w_fun: float = 1.0, fun_list: int = 8, fun_elo: int = 1600,
                  w_hanging: float = 1.0, w_disdain: float = 1.0, w_unanswered: float = 0.5,
-                 w_sacrifice_fun: float = 1.0, w_assault: float = 1.0, w_unexpected: float = 0.5, **kwargs):
+                 w_sacrifice_fun: float = 1.0, w_assault: float = 1.0, w_unexpected: float = 0.5,
+                 cheap_check: float = 1.0, **kwargs):
         super().__init__(**kwargs)
         self.fun_budget, self.w_fun, self.fun_list, self.fun_elo = fun_budget, w_fun, fun_list, fun_elo
         self.w_hanging, self.w_disdain, self.w_unanswered = w_hanging, w_disdain, w_unanswered
         self.w_sacrifice_fun, self.w_assault, self.w_unexpected = w_sacrifice_fun, w_assault, w_unexpected
+        self.cheap_check = cheap_check
         self._fun: dict[chess.Move, tuple[float, str]] = {}
         self._fun_maia = None
 
@@ -82,7 +85,8 @@ class Buccaneer(Corsair):
         self._fun = {}
         if self.w_fun <= 0 or self.fun_budget <= 0 or self.restrict:
             return sound
-        self._fun = fun_scores(board, self.fun_weights(), self.surprise_basis(board, analyser, seen))
+        self._fun = fun_scores(board, self.fun_weights(), self.surprise_basis(board, analyser, seen),
+                               self.cheap_check)
         have = {line.move for line in sound}
         favourites = [m for m, (f, _) in sorted(self._fun.items(), key=lambda x: -x[1][0])[: self.fun_list]
                       if f > 0 and m not in have]

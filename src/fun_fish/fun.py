@@ -30,7 +30,10 @@ FUN_LABELS = {"hanging": "il laisse une pièce en l'air", "disdain": "il ignore 
               "unexpected": "personne ne jouerait ça"}
 
 
-def fun_features(board: chess.Board, move: chess.Move, seen: dict[chess.Move, float] | None = None) -> dict[str, float]:
+def fun_features(board: chess.Board, move: chess.Move, seen: dict[chess.Move, float] | None = None,
+                 cheap_check: float = 1.0) -> dict[str, float]:
+    """`cheap_check` : ce que vaut un échec que l'adversaire pare en interposant ou en prenant
+    (1 = autant qu'un échec qui chasse le roi ; le Fb5+ c6 de l'ouverture n'a pas de suite)."""
     us = board.turn
     after = board.copy(stack=False)
     after.push(move)
@@ -59,7 +62,10 @@ def fun_features(board: chess.Board, move: chess.Move, seen: dict[chess.Move, fl
             exposed = value if not defended else max(0, value - min(attackers))
             sacrifice = max(0.0, exposed - taken) / 3
 
-    assault = 1.0 if after.is_check() else 0.0
+    assault = 0.0
+    if after.is_check():
+        king_must_move = all(after.piece_type_at(m.from_square) == chess.KING for m in after.legal_moves)
+        assault = 1.0 if king_must_move else cheap_check
     assault += max(0.0, king_pressure(after, us) - king_pressure(board, us)) / 4
     king = board.king(not us)
     if moved is not None and moved.piece_type == chess.PAWN and king is not None:
@@ -95,11 +101,12 @@ def _hanging(board: chess.Board, color: chess.Color) -> dict[chess.Square, float
 
 
 def fun_scores(board: chess.Board, weights: dict[str, float],
-               seen: dict[chess.Move, float] | None = None) -> dict[chess.Move, tuple[float, str]]:
+               seen: dict[chess.Move, float] | None = None,
+               cheap_check: float = 1.0) -> dict[chess.Move, tuple[float, str]]:
     """Fun de chaque coup légal (somme pondérée des mesures) et sa raison principale."""
     out = {}
     for move in board.legal_moves:
-        features = fun_features(board, move, seen)
+        features = fun_features(board, move, seen, cheap_check)
         parts = {k: weights.get(k, 0.0) * v for k, v in features.items()}
         main = max(parts, key=parts.get)
         out[move] = (sum(parts.values()), FUN_LABELS[main] if parts[main] > 0 else "")
