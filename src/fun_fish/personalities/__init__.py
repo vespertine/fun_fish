@@ -10,12 +10,14 @@ from fun_fish.personalities.blitz import Blitz
 from fun_fish.personalities.buccaneer import Buccaneer
 from fun_fish.personalities.corsair import Corsair
 from fun_fish.personalities.council import Duo
+from fun_fish.personalities.funfish import FunFish
 from fun_fish.personalities.hustler import Hustler
 from fun_fish.personalities.reference import Casual, PureStockfish
 from fun_fish.personalities.romantic import Romantic
 
-PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, Duo, Casual, PureStockfish)}
+PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, FunFish, Duo, Casual, PureStockfish)}
 DEFAULT_PERSONALITY = Blitz.key
+PUBLIC_PERSONALITIES = (FunFish.key,)  # celles du mode jeu
 
 
 def create(key: str, rng: random.Random | None = None, **params) -> Personality:
@@ -43,4 +45,4 @@ def catalogue() -> list[dict]:
             for cls in PERSONALITIES.values()]
 
 
-__all__ = ["Candidate", "Decision", "Personality", "PERSONALITIES", "DEFAULT_PERSONALITY", "create", "catalogue"]
+__all__ = ["Candidate", "Decision", "Personality", "PERSONALITIES", "DEFAULT_PERSONALITY", "PUBLIC_PERSONALITIES", "create", "catalogue"]

@@ -4,7 +4,7 @@ VENV := .venv
 BIN := $(VENV)/bin
 PORT ?= 8765
 
-.PHONY: help install dev sim-install serve run test clean
+.PHONY: help install dev sim-install serve run debug test clean
 
 help: ## Affiche cette aide
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "} {printf "  make %-12s %s\n", $$1, $$2}'
@@ -25,8 +25,11 @@ sim-install: install ## Ajoute Maia-2, PyTorch CPU et ONNX, puis exporte Maia en
 serve: install ## Démarre le serveur sans ouvrir le navigateur (PORT=8765)
 	$(BIN)/fun-fish play --port $(PORT) --no-browser
 
-run: install ## Démarre le serveur et ouvre le navigateur (PORT=8765)
+run: install ## Démarre le serveur et ouvre le navigateur, mode jeu (PORT=8765)
 	$(BIN)/fun-fish play --port $(PORT)
+
+debug: install ## Comme run, en mode debug : personnalités, réglages, raisonnement de l'IA
+	$(BIN)/fun-fish play --port $(PORT) --debug
 
 test: install ## Lance les tests
 	$(BIN)/pytest -q

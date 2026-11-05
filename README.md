@@ -27,7 +27,10 @@ Ou avec make (Linux, macOS) : `make run` (ouvre le navigateur), `make serve`
 (serveur seul, `PORT=9000` pour changer de port), `make test`, `make sim-install`,
 `make help` pour la liste.
 
-Le navigateur s'ouvre sur l'échiquier. Au premier lancement, Stockfish 19 est
+Le navigateur s'ouvre sur l'échiquier, en **mode jeu** : on affronte Fun Fish, l'agent public, sans
+réglages ni raisonnement affichés. `fun-fish play --debug` (ou `make debug`) ouvre le **mode debug** :
+toutes les personnalités, leurs réglages, le raisonnement de l'IA à chaque coup, les flèches de
+candidats et l'export de débogage. Au premier lancement, Stockfish 19 est
 téléchargé depuis ses releases officielles et mis en cache (`~/.cache/fun_fish`,
 `~/Library/Caches/fun_fish` ou `%LOCALAPPDATA%\fun_fish`). Pour utiliser un autre
 binaire : `--stockfish CHEMIN` ou la variable `FUN_FISH_STOCKFISH`.
@@ -54,6 +57,7 @@ fun-fish play --port 9000 --no-browser
 | `romantic` | Le romantique | Le cogneur avec un profil de style : développe vite, ouvre les lignes, vise le roi, préfère l'initiative au matériel, apprécie un sacrifice sain à position égale. Il aime les pions au centre et gagner du temps sur les pièces adverses ; son humeur, tirée à chaque partie, varie ses goûts et donc ses ouvertures ; une partie sur cinq, il a envie d'un gambit connu. Il voit les mats en 4. Il joue des coups calmes humains (vision à 1800 Elo), mais voit toujours les coups forcés ; en difficulté, il cherche du contre-jeu |
 | `corsair` | Le corsaire | Le romantique avec l'œil de l'arnaqueur, en un seul calcul : chaque coup est jugé à la fois sur l'attaque (mat, gain) et sur le piège (ce que rapporte la naïveté adverse, probabilité d'une vraie erreur) ; le motif le plus fort mène (`lead_share`), et ses coups dans l'arbre sont choisis pour refermer les pièges (`our_options`) |
 | `buccaneer` | Le flibustier | Le corsaire, plus un regard qui ne juge que l'allure des coups (`fun.py`, sans Stockfish) : pièce en l'air, menace ignorée, prise non reprise, sacrifice, assaut, coup inattendu pour un humain de `fun_elo`. Ses favoris sont ajoutés aux candidats, et il accepte d'y perdre jusqu'à `fun_budget` cp |
+| `fun_fish` | Fun Fish | L'agent public, figé : le flibustier avec les réglages retenus après les parties de test (adversaire imaginé à 600 Elo, tolérance 300, profondeurs 6, budget fun 270). Seul adversaire du mode jeu |
 | `duo` | Le duo | Le romantique choisit ; quand il hésite entre plusieurs coups, l'arnaqueur départage en faveur du meilleur piège |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |

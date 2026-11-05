@@ -53,7 +53,7 @@ class Buccaneer(Corsair):
     @classmethod
     def param_specs(cls) -> list[dict]:
         specs = Corsair.param_specs()
-        for name, param in inspect.signature(cls.__init__).parameters.items():
+        for name, param in inspect.signature(Buccaneer.__init__).parameters.items():
             if name in cls.FUN_HELP:
                 specs.append({"name": name, "default": param.default,
                               "type": "int" if isinstance(param.default, int) else "float", "help": cls.FUN_HELP[name]})

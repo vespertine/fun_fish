@@ -183,3 +183,6 @@ cg-board {
   .layout { padding: 8px; gap: 12px; }
   :root { --board-size: min(96vw, 720px); }
 }
+
+/* mode jeu : ni réglages, ni raisonnement de l'IA */
+body.play .debug-only { display: none !important; }

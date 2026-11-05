@@ -411,6 +411,10 @@ async function init() {
   const info = await api('/api/info');
   personalities = info.personalities;
   $('#engine').textContent = info.engine;
+  if (info.mode === 'play') {
+    document.body.classList.add('play');
+    $('#arrows').checked = false; // pas de flèches : elles montreraient ses candidats
+  }
   const select = $('#personality');
   for (const p of personalities) select.add(new Option(p.name, p.key));
 

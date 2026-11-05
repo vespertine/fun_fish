@@ -45,7 +45,8 @@ def cmd_play(args: argparse.Namespace) -> None:
 
     with Analyser(find_stockfish(args.stockfish), threads=args.threads) as analyser:
         print(f"Moteur : {analyser.engine_name}", flush=True)
-        uvicorn.run(create_app(analyser, on_startup=on_startup), host=args.host, port=port, log_level="warning")
+        uvicorn.run(create_app(analyser, on_startup=on_startup, debug=args.debug), host=args.host, port=port,
+                    log_level="warning")
 
 
 def parse_params(pairs: list[str]) -> dict:
@@ -271,6 +272,8 @@ def build_parser() -> argparse.ArgumentParser:
     play.add_argument("--host", default="127.0.0.1")
     play.add_argument("--port", type=int, default=8765)
     play.add_argument("--no-browser", action="store_true", help="ne pas ouvrir le navigateur")
+    play.add_argument("--debug", action="store_true",
+                      help="mode debug : toutes les personnalités, leurs réglages et leur raisonnement")
     play.set_defaults(func=cmd_play)
 
     choose = sub.add_parser("choose", parents=[common], help="afficher le choix d'une personnalité dans une position")

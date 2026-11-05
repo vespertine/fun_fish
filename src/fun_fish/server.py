@@ -43,7 +43,9 @@ class MoveIn(BaseModel):
     uci: str
 
 
-def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = None) -> FastAPI:
+def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = None, debug: bool = False) -> FastAPI:
+    """`debug` : toutes les personnalités, leurs réglages et leur raisonnement. Sinon, mode jeu :
+    seulement les personnalités publiques, avec leurs réglages par défaut."""
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         if on_startup:
@@ -52,7 +54,15 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
 
     app = FastAPI(title="fun_fish", lifespan=lifespan)
     lock = threading.Lock()
-    session = {"game": Game(personalities.create(personalities.DEFAULT_PERSONALITY))}
+    first = personalities.DEFAULT_PERSONALITY if debug else personalities.PUBLIC_PERSONALITIES[0]
+    session = {"game": Game(personalities.create(first))}
+
+    def chosen(key: str, params: dict[str, float]):
+        if debug:
+            return _personality(key, params)
+        if key not in personalities.PUBLIC_PERSONALITIES:
+            raise HTTPException(400, f"Personnalité indisponible en mode jeu : {key}")
+        return _personality(key, {})  # mode jeu : les réglages retenus, sans retouche
 
     def game() -> Game:
         return session["game"]
@@ -63,7 +73,11 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
 
     @app.get("/api/info")
     def info() -> dict:
-        return {"engine": getattr(analyser, "engine_name", "?"), "personalities": personalities.catalogue()}
+        catalogue = personalities.catalogue()
+        if not debug:
+            catalogue = [p for p in catalogue if p["key"] in personalities.PUBLIC_PERSONALITIES]
+        return {"engine": getattr(analyser, "engine_name", "?"), "personalities": catalogue,
+                "mode": "debug" if debug else "play"}
 
     @app.get("/api/debug-export")
     def debug_export() -> dict:
@@ -77,7 +91,7 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
 
     @app.post("/api/new")
     def new_game(body: NewGameIn) -> dict:
-        personality = _personality(body.personality, body.params)
+        personality = chosen(body.personality, body.params)
         color = random.choice(["white", "black"]) if body.color == "random" else body.color
         with lock:
             session["game"] = Game(personality, chess.WHITE if color == "white" else chess.BLACK)
@@ -104,7 +118,7 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
     @app.post("/api/personality")
     def set_personality(body: PersonalityIn) -> dict:
         """Change d'adversaire ou de réglages sans recommencer la partie."""
-        personality = _personality(body.personality, body.params)
+        personality = chosen(body.personality, body.params)
         with lock:
             game().personality = personality
             return game().state()

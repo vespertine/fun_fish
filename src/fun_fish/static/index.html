@@ -24,7 +24,7 @@
       </header>
 
       <section class="card setup">
-        <label>Adversaire
+        <label class="debug-only">Adversaire
           <select id="personality"></select>
         </label>
         <p class="hint" id="personality-desc"></p>
@@ -38,7 +38,7 @@
           </label>
           <button id="new" class="primary">Nouvelle partie</button>
         </div>
-        <details class="settings" id="settings">
+        <details class="settings debug-only" id="settings">
           <summary>Réglages</summary>
           <div class="params" id="params"></div>
           <div class="row settings-actions">
@@ -56,13 +56,13 @@
         <p class="hint nav-hint">← → pour revoir la partie coup par coup (Début / Fin), ou cliquez sur un coup.</p>
         <div class="row actions">
           <button id="undo" title="Annule votre dernier coup et la réponse de l'IA">↶ Reprendre le coup</button>
-          <button id="retry" title="Annule le dernier coup de l'IA et la fait rejouer">↻ Rejouer l'IA</button>
+          <button id="retry" class="debug-only" title="Annule le dernier coup de l'IA et la fait rejouer">↻ Rejouer l'IA</button>
           <button id="pgn">Copier le PGN</button>
-          <button id="debug-export" title="Télécharge la partie, les réglages et le raisonnement de l'IA à chaque coup (JSON), pour le débogage">⤓ Export debug</button>
+          <button id="debug-export" class="debug-only" title="Télécharge la partie, les réglages et le raisonnement de l'IA à chaque coup (JSON), pour le débogage">⤓ Export debug</button>
         </div>
       </section>
 
-      <section class="card why">
+      <section class="card why debug-only">
         <div class="why-head">
           <h2>Pourquoi ce coup ?</h2>
           <label class="toggle"><input type="checkbox" id="arrows" checked> flèches</label>
