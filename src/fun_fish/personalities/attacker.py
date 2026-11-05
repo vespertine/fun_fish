@@ -319,6 +319,15 @@ class Attacker(Personality):
             self._planner = Planner(openings, self.rng, self.repertoire_rate)
         return self._planner.next(board)
 
+    def more_candidates(self, board: chess.Board, analyser: Analyser, sound: list[Line],
+                        seen: dict[chess.Move, float] | None) -> list[Line]:
+        """Point d'accroche : d'autres coups à examiner (aucun ici)."""
+        return sound
+
+    def more_bonus(self, board: chess.Board, sound: list[Line], best: Line, bonus: dict[chess.Move, float],
+                   style: Style) -> None:
+        """Point d'accroche : d'autres goûts à ajouter aux bonus (aucun ici)."""
+
     def naturalness(self, board: chess.Board, moves: list[chess.Move],
                     seen: dict[chess.Move, float]) -> dict[chess.Move, float]:
         """Log-probabilité Maia de chaque coup par rapport au plus naturel (0 au mieux, négatif sinon).
@@ -335,6 +344,7 @@ class Attacker(Personality):
         seen = self.seen(board, analyser)
         soundness = self.soundness()
         sound, degree = soundness.lines(board, analyser, seen, self.restrict)
+        sound = self.more_candidates(board, analyser, sound, seen)
         best = sound[0]
         self._elo_now = self.imagined_elo(degree)
         self._mate_now = self.mate_within + round(degree)  # gagnant : il cherche le mat un coup plus loin
@@ -345,6 +355,7 @@ class Attacker(Personality):
         if seen and self.w_human:
             for move, value in self.naturalness(board, [l.move for l in sound], seen).items():
                 bonus[move] = bonus.get(move, 0.0) + self.w_human * value
+        self.more_bonus(board, sound, best, bonus, style)
         if self.style_first > 0 and bonus:
             sound = sorted(sound, key=lambda l: -bonus[l.move])[: self.style_first]
         children = []
