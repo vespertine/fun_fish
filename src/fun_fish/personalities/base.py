@@ -164,6 +164,8 @@ class Soundness:
         forcing_moves = [m for m in board.legal_moves if forcing(board, m)]
         if not forcing_moves:
             return root
+        if root and root[0].move not in forcing_moves:
+            forcing_moves.append(root[0].move)  # le meilleur coup à la même profondeur : des pertes comparables
         deep = analyser.analyse(board, multipv=len(forcing_moves), depth=self.forcing_depth, moves=forcing_moves)
         merged = {line.move: line for line in root}
         merged.update({line.move: line for line in deep})

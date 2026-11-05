@@ -37,6 +37,10 @@ GAMES = [
      "moves": "Nf3 Nf6 c4 g6 Nc3 Bg7 d4 O-O Bf4 d5 Qb3 dxc4 Qxc4 c6 e4 Nbd7 Rd1 Nb6 Qc5 Bg4 Bg5 Na4 Qa3 Nxc3 "
               "bxc3 Nxe4 Bxe7 Qb6 Bc4 Nxc3 Bc5 Rfe8+ Kf1 Be6",
      "targets": ["11...Na4", "13...Nxe4", "17...Be6"]},
+    {"name": "Giri-Carlsen, sacrifice de dame (2021)",
+     "moves": "e4 c5 Nf3 Nc6 Bb5 e6 O-O Nge7 d4 cxd4 Nxd4 Qb6 Be3 Nxd4 a4 Nxb5 Bxb6 axb6 Nd2 Nd6 e5 Ndf5 Ne4 "
+              "Nc6 g4 Nh4 f4 h5 h3 hxg4 hxg4 d5 exd6 Ra5",
+     "targets": ["8...Nxb5", "16...d5", "17...Ra5"]},
     {"name": "Réti-Tartakower (1910)",
      "moves": "e4 c6 d4 d5 Nc3 dxe4 Nxe4 Nf6 Qd3 e5 dxe5 Qa5+ Bd2 Qxe5 O-O-O Nxe4 Qd8+ Kxd8 Bg5+ Kc7 Bd8#",
      "targets": ["9.Qd8+"]},
