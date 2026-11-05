@@ -101,6 +101,8 @@ class Attacker(Personality):
         "vision_panic": "Vision : si ce qu'il voit perd au moins autant (cp) sur le vrai meilleur coup, il voit tout (0 = jamais)",
         "impatience": "Impatience : l'envie de mater et de gagner du matériel grandit avec les coups (0 = aucune)",
         "impatience_half": "Impatience : nombre de coups pour que cette envie passe de 1 à 1 + impatience",
+        "opening_temperature": "Hasard du choix dans les premiers coups (0 = comme le reste de la partie)",
+        "opening_plies": "Premiers demi-coups de la partie joués avec ce hasard d'ouverture",
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
@@ -135,6 +137,7 @@ class Attacker(Personality):
                  style_margin: float = 1.0, style_first: int = 0, vision_elo: int = 0, vision_min: float = 0.02,
                  vision_breadth: int = 6, vision_panic: int = 150, w_human: float = 0.0, defend_from: int = 100, defend_full: int = 400, w_counterplay: float = 0.0,
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
+                 opening_temperature: float = 0.0, opening_plies: int = 6,
                  convert_elo: int = 0, w_repeat: float = 0.0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
@@ -150,6 +153,7 @@ class Attacker(Personality):
         self.big_gain = big_gain
         self.w_mate, self.w_win, self.w_eval, self.w_loss = w_mate, w_win, w_eval, w_loss
         self.temperature = temperature
+        self.opening_temperature, self.opening_plies = opening_temperature, opening_plies
         self.max_candidates = max_candidates
         self.deep_candidates = deep_candidates
         self.instinct, self.caution, self.naivety = instinct, caution, naivety
@@ -426,7 +430,8 @@ class Attacker(Personality):
                 child.push(e.line.move)
                 if child.is_repetition(2):
                     scores[i] -= self.w_repeat * degree
-        probabilities = softmax(scores, self.temperature)
+        hot = self.opening_temperature > 0 and board.ply() < self.opening_plies and board.root() == chess.Board()
+        probabilities = softmax(scores, self.opening_temperature if hot else self.temperature)
         chosen = evals[pick(probabilities, self.rng)]
         kept = planned is not None and chosen.line.move == planned
         self.plan_stats["kept"] += kept

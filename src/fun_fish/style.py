@@ -77,6 +77,7 @@ STYLE_HELP = {
 
 @dataclass
 class Style:
+    floor_scale = 1.0  # (pas un goût) 0 : sans écart type plancher, comme le premier romantique
     w_develop: float = 0.0
     w_open: float = 0.0
     w_king: float = 0.0
@@ -139,7 +140,7 @@ class Style:
         for name, values in raw.items():
             weight = weights[name]
             if weight:
-                for i, z in enumerate(_standardise(values, FLOORS[name])):
+                for i, z in enumerate(_standardise(values, FLOORS[name] * self.floor_scale)):
                     bonus[i] += weight * z
                     if name not in ("initiative", "sacrifice") or gave[i]:  # pas pour une prise
                         top[i] = max(top[i], (weight * z, LABELS[name]))
