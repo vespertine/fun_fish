@@ -175,3 +175,78 @@ def verdicts(tastes: dict, lines=LINES) -> list[dict]:
 
 
 __all__ = ["LINES", "nodes", "run", "verdicts"]
+
+
+# ---------- répertoire naturel : exploration libre ----------
+
+def explore(stockfish: str, keys: list[str], plies: int = 10, min_weight: float = 0.03, draws: int = 3,
+            workers: int = 4, opponent_elo: int = 1500, opponent_mass: float = 0.85,
+            opponent_min: float = 0.05) -> dict:
+    """L'arbre d'ouvertures que chaque personnalité joue d'elle-même, avec chaque couleur.
+
+    Aux coups de la personnalité, sa propre distribution (sans répertoire) ; à ceux de
+    l'adversaire, les réponses humaines probables (Maia et parties réelles, à `opponent_elo`).
+    Une branche est suivie tant que sa fréquence reste au moins `min_weight`.
+    """
+    from fun_fish.sim.maia import shared
+
+    maia = shared()
+    trees: dict[str, dict] = {f"{k}|{side}": {} for k in keys for side in "wb"}
+    frontier = [(f"{k}|{side}", (), 1.0) for k in keys for side in "wb"]
+    with multiprocessing.Pool(workers, initializer=_init, initargs=(stockfish,)) as pool:
+        for ply in range(plies):
+            mine = [(t, path, w) for t, path, w in frontier if (ply % 2 == 0) == t.endswith("|w")]
+            theirs = [(t, path, w) for t, path, w in frontier if (ply % 2 == 0) != t.endswith("|w")]
+            nxt = []
+            jobs = [(t.split("|")[0], path, draws) for t, path, _ in mine]
+            weights = {(t, path): w for t, path, w in mine}
+            for key, path, probs, sans in pool.imap_unordered(_taste, jobs):
+                tree = next(t for t in trees if t.startswith(key + "|") and (t, path) in weights)
+                w = weights[(tree, path)]
+                trees[tree][" ".join(path)] = {"weight": w, "mine": True,
+                                               "moves": {sans[u]: p for u, p in sorted(probs.items(), key=lambda x: -x[1])}}
+                for uci, p in probs.items():
+                    if w * p >= min_weight:
+                        nxt.append((tree, (*path, uci), w * p))
+            for tree, path, w in theirs:
+                board = chess.Board()
+                for uci in path:
+                    board.push_uci(uci)
+                probs = maia.probabilities(board, opponent_elo)
+                kept, mass = {}, 0.0
+                for move, p in sorted(probs.items(), key=lambda x: -x[1]):
+                    if mass >= opponent_mass or p < opponent_min:
+                        break
+                    kept[move] = p
+                    mass += p
+                trees[tree][" ".join(path)] = {"weight": w, "mine": False,
+                                               "moves": {board.san(m): p / mass for m, p in kept.items()}}
+                for move, p in kept.items():
+                    if w * p / mass >= min_weight:
+                        nxt.append((tree, (*path, move.uci()), w * p / mass))
+            frontier = nxt
+    return trees
+
+
+def tree_text(tree: dict, min_weight: float = 0.03) -> str:
+    """L'arbre en texte indenté : chaque coup, sa fréquence dans les parties, et qui l'a choisi."""
+    out = []
+
+    def walk(path: tuple[str, ...], board: chess.Board, depth: int) -> None:
+        node = tree.get(" ".join(path))
+        if node is None:
+            return
+        for san, p in node["moves"].items():
+            w = node["weight"] * p
+            if w < min_weight:
+                continue
+            number = f"{board.fullmove_number}." if board.turn else f"{board.fullmove_number}..."
+            mark = "" if node["mine"] else "  (adv.)"
+            out.append(f"{'  ' * depth}{number}{san}  {w:.0%}{mark}")
+            move = board.parse_san(san)
+            board.push(move)
+            walk((*path, move.uci()), board, depth + 1)
+            board.pop()
+
+    walk((), chess.Board(), 0)
+    return "\n".join(out)

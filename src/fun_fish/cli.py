@@ -245,6 +245,29 @@ def cmd_taste(args: argparse.Namespace) -> None:
     print(taste_table(tasting.verdicts({k: tastes[k] for k in keys})))
 
 
+def cmd_natural(args: argparse.Namespace) -> None:
+    """Répertoire naturel : l'arbre d'ouvertures que chaque personnalité joue d'elle-même."""
+    import json
+    import os
+    from pathlib import Path
+
+    from fun_fish import tasting
+
+    keys = args.personalities.split(",")
+    out = Path(args.out)
+    trees = json.loads(out.read_text()) if out.exists() else {}
+    todo = [k for k in keys if f"{k}|w" not in trees]
+    if todo:
+        workers = args.workers or max(1, (os.cpu_count() or 2) - 2)
+        trees |= tasting.explore(find_stockfish(args.stockfish), todo, args.plies, args.min_weight, args.draws,
+                                 workers, args.opponent_elo)
+        out.write_text(json.dumps(trees, ensure_ascii=False))
+    for key in keys:
+        for side, title in (("w", "avec les Blancs"), ("b", "avec les Noirs")):
+            print(f"\n=== {key}, {title} ===")
+            print(tasting.tree_text(trees[f"{key}|{side}"], args.min_weight))
+
+
 def taste_table(rows: list[dict]) -> str:
     keys = list(rows[0]["by"]) if rows else []
     width = max(len(r["line"]) for r in rows)
@@ -373,6 +396,16 @@ def build_parser() -> argparse.ArgumentParser:
     taste.add_argument("-o", "--out", default="runs/tasting.json", help="résultats (repris s'ils existent)")
     taste.add_argument("--stockfish")
     taste.set_defaults(func=cmd_taste)
+    natural = sub.add_parser("natural", help="répertoire naturel de chaque personnalité, en liberté")
+    natural.add_argument("-p", "--personalities", default="romantic,corsair,buccaneer,fun_fish,attacker,hustler,blitz,casual,stockfish")
+    natural.add_argument("--plies", type=int, default=10)
+    natural.add_argument("--min-weight", type=float, default=0.03)
+    natural.add_argument("-n", "--draws", type=int, default=3)
+    natural.add_argument("--opponent-elo", type=int, default=1500)
+    natural.add_argument("-w", "--workers", type=int, default=0)
+    natural.add_argument("-o", "--out", default="runs/natural.json")
+    natural.add_argument("--stockfish")
+    natural.set_defaults(func=cmd_natural)
     sweep_report = sub.add_parser("sweep-report", help="tableau d'un réglage paramètre par paramètre")
     sweep_report.add_argument("dir")
     sweep_report.set_defaults(func=cmd_sweep_report)
