@@ -195,6 +195,41 @@ def cmd_sim(args: argparse.Namespace) -> None:
     print(report.summarize(report.load(out)))
 
 
+def cmd_sweep(args: argparse.Namespace) -> None:
+    """Une référence, puis chaque paramètre modifié seul, sur les mêmes parties."""
+    from pathlib import Path
+
+    from fun_fish.sim import runner, sweep
+
+    base = parse_params(args.set)
+    variants = [("baseline", {})]
+    for spec in args.vary:
+        name, _, values = spec.partition("=")
+        for value in values.split(","):
+            variants.append((f"{name}={value}", parse_params([f"{name}={value}"])))
+    try:
+        for _, change in variants:
+            personalities.create(args.personality, **runner.resolve_params({**base, **change}, 1500))
+    except ValueError as exc:
+        raise SystemExit(f"Erreur : {exc}") from None
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    stockfish = str(find_stockfish(args.stockfish))
+    for name, change in variants:
+        print(f"== {name}", flush=True)
+        runner.run(args.personality, {**base, **change}, parse_elos(args.elos), args.games, out / f"{name}.jsonl",
+                   stockfish=stockfish, workers=args.workers, seed=args.seed)
+    print(sweep.report(out))
+
+
+def cmd_sweep_report(args: argparse.Namespace) -> None:
+    from pathlib import Path
+
+    from fun_fish.sim import sweep
+
+    print(sweep.report(Path(args.dir)))
+
+
 def cmd_sim_report(args: argparse.Namespace) -> None:
     from pathlib import Path
 
@@ -273,6 +308,20 @@ def build_parser() -> argparse.ArgumentParser:
     sim.add_argument("-o", "--out", required=True, help="fichier JSONL de résultats (repris s'il existe)")
     sim.add_argument("--seed", type=int, default=0)
     sim.set_defaults(func=cmd_sim)
+
+    sweep_cmd = sub.add_parser("sweep", parents=[common], help="réglage : chaque paramètre modifié seul autour d'une référence")
+    sweep_cmd.add_argument("-p", "--personality", default="romantic", choices=list(personalities.PERSONALITIES))
+    sweep_cmd.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR", help="réglages de la référence")
+    sweep_cmd.add_argument("--vary", action="append", default=[], metavar="PARAM=V1,V2", help="paramètre à faire varier seul")
+    sweep_cmd.add_argument("--elos", default="1100,1500,1800")
+    sweep_cmd.add_argument("-g", "--games", type=int, default=12, help="parties par tranche et par série")
+    sweep_cmd.add_argument("-w", "--workers", type=int)
+    sweep_cmd.add_argument("--seed", type=int, default=7)
+    sweep_cmd.add_argument("-o", "--out", required=True, help="dossier des résultats (repris s'il existe)")
+    sweep_cmd.set_defaults(func=cmd_sweep)
+    sweep_report = sub.add_parser("sweep-report", help="tableau d'un réglage paramètre par paramètre")
+    sweep_report.add_argument("dir")
+    sweep_report.set_defaults(func=cmd_sweep_report)
 
     sim_report = sub.add_parser("sim-report", help="synthèse de fichiers de résultats")
     sim_report.add_argument("files", nargs="+")

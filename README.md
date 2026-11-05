@@ -140,6 +140,24 @@ fait jouer l'arnaqueur contre un Maia qu'il modélise exactement.
 Un fichier existant est repris là où il s'est arrêté. Ordres de grandeur sur 22 cœurs :
 le blitzeur joue ~3 parties par seconde, l'arnaqueur ~1 partie par minute et par cœur.
 
+### Réglage paramètre par paramètre
+
+```bash
+fun-fish sweep -p romantic -s opponent_elo=300 -s tolerance=300 --vary impatience=0.5,1 --vary w_plan=1 \
+    --elos 1100,1500,1800 -g 12 -o runs/sweep_romantic
+fun-fish sweep-report runs/sweep_romantic
+```
+
+Une référence, puis chaque paramètre modifié seul, sur les mêmes parties (mêmes graines). Le
+critère principal est la rapidité : coups par partie, une partie sans notre mat comptant 100. À
+côté : score, sacrifices, fulgurances, coups calmes « machine », plans poursuivis, temps par coup.
+
+### Coups célèbres
+
+`fun-fish brilliancies -p romantic -n 4` rejoue des coups célèbres (Morphy, Anderssen, Fischer,
+Réti) et dit s'ils sont vus et joués ; `--file` pour ses propres parties (JSON : `name`, `moves`,
+`targets` comme « 10.Nxb5 » ou « 17...Be6 »).
+
 ### Livre d'ouverture
 
 Maia-2 n'a pas été entraîné sur les 10 premiers demi-coups des parties. En ouverture, les
