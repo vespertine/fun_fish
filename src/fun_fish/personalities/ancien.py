@@ -4,7 +4,8 @@ Cette partie (1.Cf3 Cf6 2.Cc3 d5 3.e4 !? dxe4…) avait un charme que les versio
 perdu : les cavaliers d'abord, puis le pion central donné ; des coups calmes inattendus (montées de
 tour, replis de dame) ; un jeu plus faible, mais plus libre. On le retrouve en reprenant ses
 réglages de l'époque et en coupant ce qui est venu après : goût du centre, vision et naturalité
-humaines, contre-jeu, humeur, répertoire, défense resserrée, écart type plancher des goûts.
+humaines, contre-jeu, humeur, répertoire, défense resserrée, écart type plancher des goûts,
+développement compté pour un simple fou libéré.
 """
 
 from __future__ import annotations
@@ -43,4 +44,5 @@ class Ancien(Romantic):
     def style(self, board: chess.Board) -> Style:
         style = super().style(board)
         style.floor_scale = 0.0
+        style.bishop_release = 0.0
         return style

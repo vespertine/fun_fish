@@ -78,6 +78,7 @@ STYLE_HELP = {
 @dataclass
 class Style:
     floor_scale = 1.0  # (pas un goût) 0 : sans écart type plancher, comme le premier romantique
+    bishop_release = 0.5  # (pas un goût) développement compté pour un fou libéré ; 0 chez le premier romantique
     w_develop: float = 0.0
     w_open: float = 0.0
     w_king: float = 0.0
@@ -122,7 +123,8 @@ class Style:
             settled = settle(board, line.pv)
             delta = material(settled, us) - base
             given = max(0, -delta)
-            raw["develop"].append(opening * (development(after, us) - development(board, us)))
+            raw["develop"].append(opening * (development(after, us, self.bishop_release)
+                                                     - development(board, us, self.bishop_release)))
             raw["open"].append(middlegame * open_lines(after, us))
             raw["king"].append(king_pressure(after, us))  # viser le roi reste un goût jusqu'au mat
             raw["activity"].append(middlegame * activity(after, us))
@@ -231,10 +233,10 @@ def middlegame_weight(board: chess.Board) -> float:
     return max(0.0, min(1.0, (pieces - 4) / 8))
 
 
-def development(board: chess.Board, color: chess.Color) -> float:
+def development(board: chess.Board, color: chess.Color, release: float = 0.5) -> float:
     """Pièces mineures sorties, un demi-point par fou libéré (1.e4, 1.d4...) et le roque."""
     minors = sum(1 for p in MINORS for sq in board.pieces(p, color) if not chess.BB_SQUARES[sq] & HOME[color])
-    minors += 0.5 * sum(1 for sq in board.pieces(chess.BISHOP, color)
+    minors += release * sum(1 for sq in board.pieces(chess.BISHOP, color)
                         if chess.BB_SQUARES[sq] & HOME[color] and board.attacks_mask(sq) & ~board.occupied_co[color])
     king = board.king(color)
     castled = king in CASTLED_KING[color] and not board.has_castling_rights(color)
