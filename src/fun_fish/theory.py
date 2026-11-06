@@ -58,6 +58,8 @@ THEORY_BLACK = [
     ("Sicilienne Sveshnikov", "1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 e5", 1),
     ("Sicilienne Kalachnikov", "1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 e5 5. Nb5 d6", 1),
     ("Sicilienne Scheveningen", "1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 e6", 1),
+    ("Sicilienne contre 2.Fc4", "1. e4 c5 2. Bc4 e6", 3),
+    ("Sicilienne contre 2.Fc4, gambit 2...b5 !?", "1. e4 c5 2. Bc4 b5", 1),
     ("Sicilienne contre Alapine", "1. e4 c5 2. c3 Nf6 3. e5 Nd5 4. d4 cxd4", 1),
     ("Sicilienne fermée", "1. e4 c5 2. Nc3 Nc6 3. g3 g6 4. Bg2 Bg7", 1),
     ("Espagnole fermée", "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7", 1),
