@@ -3,7 +3,8 @@
 Dans une partie sur `theory_rate`, la personnalité tire au sort combien de ses coups suivront la
 théorie (de 1 à `theory_moves`) et une ligne classique compatible avec les coups déjà joués. Elle la
 joue d'office, sans goût ni filtre, tant que l'adversaire reste dedans (s'il en sort, une autre
-ligne qui colle encore, sinon fin de la théorie). Ensuite, ou dans les autres parties, elle joue à
+ligne qui colle encore ; sinon le coup dominant des joueurs Lichess ≥ 2200, tant que la position
+est assez fréquente chez eux). Ensuite, ou dans les autres parties, elle joue à
 sa façon. Indépendant du répertoire (`fun_fish.repertoire`), qui n'est qu'un goût de plus.
 """
 
@@ -11,7 +12,6 @@ from __future__ import annotations
 
 import chess
 
-from fun_fish.personalities.base import Candidate, Decision
 from fun_fish.repertoire import Opening, _parse
 
 # Lignes classiques, à enrichir. Chaque ligne s'arrête sur notre dernier coup théorique.
@@ -91,6 +91,31 @@ THEORY_BLACK = [
 THEORY = {chess.WHITE: [_parse(*line) for line in THEORY_WHITE],
           chess.BLACK: [_parse(*line) for line in THEORY_BLACK]}
 
+STRONG_ELO = 2200  # « théorie » du livre : ce que jouent les joueurs Lichess de ce niveau et au-delà
+STRONG_GAMES = 30  # en deçà, la position est trop rare chez eux : pas de théorie
+STRONG_SHARE = 0.2  # coups retenus : au moins cette part de leurs parties
+
+
+def strong_moves(board: chess.Board) -> dict[chess.Move, int]:
+    """Les coups dominants des joueurs forts dans cette position (livre Lichess), avec leur nombre de parties."""
+    from fun_fish import book
+
+    opening = book.shared()
+    if opening is None or board.ply() > book.PLIES:
+        return {}
+    entry = opening.data.get(book.key(board), {})
+    counts: dict[str, int] = {}
+    for i, low in enumerate(book.BUCKETS):
+        if low >= STRONG_ELO:
+            for uci, n in entry.get(str(i), {}).items():
+                counts[uci] = counts.get(uci, 0) + n
+    total = sum(counts.values())
+    if total < STRONG_GAMES:
+        return {}
+    legal = {m.uci(): m for m in board.legal_moves}
+    return {legal[u]: n for u, n in counts.items() if u in legal and n / total >= STRONG_SHARE}
+
+
 THEORY_HELP = {
     "theory_rate": "part des parties où il commence par quelques coups de théorie classique (0 : jamais)",
     "theory_moves": "au plus combien de ses coups suivent la théorie (tiré au sort de 1 à ce nombre à chaque partie)",
@@ -129,14 +154,22 @@ class Theory:
 
         if self._theory_line is None or not fits(self._theory_line):
             pool = [o for o in THEORY[board.turn] if fits(o)]
-            if not pool:
-                self._theory_left = 0
-                return None
-            self._theory_line = self.rng.choices(pool, weights=[o.weight for o in pool])[0]
+            self._theory_line = self.rng.choices(pool, weights=[o.weight for o in pool])[0] if pool else None
+        if self._theory_line is not None:
+            self._theory_left -= 1
+            return self._theory_line.moves[n], self._theory_line.name
+        # plus de ligne écrite : le coup dominant des joueurs forts, s'il y en a un
+        strong = strong_moves(board)
+        if not strong:
+            self._theory_left = 0
+            return None
         self._theory_left -= 1
-        return self._theory_line.moves[n], self._theory_line.name
+        move = self.rng.choices(list(strong), weights=list(strong.values()))[0]
+        return move, f"théorie des joueurs ≥ {STRONG_ELO}"
 
-    def choose_move(self, board: chess.Board, analyser) -> Decision:
+    def choose_move(self, board: chess.Board, analyser):
+        from fun_fish.personalities.base import Candidate, Decision  # (import circulaire sinon)
+
         found = self.theory_move(board)
         if found is None:
             return super().choose_move(board, analyser)
