@@ -3,12 +3,16 @@
 Dans une partie sur `theory_rate`, la personnalité tire au sort combien de ses coups suivront la
 théorie (de 1 à `theory_moves`) et une ligne classique compatible avec les coups déjà joués. Elle la
 joue d'office, sans goût ni filtre, tant que l'adversaire reste dedans (s'il en sort, une autre
-ligne qui colle encore ; sinon le coup dominant des joueurs Lichess ≥ 2200, tant que la position
-est assez fréquente chez eux). Ensuite, ou dans les autres parties, elle joue à
+ligne qui colle encore ; sinon un coup dominant des maîtres, ou à défaut des joueurs Lichess ≥ 2200,
+tant que la position est assez fréquente chez eux). Ensuite, ou dans les autres parties, elle joue à
 sa façon. Indépendant du répertoire (`fun_fish.repertoire`), qui n'est qu'un goût de plus.
 """
 
 from __future__ import annotations
+
+import gzip
+import json
+from pathlib import Path
 
 import chess
 
@@ -96,10 +100,38 @@ STRONG_GAMES = 30  # en deçà, la position est trop rare chez eux : pas de thé
 STRONG_SHARE = 0.2  # coups retenus : au moins cette part de leurs parties
 
 
+MASTERS_PATH = Path(__file__).parent / "data" / "masters.json.gz"
+_masters: dict | None = None
+
+
+def masters() -> dict:
+    """Extrait de la base des maîtres de Lichess (explorateur) : epd -> coup uci -> nombre de parties.
+    Seules les positions de notre arbre de théorie y sont (voir runs/masters_gaps.py)."""
+    global _masters
+    if _masters is None:
+        _masters = {}
+        if MASTERS_PATH.exists():
+            with gzip.open(MASTERS_PATH, "rt") as f:
+                _masters = json.load(f)["positions"]
+    return _masters
+
+
+def _dominant(board: chess.Board, counts: dict[str, int]) -> dict[chess.Move, int]:
+    total = sum(counts.values())
+    if total < STRONG_GAMES:
+        return {}
+    legal = {m.uci(): m for m in board.legal_moves}
+    return {legal[u]: n for u, n in counts.items() if u in legal and n / total >= STRONG_SHARE}
+
+
 def strong_moves(board: chess.Board) -> dict[chess.Move, int]:
-    """Les coups dominants des joueurs forts dans cette position (livre Lichess), avec leur nombre de parties."""
+    """Les coups dominants dans cette position : chez les maîtres si elle y est, sinon chez les
+    joueurs Lichess ≥ `STRONG_ELO`, avec leur nombre de parties."""
     from fun_fish import book
 
+    found = _dominant(board, masters().get(board.epd(), {}))
+    if found:
+        return found
     opening = book.shared()
     if opening is None or board.ply() > book.PLIES:
         return {}
@@ -109,11 +141,7 @@ def strong_moves(board: chess.Board) -> dict[chess.Move, int]:
         if low >= STRONG_ELO:
             for uci, n in entry.get(str(i), {}).items():
                 counts[uci] = counts.get(uci, 0) + n
-    total = sum(counts.values())
-    if total < STRONG_GAMES:
-        return {}
-    legal = {m.uci(): m for m in board.legal_moves}
-    return {legal[u]: n for u, n in counts.items() if u in legal and n / total >= STRONG_SHARE}
+    return _dominant(board, counts)
 
 
 THEORY_HELP = {
@@ -165,7 +193,7 @@ class Theory:
             return None
         self._theory_left -= 1
         move = self.rng.choices(list(strong), weights=list(strong.values()))[0]
-        return move, f"théorie des joueurs ≥ {STRONG_ELO}"
+        return move, "théorie des maîtres et des joueurs forts"
 
     def choose_move(self, board: chess.Board, analyser):
         from fun_fish.personalities.base import Candidate, Decision  # (import circulaire sinon)
