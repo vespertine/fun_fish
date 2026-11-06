@@ -19,6 +19,9 @@ import chess
 from fun_fish.repertoire import Opening, _parse
 
 # Lignes classiques, à enrichir. Chaque ligne s'arrête sur notre dernier coup théorique.
+# Poids : une ligne tirée au départ reste suivie, donc le poids pèse aussi sur nos coups précédents.
+# Les variantes d'une même réponse se partagent un poids total d'environ 1 (0,74 / 0,07...) pour ne
+# pas favoriser l'ouverture qui les contient.
 THEORY_WHITE = [
     ("Italienne, Giuoco piano", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Bc5 4. c3 Nf6 5. d4", 2),
     ("Italienne, deux cavaliers 4.d3", "1. e4 e5 2. Nf3 Nc6 3. Bc4 Nf6 4. d3 Be7 5. O-O", 1),
@@ -49,6 +52,11 @@ THEORY_WHITE = [
     ("Nimzo-indienne, classique", "1. d4 Nf6 2. c4 e6 3. Nc3 Bb4 4. Qc2 O-O 5. a3", 1),
     ("Benoni moderne", "1. d4 Nf6 2. c4 c5 3. d5 e6 4. Nc3 exd5 5. cxd5 d6 6. e4", 1),
     ("Gambit Benko accepté", "1. d4 Nf6 2. c4 c5 3. d5 b5 4. cxb5 a6 5. bxa6", 1),
+    ("Contre l'Englund", "1. d4 e5 2. dxe5", 0.74),
+    ("Contre l'Englund, gambit du centre 2.e4", "1. d4 e5 2. e4", 0.07),
+    ("Contre l'Englund, 2.Cc3", "1. d4 e5 2. Nc3", 0.08),
+    ("Contre l'Englund, 2.Cf3", "1. d4 e5 2. Nf3", 0.08),
+    ("Contre l'Englund, 2.Fe3 !?", "1. d4 e5 2. Be3", 0.03),
     ("Hollandaise, contre la Leningrad", "1. d4 f5 2. g3 Nf6 3. Bg2 g6 4. Nf3", 1),
 ]
 
@@ -58,8 +66,8 @@ THEORY_BLACK = [
     ("Sicilienne Sveshnikov", "1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 e5", 1),
     ("Sicilienne Kalachnikov", "1. e4 c5 2. Nf3 Nc6 3. d4 cxd4 4. Nxd4 e5 5. Nb5 d6", 1),
     ("Sicilienne Scheveningen", "1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 e6", 1),
-    ("Sicilienne contre 2.Fc4", "1. e4 c5 2. Bc4 e6", 3),
-    ("Sicilienne contre 2.Fc4, gambit 2...b5 !?", "1. e4 c5 2. Bc4 b5", 1),
+    ("Sicilienne contre 2.Fc4", "1. e4 c5 2. Bc4 e6", 0.75),
+    ("Sicilienne contre 2.Fc4, gambit 2...b5 !?", "1. e4 c5 2. Bc4 b5", 0.25),
     ("Sicilienne contre Alapine", "1. e4 c5 2. c3 Nf6 3. e5 Nd5 4. d4 cxd4", 1),
     ("Sicilienne fermée", "1. e4 c5 2. Nc3 Nc6 3. g3 g6 4. Bg2 Bg7", 1),
     ("Espagnole fermée", "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7", 1),
