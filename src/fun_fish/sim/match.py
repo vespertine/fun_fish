@@ -48,6 +48,9 @@ class GameRecord:
     moves: list = field(default_factory=list)  # UCI
     pgn: str = ""
     plan: dict = field(default_factory=dict)  # plans d'attaque repris / poursuivis (cogneur et dérivés)
+    opening: str = ""  # nom de l'ouverture imposée
+    forced: int = 0  # demi-coups imposés au départ
+    trace: list = field(default_factory=list)  # coups de l'agent : [demi-coup, uci, perte en cp vs son meilleur candidat]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -55,10 +58,15 @@ class GameRecord:
 
 def play_game(agent: Personality, opponent: Player, opponent_elo: int, agent_color: chess.Color,
               analyser: Analyser, *, seed: int = 0, params: dict | None = None, max_plies: int = 240,
-              judge_depth: int = 12, adjudicate_cp: int = 400) -> GameRecord:
+              judge_depth: int = 12, adjudicate_cp: int = 400, opening: tuple[str, ...] = (),
+              opening_name: str = "") -> GameRecord:
+    """`opening` : coups UCI joués d'office au départ (des deux côtés), l'agent est libre ensuite."""
     record = GameRecord(agent=agent.key, params=params or {}, opponent=opponent.name, opponent_elo=opponent_elo,
                         agent_color="white" if agent_color == chess.WHITE else "black", seed=seed)
     board = chess.Board()
+    for uci in opening:
+        board.push(chess.Move.from_uci(uci))
+    record.opening, record.forced = opening_name, len(opening)
     start = time.time()
 
     def snapshot() -> None:
@@ -72,8 +80,13 @@ def play_game(agent: Personality, opponent: Player, opponent_elo: int, agent_col
     while rules.outcome(board) is None and len(board.move_stack) < max_plies:
         if board.turn == agent_color:
             t = time.time()
-            move = agent.choose_move(board.copy(), analyser).move
+            decision = agent.choose_move(board.copy(), analyser)
+            move = decision.move
             record.agent_seconds += time.time() - t
+            scored = [c.score for c in decision.candidates if c.mate is None]
+            chosen = next((c.score for c in decision.candidates if c.move == move and c.mate is None), None)
+            loss = max(scored) - chosen if scored and chosen is not None else None
+            record.trace.append([len(board.move_stack), move.uci(), loss])
         else:
             move = opponent.choose(board.copy())
         board.push(move)

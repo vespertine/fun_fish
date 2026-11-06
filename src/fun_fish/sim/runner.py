@@ -23,6 +23,8 @@ class Task:
     elo: int
     seed: int
     agent_white: bool
+    opening: tuple = ()
+    opening_name: str = ""
 
 
 def resolve_params(params: dict, elo: int) -> dict:
@@ -49,7 +51,8 @@ def _run(task: Task) -> dict:
     agent = personalities.create(task.personality, rng=random.Random(rng.random()), **params)
     opponent = MaiaPlayer(_worker["maia"], task.elo, rng=random.Random(rng.random()))
     record = play_game(agent, opponent, task.elo, chess.WHITE if task.agent_white else chess.BLACK,
-                       _worker["analyser"], seed=task.seed, params=params)
+                       _worker["analyser"], seed=task.seed, params=params, opening=task.opening,
+                       opening_name=task.opening_name)
     return record.to_dict()
 
 
