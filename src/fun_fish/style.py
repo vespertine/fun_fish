@@ -79,6 +79,9 @@ STYLE_HELP = {
 class Style:
     floor_scale = 1.0  # (pas un goût) 0 : sans écart type plancher, comme le premier romantique
     bishop_release = 0.5  # (pas un goût) développement compté pour un fou libéré ; 0 chez le premier romantique
+    queen_sortie = 0.0  # (pas un goût) malus de développement pour une dame sortie avant les pièces mineures
+    king_after_reply = False  # (pas un goût) pression sur le roi mesurée après la meilleure réponse (un échec paré ne compte plus)
+    queen_threat = 9  # (pas un goût) valeur d'une dame menacée dans `threats` (5 : comme une tour)
     w_develop: float = 0.0
     w_open: float = 0.0
     w_king: float = 0.0
@@ -123,10 +126,14 @@ class Style:
             settled = settle(board, line.pv)
             delta = material(settled, us) - base
             given = max(0, -delta)
-            raw["develop"].append(opening * (development(after, us, self.bishop_release)
-                                                     - development(board, us, self.bishop_release)))
+            raw["develop"].append(opening * (development(after, us, self.bishop_release, self.queen_sortie)
+                                             - development(board, us, self.bishop_release, self.queen_sortie)))
             raw["open"].append(middlegame * open_lines(after, us))
-            raw["king"].append(king_pressure(after, us))  # viser le roi reste un goût jusqu'au mat
+            held = after
+            if self.king_after_reply and len(line.pv) > 1 and after.is_legal(line.pv[1]):
+                held = after.copy(stack=False)
+                held.push(line.pv[1])
+            raw["king"].append(king_pressure(held, us))  # viser le roi reste un goût jusqu'au mat
             raw["activity"].append(middlegame * activity(after, us))
             raw["initiative"].append(max(-1000, min(1000, line.score)) / 100 + given)
             raw["sacrifice"].append(equal * given)
@@ -135,7 +142,7 @@ class Style:
             raw["technique"].append(technique(settled, us) if conversion > 0 else 0.0)
             raw["counterplay"].append(questions(after, us) if counterplay > 0 else 0.0)
             raw["center"].append(middlegame * center(after, us))
-            raw["threat"].append(threats(after, us))
+            raw["threat"].append(threats(after, us, self.queen_threat))
         bonus = [0.0] * len(lines)
         gave = [g > 0 for g in raw["sacrifice"]]  # coups qui donnent du matériel
         top = [(0.5, "")] * len(lines)  # (contribution, dimension) : au moins un demi-point pour être cité
@@ -178,7 +185,7 @@ def questions(board: chess.Board, color: chess.Color) -> float:
     return 1.5 * board.is_check() + threats(board, color) + 0.3 * king_pressure(board, color)
 
 
-def threats(board: chess.Board, color: chess.Color) -> float:
+def threats(board: chess.Board, color: chess.Color, queen: float = 9) -> float:
     """Pièces adverses (hors pions) attaquées par moins fort qu'elles, ou sans défense : en
     valeur, sur 3 (un cavalier menacé vaut 1, la dame 3)."""
     total = 0.0
@@ -186,7 +193,7 @@ def threats(board: chess.Board, color: chess.Color) -> float:
         target = VALUES[board.piece_type_at(sq)]
         attackers = [VALUES[board.piece_type_at(a)] or 100 for a in board.attackers(color, sq)]
         if attackers and (min(attackers) < target or not board.attackers(not color, sq)):
-            total += target / 3
+            total += (queen if board.piece_type_at(sq) == chess.QUEEN else target) / 3
     return total
 
 
@@ -233,14 +240,18 @@ def middlegame_weight(board: chess.Board) -> float:
     return max(0.0, min(1.0, (pieces - 4) / 8))
 
 
-def development(board: chess.Board, color: chess.Color, release: float = 0.5) -> float:
-    """Pièces mineures sorties, un demi-point par fou libéré (1.e4, 1.d4...) et le roque."""
+def development(board: chess.Board, color: chess.Color, release: float = 0.5, sortie: float = 0.0) -> float:
+    """Pièces mineures sorties, un demi-point par fou libéré (1.e4, 1.d4...) et le roque ;
+    `sortie` retiré quand la dame a quitté sa case avant que trois pièces mineures soient sorties."""
     minors = sum(1 for p in MINORS for sq in board.pieces(p, color) if not chess.BB_SQUARES[sq] & HOME[color])
     minors += release * sum(1 for sq in board.pieces(chess.BISHOP, color)
                         if chess.BB_SQUARES[sq] & HOME[color] and board.attacks_mask(sq) & ~board.occupied_co[color])
     king = board.king(color)
     castled = king in CASTLED_KING[color] and not board.has_castling_rights(color)
-    return minors + 1.5 * castled
+    queen_home = chess.D1 if color == chess.WHITE else chess.D8
+    early = sortie and board.piece_type_at(queen_home) != chess.QUEEN and board.pieces(chess.QUEEN, color) and \
+        sum(1 for p in MINORS for sq in board.pieces(p, color) if not chess.BB_SQUARES[sq] & HOME[color]) < 3
+    return minors + 1.5 * castled - (sortie if early else 0.0)
 
 
 def open_lines(board: chess.Board, color: chess.Color) -> float:
