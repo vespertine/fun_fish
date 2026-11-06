@@ -187,22 +187,26 @@ __all__ = ["LINES", "nodes", "run", "verdicts"]
 
 def explore(stockfish: str, keys: list[str], plies: int = 10, min_weight: float = 0.03, draws: int = 3,
             workers: int = 4, opponent_elo: int = 1500, opponent_mass: float = 0.85,
-            opponent_min: float = 0.05, extra: dict[str, dict] | None = None) -> dict:
+            opponent_min: float = 0.05, extra: dict[str, dict] | None = None,
+            roots: dict[str, tuple[str, tuple[str, ...]]] | None = None) -> dict:
     """L'arbre d'ouvertures que chaque personnalité joue d'elle-même, avec chaque couleur.
 
     Aux coups de la personnalité, sa propre distribution (sans répertoire) ; à ceux de
     l'adversaire, les réponses humaines probables (Maia et parties réelles, à `opponent_elo`).
     Une branche est suivie tant que sa fréquence reste au moins `min_weight`.
+    `roots` : par étiquette, (couleurs « w », « b » ou « wb », coups UCI de départ) ; `plies` compte depuis là.
     """
     from fun_fish.sim.maia import shared
 
     maia = shared()
-    trees: dict[str, dict] = {f"{k}|{side}": {} for k in keys for side in "wb"}
-    frontier = [(f"{k}|{side}", (), 1.0) for k in keys for side in "wb"]
+    roots = roots or {}
+    starts = [(f"{k}|{side}", tuple(roots.get(k, ("wb", ()))[1])) for k in keys for side in roots.get(k, ("wb", ()))[0]]
+    trees: dict[str, dict] = {t: {} for t, _ in starts}
+    frontier = [(t, path, 1.0) for t, path in starts]
     with multiprocessing.Pool(workers, initializer=_init, initargs=(stockfish,)) as pool:
         for ply in range(plies):
-            mine = [(t, path, w) for t, path, w in frontier if (ply % 2 == 0) == t.endswith("|w")]
-            theirs = [(t, path, w) for t, path, w in frontier if (ply % 2 == 0) != t.endswith("|w")]
+            mine = [(t, path, w) for t, path, w in frontier if (len(path) % 2 == 0) == t.endswith("|w")]
+            theirs = [(t, path, w) for t, path, w in frontier if (len(path) % 2 == 0) != t.endswith("|w")]
             nxt = []
             jobs = [(t.split("|")[0], path, draws, (extra or {}).get(t.split("|")[0], {})) for t, path, _ in mine]
             weights = {(t, path): w for t, path, w in mine}
@@ -234,7 +238,7 @@ def explore(stockfish: str, keys: list[str], plies: int = 10, min_weight: float 
     return trees
 
 
-def tree_text(tree: dict, min_weight: float = 0.03) -> str:
+def tree_text(tree: dict, min_weight: float = 0.03, root: tuple[str, ...] = ()) -> str:
     """L'arbre en texte indenté : chaque coup, sa fréquence dans les parties, et qui l'a choisi."""
     out = []
 
@@ -254,5 +258,8 @@ def tree_text(tree: dict, min_weight: float = 0.03) -> str:
             walk((*path, move.uci()), board, depth + 1)
             board.pop()
 
-    walk((), chess.Board(), 0)
+    board = chess.Board()
+    for uci in root:
+        board.push_uci(uci)
+    walk(tuple(root), board, 0)
     return "\n".join(out)
