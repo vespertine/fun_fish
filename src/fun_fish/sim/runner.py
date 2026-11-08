@@ -25,6 +25,7 @@ class Task:
     agent_white: bool
     opening: tuple = ()
     opening_name: str = ""
+    opponent: str = "maia"  # « maia » (tirage), « maia-best » (coup le plus probable), « sf-N » (Stockfish profondeur N)
 
 
 def resolve_params(params: dict, elo: int) -> dict:
@@ -41,15 +42,36 @@ def _init_worker(stockfish: str, maia_kind: str) -> None:
     _worker["maia"] = maia.shared(maia_kind, threads=1)
 
 
+class StockfishPlayer:
+    """Adversaire Stockfish à profondeur fixe, très faible : l'intuition du réseau, presque pas de calcul."""
+
+    def __init__(self, analyser, depth: int):
+        self.analyser, self.depth, self.name = analyser, depth, f"sf-d{depth}"
+
+    def choose(self, board: chess.Board) -> chess.Move:
+        return self.analyser.analyse(board, multipv=1, depth=self.depth)[0].move
+
+
+def make_opponent(spec: str, elo: int, rng: random.Random):
+    from fun_fish.sim.maia import MaiaPlayer
+
+    if spec.startswith("sf-"):
+        return StockfishPlayer(_worker["analyser"], int(spec[3:]))
+    if spec == "maia-best":
+        player = MaiaPlayer(_worker["maia"], elo, rng=rng, temperature=0)
+        player.name = f"maia-best-{elo}"
+        return player
+    return MaiaPlayer(_worker["maia"], elo, rng=rng)
+
+
 def _run(task: Task) -> dict:
     from fun_fish import personalities
-    from fun_fish.sim.maia import MaiaPlayer
     from fun_fish.sim.match import play_game
 
     rng = random.Random(task.seed)
     params = resolve_params(task.params, task.elo)
     agent = personalities.create(task.personality, rng=random.Random(rng.random()), **params)
-    opponent = MaiaPlayer(_worker["maia"], task.elo, rng=random.Random(rng.random()))
+    opponent = make_opponent(task.opponent, task.elo, random.Random(rng.random()))
     record = play_game(agent, opponent, task.elo, chess.WHITE if task.agent_white else chess.BLACK,
                        _worker["analyser"], seed=task.seed, params=params, opening=task.opening,
                        opening_name=task.opening_name)
@@ -64,7 +86,8 @@ def _run_safe(task: Task) -> dict:
 
 
 def run(personality: str, params: dict, elos: list[int], games: int, out: Path, *, stockfish: str,
-        workers: int | None = None, seed: int = 0, maia_kind: str = "rapid") -> None:
+        workers: int | None = None, seed: int = 0, maia_kind: str = "rapid", opponent: str = "maia",
+        stall: float = 1800) -> None:
     """`games` parties par tranche d'Elo, l'agent alternant les couleurs. Reprend un fichier existant."""
     out.parent.mkdir(parents=True, exist_ok=True)
     done = set()
@@ -72,7 +95,7 @@ def run(personality: str, params: dict, elos: list[int], games: int, out: Path, 
         for line in out.read_text().splitlines():
             r = json.loads(line)
             done.add((r["opponent_elo"], r["seed"]))
-    tasks = [Task(personality, params, elo, seed * 1_000_000 + elo * 1000 + i, i % 2 == 0)
+    tasks = [Task(personality, params, elo, seed * 1_000_000 + elo * 1000 + i, i % 2 == 0, opponent=opponent)
              for elo in elos for i in range(games)]
     tasks = [t for t in tasks if (t.elo, t.seed) not in done]
     if not tasks:
@@ -84,7 +107,14 @@ def run(personality: str, params: dict, elos: list[int], games: int, out: Path, 
     pool = multiprocessing.Pool(workers, initializer=_init_worker, initargs=(stockfish, maia_kind))
     try:
         with open(out, "a") as f:
-            for n, record in enumerate(pool.imap_unordered(_run_safe, tasks), 1):
+            results = pool.imap_unordered(_run_safe, tasks)
+            for n in range(1, len(tasks) + 1):
+                try:  # une partie bloquée (Stockfish qui ne répond plus) ne doit pas figer la série
+                    record = results.next(timeout=stall)
+                except multiprocessing.TimeoutError:
+                    print(f"  bloqué : aucune partie terminée depuis {stall / 60:.0f} min, on arrête la série",
+                          file=sys.stderr, flush=True)
+                    break
                 if "error" in record:
                     print(f"  partie en erreur : {record['error']}", file=sys.stderr, flush=True)
                     continue
