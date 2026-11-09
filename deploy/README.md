@@ -39,8 +39,30 @@ sudo systemctl start fun-fish-bot
 | suivre le bot | `journalctl -u fun-fish-bot -f` |
 | l'arrêter / le relancer | `sudo systemctl stop fun-fish-bot` / `sudo systemctl restart fun-fish-bot` |
 | changer ses réglages | `echo 'FUN_FISH_BOT_ARGS="--max-games 2 -s luxury_cap=200"' \| sudo tee /etc/default/fun-fish-bot` puis relancer |
-| mettre à jour le code | relancer la commande `curl … setup.sh \| sudo bash` |
+| mettre à jour le code | une version taguée : `deploy/release.sh vX.Y.Z` (voir plus bas) |
 | rapatrier les parties (exports de debug) | `rsync -av --rsync-path="sudo rsync" ubuntu@ADRESSE:/home/funfish/.local/share/fun_fish/bot_games/ bot_games/` |
 
 Un seul bot doit tourner par compte Lichess : arrêter celui de votre machine avant de démarrer
 celui du serveur.
+
+## Publier une version
+
+Le travail se fait sur une branche, puis une PR vers `main`. La CI (tests sur Linux, macOS et
+Windows, non-régression du choix de coup comprise) doit être au vert avant la fusion. Pour
+publier :
+
+1. **Choisir le numéro :** `vX.Y.Z`. Z pour une correction, Y pour un comportement ou une
+   fonctionnalité, X pour une rupture. Le reporter dans `pyproject.toml` et
+   `src/fun_fish/__init__.py`, puis passer par une PR.
+2. **Taguer `main` et pousser le tag :** `git tag vX.Y.Z && git push origin vX.Y.Z`. La CI
+   rejoue les tests et crée la release GitHub avec ses notes, générées à partir des PR.
+3. **Déployer :** `deploy/release.sh vX.Y.Z`. Sur le serveur, `deploy/update.sh` du tag :
+   - installe la version ;
+   - lance **tous les tests sur le serveur** ;
+   - attend qu'aucune partie ne soit en cours (30 minutes au plus) ;
+   - redémarre le bot et vérifie qu'il se reconnecte ;
+   - au moindre échec, revient à la version précédente.
+
+   La version en place est inscrite dans `/opt/fun_fish/DEPLOYED`.
+
+`setup.sh` ne sert qu'à la première installation, depuis `main`.
