@@ -129,12 +129,13 @@ def test_debug_export_records_settings_per_ai_move(fake_analyser):
     assert ai["decision"]["san"] == ai["san"] and ai["fen_before"] == chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1").fen()
 
 
-def test_play_mode_offers_only_the_public_agent_with_its_settings(fake_analyser):
+def test_play_mode_offers_only_the_public_agents_with_their_settings(fake_analyser):
     from fun_fish.personalities import PUBLIC_PERSONALITIES
 
     client = TestClient(create_app(fake_analyser))
     info = client.get("/api/info").json()
     assert info["mode"] == "play" and [p["key"] for p in info["personalities"]] == list(PUBLIC_PERSONALITIES)
+    assert client.get("/api/state").json()["personality"]["key"] == "fun_fish_2_theorie"  # celui du bot Lichess
     assert client.post("/api/new", json={"personality": "blitz", "color": "white"}).status_code == 400
     state = client.post("/api/new", json={"personality": "fun_fish", "color": "white",
                                           "params": {"fun_budget": 0}}).json()

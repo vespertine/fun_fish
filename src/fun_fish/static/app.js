@@ -417,6 +417,7 @@ async function init() {
   }
   const select = $('#personality');
   for (const p of personalities) select.add(new Option(p.name, p.key));
+  $('#personality-choice').hidden = personalities.length < 2; // un seul adversaire : rien à choisir
 
   const s = await api('/api/state');
   select.value = s.personality.key;
