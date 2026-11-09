@@ -119,6 +119,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   régénérer le golden.
 - **Calculs longs :** les lancer en arrière-plan et prévenir. Les simulations peuvent occuper
   toute une machine pendant des heures.
-- **Flux de travail :** branches, PR et tags de version, avec la CI (tests sur Linux, macOS et
-  Windows, non-régression comprise) sur chaque PR. Une release se déploie sur le serveur.
-  *(Ce flux est en cours de mise en place.)*
+- **Flux de travail :**
+  - une branche et une PR par sujet ; la CI (tests sur Linux, macOS et Windows, non-régression
+    comprise) doit être au vert avant la fusion ;
+  - les versions sont des tags `vX.Y.Z` ; la CI en fait une release GitHub ;
+  - `deploy/release.sh vX.Y.Z` déploie sur le serveur, avec les tests sur place et un retour
+    arrière automatique en cas d'échec. Voir [deploy/README.md](deploy/README.md#publier-une-version).

@@ -25,6 +25,12 @@ class FakeApi:
         yield {"type": "gameState", "moves": f"{first} {reply}", "status": "resign", "winner": "white"}
 
 
+
+@pytest.fixture(autouse=True)
+def no_drain(tmp_path, monkeypatch):
+    """Les tests ne dépendent pas d'un drapeau de vidange réel (déploiement en cours sur la machine)."""
+    monkeypatch.setattr(lichess_bot, "DRAIN_PATH", tmp_path / "drain")
+
 def _reply(first):
     board = chess.Board()
     board.push_uci(first)
@@ -70,3 +76,13 @@ def test_decline_reasons():
         assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
     assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "noBot"
+
+
+def test_drain_flag_declines_everything(tmp_path, monkeypatch):
+    bot = lichess_bot.Bot("t", "sf", "stockfish", {})
+    ok = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"name": "h"},
+          "timeControl": {"type": "clock", "limit": 300, "increment": 3}}
+    monkeypatch.setattr(lichess_bot, "DRAIN_PATH", tmp_path / "drain")
+    assert bot.decline_reason(ok) is None
+    (tmp_path / "drain").touch()  # déploiement en cours : il finit ses parties sans en accepter
+    assert bot.decline_reason(ok) == "later"

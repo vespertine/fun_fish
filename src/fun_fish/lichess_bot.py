@@ -24,6 +24,7 @@ import chess
 LICHESS = "https://lichess.org"
 TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
+DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on finit ses parties sans en accepter (déploiement)
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
@@ -171,6 +172,8 @@ class Bot:
             self.games.pop(game_id, None)
 
     def decline_reason(self, challenge: dict) -> str | None:
+        if DRAIN_PATH.exists():
+            return "later"
         if challenge.get("variant", {}).get("key") != "standard":
             return "standard"
         clock = challenge.get("timeControl", {})
