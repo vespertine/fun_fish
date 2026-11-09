@@ -9,6 +9,7 @@ BRANCH="${FUN_FISH_BRANCH:-main}"
 USER_NAME=funfish
 APP=/opt/fun_fish
 TOKEN_FILE=/home/$USER_NAME/.config/fun_fish/lichess_bot_token
+as_user() { runuser -u "$USER_NAME" -- env HOME="/home/$USER_NAME" "$@"; }
 
 echo "== Paquets système"
 export DEBIAN_FRONTEND=noninteractive
@@ -21,21 +22,21 @@ install -d -o "$USER_NAME" -g "$USER_NAME" -m 700 "/home/$USER_NAME/.config/fun_
 
 echo "== Code ($REPO, branche $BRANCH)"
 if [ -d "$APP/.git" ]; then
-  sudo -u "$USER_NAME" git -C "$APP" fetch -q origin "$BRANCH"
-  sudo -u "$USER_NAME" git -C "$APP" reset -q --hard "origin/$BRANCH"
+  as_user git -C "$APP" fetch -q origin "$BRANCH"
+  as_user git -C "$APP" reset -q --hard "origin/$BRANCH"
 else
   install -d -o "$USER_NAME" -g "$USER_NAME" "$APP"
-  sudo -u "$USER_NAME" git clone -q --branch "$BRANCH" "$REPO" "$APP"
+  as_user git clone -q --branch "$BRANCH" "$REPO" "$APP"
 fi
 
 echo "== Environnement Python"
-sudo -u "$USER_NAME" python3 -m venv "$APP/.venv"
-sudo -u "$USER_NAME" "$APP/.venv/bin/pip" install -q --upgrade pip
-sudo -u "$USER_NAME" "$APP/.venv/bin/pip" install -q "$APP[maia]"
+as_user python3 -m venv "$APP/.venv"
+as_user "$APP/.venv/bin/pip" install -q --upgrade pip
+as_user "$APP/.venv/bin/pip" install -q "$APP[maia]"
 
 echo "== Stockfish et Maia (téléchargés une fois)"
-sudo -u "$USER_NAME" -H "$APP/.venv/bin/fun-fish" stockfish
-sudo -u "$USER_NAME" -H "$APP/.venv/bin/python" -c "from fun_fish.sim import maia; assert maia.onnx_ready(), 'Maia indisponible'"
+as_user "$APP/.venv/bin/fun-fish" stockfish
+as_user "$APP/.venv/bin/python" -c "from fun_fish.sim import maia; assert maia.onnx_ready(), 'Maia indisponible'"
 
 if [ ! -d /run/systemd/system ]; then
   echo "== Pas de systemd ici (conteneur ?) : installation terminée sans service."
