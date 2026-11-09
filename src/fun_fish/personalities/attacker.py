@@ -325,7 +325,7 @@ class Attacker(Personality):
         """Ce que l'attaque espère de ce coup au-delà de son éval : mat, gain, éval attendue en plus."""
         o = e.outcome
         hope = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, e.line.score))) / 100
-        return self.urge() * (self.w_mate * o.mate + self.w_win * o.win) + self.w_eval * hope
+        return self.urge() * (self.w_mate * o.mate + self.greed() * self.w_win * o.win) + self.w_eval * hope
 
     def verified(self, board: chess.Board, analyser: Analyser, chosen: CandidateEval, evals: list[CandidateEval],
                  probabilities: list[float], best: Line) -> CandidateEval:
