@@ -188,6 +188,26 @@ def table(base: str, labels: list[str]) -> None:
               f"{blunder:6.1%} {same:9.1%} {tv:6.3f}")
 
 
+def golden() -> None:
+    """Régénère tests/data/golden.json : 12 positions réparties sur les parties, effort complet et réduit."""
+    sys.path.insert(0, str(ROOT / "tests"))
+    from fun_fish.engines import find_stockfish
+    from regression import GOLDEN, decide
+
+    games = [g for g in json.loads(POSITIONS.read_text()) if len(g["plies"]) >= 6]
+    cases = []
+    for i, g in enumerate(games[:6]):
+        for j, effort in ((len(g["plies"]) // 3, 0), (2 * len(g["plies"]) // 3, 4 if i % 2 else 0)):
+            ply = g["plies"][j]
+            cases.append({"game": g["id"], "ply": ply, "moves": g["moves"][:ply], "effort": effort,
+                          "seed": zlib.crc32(f"{g['id']}:{ply}".encode())})
+    stockfish = str(find_stockfish(None))
+    for case in cases:
+        case.update(decide(case, stockfish))
+        print(case["game"], case["ply"], "effort", case["effort"], "→", case["move"], flush=True)
+    GOLDEN.write_text(json.dumps(cases, indent=1))
+
+
 def compare(a: str, b: str) -> None:
     def load(label):
         return {(r["game"], r["ply"]): r for r in map(json.loads, open(OUT / f"{label}.jsonl"))}
@@ -226,6 +246,7 @@ def main():
     tb = sub.add_parser("table")
     tb.add_argument("base")
     tb.add_argument("labels", nargs="*")
+    sub.add_parser("golden")
     c = sub.add_parser("compare")
     c.add_argument("a")
     c.add_argument("b")
@@ -236,6 +257,8 @@ def main():
         run(args.label, dict(kv.split("=", 1) for kv in args.set), args.personality, args.limit, args.hash, args.workers)
     elif args.cmd == "truth":
         build_truth(args.workers)
+    elif args.cmd == "golden":
+        golden()
     elif args.cmd == "table":
         table(args.base, args.labels)
     else:
