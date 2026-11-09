@@ -41,7 +41,7 @@ class FunFish2(FunFish):
     1...d5 l'emporte toujours sur les coups de cavalier), ni de réflexe Da4+ ou Fg5 (dame précoce
     pénalisée, menace sur la dame comptée comme sur une tour, pression sur le roi après la réponse)."""
     key = "fun_fish_2"
-    name = "Fun Fish 2 (essai)"
+    name = "Fun Fish 2"
     description = "Fun Fish, plus varié en ouverture : deux cavaliers, gambits célèbres, moins d'échecs gratuits."
 
     def __init__(self, **kwargs):
@@ -69,5 +69,5 @@ class FunFishTheory(Theory, FunFish):
 class FunFish2Theory(Theory, FunFish2):
     """Fun Fish 2 avec la surcharge « théorie »."""
     key = "fun_fish_2_theorie"
-    name = "Fun Fish 2 + théorie (essai)"
+    name = "Fun Fish 2 + théorie"
     description = "Fun Fish 2 qui commence parfois par quelques coups de théorie classique, puis joue à sa façon."

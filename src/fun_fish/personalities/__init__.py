@@ -18,7 +18,8 @@ from fun_fish.personalities.romantic import Romantic
 
 PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, FunFish, FunFish2, FunFishTheory, FunFish2Theory, Ancien, Duo, Casual, PureStockfish)}
 DEFAULT_PERSONALITY = Blitz.key
-PUBLIC_PERSONALITIES = (FunFish.key,)  # celles du mode jeu
+# celles du mode jeu (sans leurs réglages), la première par défaut : celle du bot Lichess d'abord
+PUBLIC_PERSONALITIES = (FunFish2Theory.key, FunFish2.key, FunFish.key)
 
 
 def create(key: str, rng: random.Random | None = None, **params) -> Personality:

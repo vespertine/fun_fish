@@ -75,7 +75,8 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
     def info() -> dict:
         catalogue = personalities.catalogue()
         if not debug:
-            catalogue = [p for p in catalogue if p["key"] in personalities.PUBLIC_PERSONALITIES]
+            public = personalities.PUBLIC_PERSONALITIES
+            catalogue = sorted((p for p in catalogue if p["key"] in public), key=lambda p: public.index(p["key"]))
         return {"engine": getattr(analyser, "engine_name", "?"), "personalities": catalogue,
                 "mode": "debug" if debug else "play"}
 

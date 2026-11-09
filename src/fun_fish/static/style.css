@@ -186,3 +186,4 @@ cg-board {
 
 /* mode jeu : ni réglages, ni raisonnement de l'IA */
 body.play .debug-only { display: none !important; }
+#personality-choice[hidden] { display: none; }
