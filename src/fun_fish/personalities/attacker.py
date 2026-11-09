@@ -315,6 +315,8 @@ class Attacker(Personality):
         """Garde-fou : le coup choisi est revérifié seul. Si sa vraie éval est bien pire que celle de
         la liste (analyse incohérente, vu une fois en partie : 12.Fc5?? noté −1,19 au lieu de −8) et
         sort de la tolérance, il prend le plus probable des autres coups."""
+        if chosen.line.score <= -1000:  # déjà perdu : rien à sauver, et les mats rendraient l'écart trompeur
+            return chosen
         order = sorted(zip(probabilities, range(len(evals))), reverse=True)
         tried = 0
         while tried < 3:

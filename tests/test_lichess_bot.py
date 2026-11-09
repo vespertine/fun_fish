@@ -64,6 +64,9 @@ def test_decline_reasons():
     assert bot.decline_reason({**ok, "speed": "rapid", "timeControl": {"type": "clock", "limit": 900, "increment": 10}}) == "tooSlow"
     assert bot.decline_reason({**ok, "speed": "correspondence", "timeControl": {"type": "unlimited"}}) == "tooSlow"
     assert bot.decline_reason(ok) is None
-    assert bot.decline_reason({**ok, "speed": "bullet"}) == "tooFast"
+    for limit, inc, reason in ((120, 1, None), (120, 0, "tooFast"), (60, 1, "tooFast"), (60, 0, "tooFast"),
+                               (180, 0, None), (15, 0, "tooFast")):
+        bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
+        assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
     assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "noBot"
