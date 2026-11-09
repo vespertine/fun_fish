@@ -245,6 +245,25 @@ défendable), *hypermoderne têtu*, *rancunier* (change de style quand il est me
 - [ ] *(option)* lichess-bot pour jouer contre les personnalités sur Lichess
 - [ ] *(option)* Portage navigateur (Stockfish WASM)
 
+### Phase 5 — Contre de vrais humains (novembre 2026)
+- [x] Fun Fish 2 et la surcouche « théorie » (lignes et poids choisis à la main, `theory.py`)
+- [x] Banc de force de nuit : 95 à 100 % contre Maia ≥ 2000, battu par Stockfish dès la profondeur 1
+      (les pertes viennent de l'ouverture, pas de gaffes)
+- [x] Bot Lichess (`lichess_bot.py`, compte FunFishBot), exports de debug de chaque partie
+- [x] Garde-fou : le coup choisi est revérifié seul (après le 12.Fc5?? d'une partie en ligne)
+- [x] Serveur Hetzner (ARM) avec un service systemd (`deploy/`)
+- [x] Vitesse : client UCI maison (−40 % de temps Stockfish), cache Maia par position, Maia sur
+      les cœurs libres ; banc `scripts/perfbench.py` (292 positions réelles, perte attendue)
+- [x] Pendule : `effort` (arbre d'attaque raccourci par paliers) et `pace.py`
+- [x] Non-régression du choix de coup dans la CI (Linux, macOS, Windows)
+- [ ] Branches, PR, tags de version, release vers le serveur
+- [ ] Mesure du style dans le banc (pas seulement la perte en centipions)
+- [ ] Motif « étroitesse » : ne compter un piège que s'il rapporte
+- [ ] Panache en position gagnante (le luxe seul n'a presque rien changé)
+- [ ] Calibrage de la difficulté (échelle Maia, `opponent_elo`)
+- [ ] Installation en une ligne pour non-développeurs (Mac, Linux, Windows), bouton « envoyer
+      cette partie au développeur » (avec consentement)
+
 ## 6. Décisions
 
 - Échiquier : **chessground**. Son bundle JS pré-construit est committé dans le

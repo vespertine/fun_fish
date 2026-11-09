@@ -4,8 +4,12 @@ Jouer aux échecs contre des **personnalités** : des joueurs artificiels constr
 les évaluations de Stockfish, mais qui choisissent leurs coups selon un style (sharp,
 piégeux, matérialiste…) plutôt que selon la seule force.
 
-Voir [docs/CADRAGE.md](docs/CADRAGE.md) pour l'architecture, les briques open source
-réutilisées et la roadmap.
+Pour contribuer, commencer par [ONBOARDING.md](ONBOARDING.md) : la carte du code, la façon
+dont un coup est choisi, les outils de mesure et les règles de travail. [docs/CADRAGE.md](docs/CADRAGE.md)
+garde l'architecture d'origine, les briques open source réutilisées et la roadmap.
+
+On peut aussi l'affronter sur Lichess : [FunFishBot](https://lichess.org/@/FunFishBot) (bullet 2+1,
+blitz, rapides courtes).
 
 ## Lancer
 
@@ -58,6 +62,8 @@ fun-fish play --port 9000 --no-browser
 | `corsair` | Le corsaire | Le romantique avec l'œil de l'arnaqueur, en un seul calcul : chaque coup est jugé à la fois sur l'attaque (mat, gain) et sur le piège (ce que rapporte la naïveté adverse, probabilité d'une vraie erreur) ; le motif le plus fort mène (`lead_share`), et ses coups dans l'arbre sont choisis pour refermer les pièges (`our_options`) |
 | `buccaneer` | Le flibustier | Le corsaire, plus un regard qui ne juge que l'allure des coups (`fun.py`, sans Stockfish) : pièce en l'air, menace ignorée, prise non reprise, sacrifice, assaut, coup inattendu pour un humain de `fun_elo`. Ses favoris sont ajoutés aux candidats, et il accepte d'y perdre jusqu'à `fun_budget` cp |
 | `fun_fish` | Fun Fish | L'agent public, figé : le flibustier avec les réglages retenus après les parties de test (adversaire imaginé à 600 Elo, tolérance 300, profondeurs 6, budget fun 270). Seul adversaire du mode jeu |
+| `fun_fish_2` | Fun Fish 2 | Fun Fish plus varié en ouverture (deux cavaliers, gambits célèbres, moins d'échecs gratuits) |
+| `fun_fish_theorie`, `fun_fish_2_theorie` | … + théorie | Une partie sur quatre, 1 à 4 coups de théorie classique d'abord (`theory.py`), puis à sa façon. `fun_fish_2_theorie` joue sur Lichess |
 | `duo` | Le duo | Le romantique choisit ; quand il hésite entre plusieurs coups, l'arnaqueur départage en faveur du meilleur piège |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |
@@ -169,11 +175,31 @@ probabilités humaines viennent donc d'un livre (`src/fun_fish/data/book.json.gz
 partir de la base publique de Lichess (CC0) : `fun-fish book-build --month 2025-09 --games
 2000000` le reconstruit (environ 600 Mo lus en flux, extra `sim`).
 
+## Bot Lichess
+
+```bash
+fun-fish lichess-bot --upgrade              # une fois : passer un compte neuf en compte BOT (définitif)
+fun-fish lichess-bot -p fun_fish_2_theorie --max-games 2
+```
+
+Le jeton (scope `bot:play`) est lu dans `~/.config/fun_fish/lichess_bot_token` ou dans la variable
+`LICHESS_BOT_TOKEN`. Le bot accepte les défis d'humains en partie standard, de 2+1 à environ 15
+minutes estimées. Pressé par la pendule, il raccourcit sa réflexion (`effort`, voir `pace.py`).
+Chaque partie laisse un export de debug dans `~/.local/share/fun_fish/bot_games/`. Pour le
+faire tourner sur un serveur : [deploy/README.md](deploy/README.md).
+
 ## Développement
 
 ```bash
-uv run --extra dev pytest
+uv run --extra dev --extra maia pytest -q                    # tests, dont la non-régression du choix de coup
+python scripts/perfbench.py run essai -s attack_moves=2      # banc : temps et qualité sur 292 positions réelles
+python scripts/perfbench.py table base essai
+python scripts/clocksim.py 180 0                             # parties simulées à la pendule (3+0)
 ```
+
+Voir [ONBOARDING.md](ONBOARDING.md) pour la méthode : une optimisation doit donner exactement les
+mêmes coups ; un changement de comportement se mesure avant de régénérer les coups attendus
+(`perfbench.py golden`).
 
 ## Licence
 
