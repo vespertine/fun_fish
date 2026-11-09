@@ -16,21 +16,38 @@ STUBS = {
     # runuser -u funfish -- env HOME=… commande… : on exécute la commande telle quelle
     "runuser": 'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"',
     "chown": "exit 0",
-    "install": 'args=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2;; *) args+=("$1"); shift;; esac; done; exec /usr/bin/install "${args[@]}"',
+    "install": r'''args=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2;; *) args+=("$1"); shift;; esac; done
+[ "${STUB_FAIL_UNIT:-0}" = 1 ] && [ "${args[-1]}" = "$FUN_FISH_UNIT" ] && exit 23
+exec /usr/bin/install "${args[@]}"''',
     "sleep": "exit 0",
-    "git": r'''# git clone -q --depth 1 --branch TAG REPO DIR : une fausse version installable
-dir="${@: -1}"; mkdir -p "$dir/.venv/bin" "$dir/deploy"
-echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service"
-for tool in pip fun-fish; do printf '#!/bin/sh\nexit 0\n' > "$dir/.venv/bin/$tool"; done
-printf '#!/bin/sh\ncase "$*" in *pytest*) exit ${STUB_TESTS_FAIL:-0};; esac\nexit 0\n' > "$dir/.venv/bin/python"
-chmod +x "$dir"/.venv/bin/*''',
-    "python3": r'''[ "$1 $2" = "-m venv" ] && { mkdir -p "$3/.venv"; exit 0; }
-exec "$REAL_PYTHON" "$@"''',
+    # git clone -q --depth 1 --branch TAG REPO DIR : les sources d'une fausse version
+    "git": r'''dir="${@: -1}"; mkdir -p "$dir/deploy" && echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service"''',
+    # python3 -m venv DIR : un faux interpréteur, et des lanceurs (pip, puis fun-fish écrit par pip) dont
+    # le shebang fige le chemin ABSOLU de l'interpréteur à la création, comme les vrais : un virtualenv
+    # déplacé après coup ne démarre plus.
+    "python3": r"""if [ "$1 $2" = "-m venv" ]; then
+  mkdir -p "$3/bin"; abs=$(cd "$3" && pwd)
+  cat > "$abs/bin/python" <<STUB
+#!/bin/sh
+case "\$*" in *"-m pytest"*) exit \${STUB_TESTS_FAIL:-0};; esac
+case "\$1" in */pip)
+  case "\$*" in *--upgrade*) exit 0;; esac
+  printf '#!%s/bin/python\n' "$abs" > "$abs/bin/fun-fish"; chmod +x "$abs/bin/fun-fish";;
+esac
+exit 0
+STUB
+  printf '#!%s/bin/python\n' "$abs" > "$abs/bin/pip"
+  chmod +x "$abs/bin/python" "$abs/bin/pip"
+  exit 0
+fi
+exec "$REAL_PYTHON" "$@"
+""",
     "curl": r'''case "$STUB_PLAYING" in
   fail) exit 22;;
   *) echo "{\"nowPlaying\": [$(seq -s, 1 "$STUB_PLAYING" | sed 's/[0-9]*/{}/g')]}";;
 esac''',
     "systemctl": r'''echo "$*" >> "$STUB_LOG"
+[ "$1" = "${STUB_SYSTEMCTL_FAIL:-}" ] && exit 1
 case "$1" in is-active) [ "${STUB_ACTIVE:-1}" = 1 ];; *) exit 0;; esac''',
     "journalctl": '[ "${STUB_CONNECT:-1}" = 1 ] && echo "connecté en tant que FunFishBot"; exit 0',
 }
@@ -88,6 +105,25 @@ def test_failing_tests_change_nothing(server):
     assert result.returncode != 0 and "Tests en échec" in result.stderr
     assert log == "" and unit.read_text() == "unit ancienne\n"
     assert os.readlink(base / "current").endswith("v0.1.0") and not (config / "drain").exists()
+
+
+def test_launcher_works_from_final_location(server):
+    run, base, unit, config = server
+    result, _ = run()
+    launcher = base / "releases" / "v0.2.0" / ".venv" / "bin" / "fun-fish"
+    assert result.returncode == 0, result.stderr
+    assert subprocess.run([str(launcher), "--help"]).returncode == 0  # chemin de l'interpréteur toujours valide
+
+
+@pytest.mark.parametrize("failure", [{"stub_fail_unit": 1}, {"stub_systemctl_fail": "daemon-reload"},
+                                     {"stub_systemctl_fail": "enable"}])
+def test_any_switch_failure_rolls_back(server, failure):
+    run, base, unit, config = server
+    result, log = run(**failure)
+    assert result.returncode != 0 and "retour à" in result.stderr
+    assert os.readlink(base / "current").endswith("v0.1.0")
+    assert unit.read_text() == "unit ancienne\n" and not (config / "drain").exists()
+    assert "restart fun-fish-bot" in log  # l'ancienne version est relancée
 
 
 def test_rollback_restores_link_and_unit(server):

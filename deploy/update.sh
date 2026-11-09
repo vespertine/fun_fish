@@ -52,18 +52,24 @@ restart_bot() {
 # ---------- 1. installer et tester à part (le bot en marche n'est pas touché) ----------
 mkdir -p "$BASE/releases"
 chown "$USER_NAME:" "$BASE" "$BASE/releases"
-if [ ! -x "$RELEASE/.venv/bin/fun-fish" ]; then
+# Le virtualenv est créé à son emplacement définitif : pip écrit le chemin absolu de l'interpréteur
+# dans ses lanceurs (fun-fish, pip), qu'un renommage casserait. Une installation n'est complète
+# qu'avec le marqueur .installed ; sinon, on recommence de zéro.
+if [ ! -f "$RELEASE/.installed" ]; then
   log "Installation de $TAG dans $RELEASE"
-  rm -rf "$RELEASE.tmp"
-  as_user git clone -q --depth 1 --branch "$TAG" "$REPO" "$RELEASE.tmp" || fail "Tag $TAG introuvable"
-  as_user python3 -m venv "$RELEASE.tmp/.venv"
-  as_user "$RELEASE.tmp/.venv/bin/pip" install -q --upgrade pip
-  as_user "$RELEASE.tmp/.venv/bin/pip" install -q "$RELEASE.tmp[maia,dev]" || fail "Installation impossible"
-  as_user "$RELEASE.tmp/.venv/bin/fun-fish" stockfish >/dev/null
-  as_user "$RELEASE.tmp/.venv/bin/python" -c "from fun_fish.sim import maia; assert maia.onnx_ready()" \
-    || fail "Maia indisponible (sans lui, la non-régression serait ignorée)"
   rm -rf "$RELEASE"
-  mv "$RELEASE.tmp" "$RELEASE"
+  installed() {
+    as_user git clone -q --depth 1 --branch "$TAG" "$REPO" "$RELEASE" || { echo "!! Tag $TAG introuvable" >&2; return 1; }
+    as_user python3 -m venv "$RELEASE/.venv" || return 1
+    as_user "$RELEASE/.venv/bin/pip" install -q --upgrade pip || return 1
+    as_user "$RELEASE/.venv/bin/pip" install -q "$RELEASE[maia,dev]" || return 1
+    as_user "$RELEASE/.venv/bin/fun-fish" --help >/dev/null || { echo "!! Le lanceur fun-fish ne démarre pas" >&2; return 1; }
+    as_user "$RELEASE/.venv/bin/fun-fish" stockfish >/dev/null || return 1
+    as_user "$RELEASE/.venv/bin/python" -c "from fun_fish.sim import maia; assert maia.onnx_ready()" \
+      || { echo "!! Maia indisponible (sans lui, la non-régression serait ignorée)" >&2; return 1; }
+  }
+  installed || { rm -rf "$RELEASE"; fail "Installation de $TAG impossible : rien n'a changé sur le serveur"; }
+  touch "$RELEASE/.installed"
 fi
 log "Tests de $TAG sur le serveur (dont la non-régression du choix de coup)"
 (cd "$RELEASE" && as_user "$RELEASE/.venv/bin/python" -m pytest -q -p no:cacheprovider) \
@@ -89,26 +95,31 @@ fi
 # ---------- 3. basculer, ou tout remettre comme avant ----------
 PREVIOUS=$(readlink "$CURRENT" || true)
 cp "$UNIT" "$BASE/unit.previous" 2>/dev/null || rm -f "$BASE/unit.previous"
+# Retour arrière : à partir d'ici, tout échec remet le lien, l'unité et la vidange comme avant
+# (chaque étape est tolérante : on restaure le plus possible, puis on sort en erreur).
 rollback() {
-  echo "!! Le bot ne redémarre pas en $TAG : retour à ${PREVIOUS:-la version précédente}" >&2
-  if [ -n "$PREVIOUS" ]; then ln -sfn "$PREVIOUS" "$CURRENT"; else rm -f "$CURRENT"; fi
-  if [ -f "$BASE/unit.previous" ]; then cp "$BASE/unit.previous" "$UNIT"; fi
-  systemctl daemon-reload
-  rm -f "$DRAIN"
+  echo "!! Bascule en échec : retour à ${PREVIOUS:-la version précédente}" >&2
+  if [ -n "$PREVIOUS" ]; then ln -sfn "$PREVIOUS" "$CURRENT" || true; else rm -f "$CURRENT" || true; fi
+  if [ -f "$BASE/unit.previous" ]; then cp "$BASE/unit.previous" "$UNIT" || true; fi
+  systemctl daemon-reload || true
+  rm -f "$DRAIN" || true
   restart_bot || echo "!! L'ancienne version ne redémarre pas non plus : journalctl -u fun-fish-bot" >&2
   exit 1
 }
+switch() {
+  ln -sfn "$RELEASE" "$CURRENT" || return 1
+  install -m 644 "$RELEASE/deploy/fun-fish-bot.service" "$UNIT" || return 1
+  systemctl daemon-reload || return 1
+  systemctl enable -q fun-fish-bot || return 1
+  rm -f "$DRAIN" || return 1
+  if [ -s "$TOKEN_FILE" ]; then
+    restart_bot || return 1
+  else
+    log "Pas encore de jeton Lichess : service installé, non démarré (voir deploy/README.md)"
+  fi
+}
 log "Bascule sur $TAG"
-ln -sfn "$RELEASE" "$CURRENT"
-install -m 644 "$RELEASE/deploy/fun-fish-bot.service" "$UNIT"
-systemctl daemon-reload
-systemctl enable -q fun-fish-bot
-rm -f "$DRAIN"
-if [ -s "$TOKEN_FILE" ]; then
-  restart_bot || rollback
-else
-  log "Pas encore de jeton Lichess : service installé, non démarré (voir deploy/README.md)"
-fi
+switch || rollback
 echo "$TAG $(date -u +%FT%TZ)" > "$BASE/DEPLOYED"
 
 # ---------- 4. ménage : garder les $KEEP dernières versions (et toujours la courante) ----------
