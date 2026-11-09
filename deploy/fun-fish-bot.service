@@ -1,0 +1,22 @@
+[Unit]
+Description=fun_fish : bot Lichess
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=funfish
+WorkingDirectory=/opt/fun_fish
+# Réglages du bot : éditer /etc/default/fun-fish-bot (FUN_FISH_BOT_ARGS="--max-games 2 -s luxury_cap=200")
+EnvironmentFile=-/etc/default/fun-fish-bot
+ExecStart=/bin/sh -c 'exec /opt/fun_fish/.venv/bin/fun-fish lichess-bot $FUN_FISH_BOT_ARGS'
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+# Durcissement : le bot n'écrit que dans son propre dossier
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/funfish
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
