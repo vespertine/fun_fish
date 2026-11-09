@@ -71,3 +71,33 @@ class FunFish2Theory(Theory, FunFish2):
     key = "fun_fish_2_theorie"
     name = "Fun Fish 2 + théorie"
     description = "Fun Fish 2 qui commence parfois par quelques coups de théorie classique, puis joue à sa façon."
+
+
+# Crazy Fish : réglages trouvés en jouant (parties du 9 novembre 2026 contre le bot Morphy de chess.com,
+# perdues sur le papier, gagnées par un mat préparé) : il imagine un adversaire à 500 Elo et croit donc
+# à tous ses pièges, voit un peu moins loin (5), propose plus de coups créatifs et s'autorise du luxe
+# une fois gagnant. Sans panache par défaut (à tester : -s panache=1).
+FROZEN_CRAZY = {**FROZEN_2, "opponent_elo": 500, "soundness_depth": 5, "attack_depth": 5, "temperature": 0.35,
+                "convert_from": 350, "convert_elo": 1100, "luxury_keep": 250, "luxury_cap": 200,
+                "creative_slots": 3, "creative_min": 32}
+
+
+class CrazyFish(Theory, FunFish2):
+    """Fun Fish 2 et sa théorie (une partie sur cinq), en plus fou : pièges partout, coups créatifs."""
+    key = "crazy_fish"
+    name = "Crazy Fish"
+    description = ("Fun Fish en plus fou : il croit à tous ses pièges, ose des coups que personne ne jouerait, "
+                   "et prépare ses mats même en position perdue.")
+
+    def __init__(self, theory_rate: float = 0.2, **kwargs):
+        Theory.__init__(self, theory_rate=theory_rate, **{**FROZEN_CRAZY, **kwargs})
+
+    @classmethod
+    def param_specs(cls) -> list[dict]:
+        specs = super().param_specs()
+        for spec in specs:
+            if spec["name"] == "theory_rate":
+                spec["default"] = 0.2
+            elif spec["name"] in FROZEN_CRAZY:
+                spec["default"] = FROZEN_CRAZY[spec["name"]]
+        return specs

@@ -11,15 +11,15 @@ from fun_fish.personalities.buccaneer import Buccaneer
 from fun_fish.personalities.corsair import Corsair
 from fun_fish.personalities.council import Duo
 from fun_fish.personalities.ancien import Ancien
-from fun_fish.personalities.funfish import FunFish, FunFish2, FunFish2Theory, FunFishTheory
+from fun_fish.personalities.funfish import CrazyFish, FunFish, FunFish2, FunFish2Theory, FunFishTheory
 from fun_fish.personalities.hustler import Hustler
 from fun_fish.personalities.reference import Casual, PureStockfish
 from fun_fish.personalities.romantic import Romantic
 
-PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, FunFish, FunFish2, FunFishTheory, FunFish2Theory, Ancien, Duo, Casual, PureStockfish)}
+PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, FunFish, FunFish2, FunFishTheory, FunFish2Theory, CrazyFish, Ancien, Duo, Casual, PureStockfish)}
 DEFAULT_PERSONALITY = Blitz.key
 # celles du mode jeu (sans leurs réglages), la première par défaut : celle du bot Lichess d'abord
-PUBLIC_PERSONALITIES = (FunFish2Theory.key, FunFish2.key, FunFish.key)
+PUBLIC_PERSONALITIES = (FunFish2Theory.key, FunFish2.key, FunFish.key, CrazyFish.key)
 
 
 def create(key: str, rng: random.Random | None = None, **params) -> Personality:
