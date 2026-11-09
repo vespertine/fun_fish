@@ -104,7 +104,7 @@ class Buccaneer(Corsair):
                       if f > 0 and m not in have]
         kept = []
         if favourites:
-            extra = analyser.analyse(board, multipv=len(favourites), depth=self.soundness_depth, moves=favourites)
+            extra = analyser.analyse(board, multipv=len(favourites), depth=self._depth_now, moves=favourites)
             kept = [line for line in extra if regret(sound[0], line) <= self.fun_budget]
         kept += self.creative(board, analyser, sound[0], have | {line.move for line in kept}, human)
         return sorted(sound + kept, key=lambda line: -line.score) if kept else sound
@@ -141,7 +141,7 @@ class Buccaneer(Corsair):
         chosen = [m for _, m in pool[: self.creative_slots]]
         if not chosen:
             return []
-        checked = analyser.analyse(board, multipv=len(chosen), depth=self.soundness_depth, moves=chosen)
+        checked = analyser.analyse(board, multipv=len(chosen), depth=self._depth_now, moves=chosen)
         out = [line for line in checked if 0 < regret(best, line) <= self.fun_budget]
         originality = dict((m, o) for o, m in pool)
         self._creative = {line.move: originality[line.move] for line in out}

@@ -107,6 +107,8 @@ class Attacker(Personality):
         "opening_plies": "Premiers demi-coups de la partie joués avec ce hasard d'ouverture",
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
+        "luxury_keep": "Luxe du gagnant : avance (cp) qu'il tient à garder en conversion",
+        "luxury_cap": "Luxe du gagnant : avance (cp) qu'il s'autorise à lâcher pour un coup de style (0 = jamais)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
         "w_repeat": "Conversion : pénalité pour revenir à une position déjà vue (× degré de conversion)",
         "mate_within": "Un mat forcé en N coups ou moins compte comme un mat (vérifié plus profond si l'éval est écrasante)",
@@ -141,7 +143,7 @@ class Attacker(Personality):
                  vision_breadth: int = 6, vision_panic: int = 150, w_human: float = 0.0, defend_from: int = 100, defend_full: int = 400, w_counterplay: float = 0.0,
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
-                 convert_elo: int = 0, w_repeat: float = 0.0,
+                 convert_elo: int = 0, w_repeat: float = 0.0, luxury_keep: int = 450, luxury_cap: int = 0,
                  instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
@@ -180,6 +182,8 @@ class Attacker(Personality):
         self._models: dict[int, OpponentModel] = {}
         self._elo_now = opponent_elo
         self._mate_now = mate_within
+        self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
+        self._luxury, self._depth_now = 0, soundness_depth
         self._vision: MaiaModel | None = None
         self.w_repertoire, self.repertoire_rate = w_repertoire, repertoire_rate
         self._planner: Planner | None = None
@@ -205,7 +209,7 @@ class Attacker(Personality):
         return Soundness(self.tolerance, self.soundness_depth, self.max_candidates,
                          self.convert_from, self.convert_full, self.convert_depth, self.convert_tolerance,
                          self.vision_min, self.vision_breadth, self.vision_panic, self.defend_from,
-                         self.defend_full)
+                         self.defend_full, luxury_keep=self.luxury_keep, luxury_cap=self.luxury_cap)
 
     def seen(self, board: chess.Board, analyser: Analyser) -> dict[chess.Move, float] | None:
         """Ce qu'un humain de `vision_elo` jouerait ici (None : il voit tout)."""
@@ -293,7 +297,7 @@ class Attacker(Personality):
         reference = max(-CLIP, min(CLIP, best.score))
         urge = self.urge()
         e.score = (urge * (self.w_mate * o.mate + self.w_win * o.win) + self.w_eval * (o.value - reference) / 100
-                   - self.w_loss * e.loss / 100)
+                   - self.w_loss * (e.loss - 0.5 * min(e.loss, self._luxury)) / 100)
         return e
 
     # ---------- choix ----------
@@ -391,6 +395,8 @@ class Attacker(Personality):
         if opening and seen:  # vision large en ouverture : tout coup un peu joué, sans plafond de nombre
             soundness.vision_min, soundness.vision_breadth = self.opening_vision_min, 0
         sound, degree = soundness.lines(board, analyser, seen, self.restrict)
+        # ses coups de style sont vérifiés aussi loin que les autres, et payés en partie par son luxe
+        self._luxury, self._depth_now = soundness.luxury, self.soundness_depth + soundness.extra
         sound = self.more_candidates(board, analyser, sound, seen)
         best = sound[0]
         self._elo_now = self.imagined_elo(degree)

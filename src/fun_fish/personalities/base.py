@@ -152,6 +152,10 @@ class Soundness:
     defend_full: int = 0
     forcing_depth: int = 10
     truth: "Line | None" = None
+    luxury_keep: int = 0  # luxe du gagnant : avance qu'il tient à garder (cp)
+    luxury_cap: int = 0  # ... et au plus tant (cp) d'avance qu'il s'autorise à lâcher pour le style (0 = jamais)
+    luxury: int = 0  # calculés par `lines` : le luxe du moment et la profondeur ajoutée
+    extra: int = 0
 
     def analyse_only(self, board: chess.Board, analyser: "Analyser", only: list[chess.Move]) -> list["Line"]:
         root = analyser.analyse(board, multipv=len(only), depth=self.depth, moves=list(only))
@@ -217,6 +221,10 @@ class Soundness:
             degree = self.degree(root[0])
         if degree > 0 and self.convert_tolerance < self.tolerance:
             tolerance = round(self.tolerance - degree * (self.tolerance - self.convert_tolerance))
+        self.extra, self.luxury = extra, 0
+        if self.luxury_cap > 0 and degree > 0:  # gagnant : il peut dépenser l'avance qui dépasse `luxury_keep`
+            self.luxury = round(degree * max(0, min(self.luxury_cap, root[0].score - self.luxury_keep)))
+            tolerance = max(tolerance, self.luxury)
         trouble = defending(root[0].score, self.defend_from, self.defend_full)
         if trouble > 0 and self.convert_tolerance < self.tolerance:  # en difficulté, chaque erreur compte
             tolerance = round(self.tolerance - trouble * (self.tolerance - self.convert_tolerance))
