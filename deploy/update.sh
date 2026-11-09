@@ -36,13 +36,16 @@ games_in_progress() {
   python3 -c "import json, sys; print(len(json.loads(sys.argv[1])['nowPlaying']))" "$body" 2>/dev/null || echo "?"
 }
 
+# Redémarre et attend la connexion à Lichess de CE lancement-ci : le journal est filtré par
+# l'identifiant d'invocation systemd (une ligne d'un démarrage précédent ne compte pas).
 restart_bot() {
-  local since
-  since=$(date '+%Y-%m-%d %H:%M:%S')
-  systemctl restart fun-fish-bot
+  local invocation
+  systemctl restart fun-fish-bot || return 1
+  invocation=$(systemctl show -p InvocationID --value fun-fish-bot) || return 1
+  [ -n "$invocation" ] || return 1
   for _ in $(seq 1 12); do
     sleep 5
-    if journalctl -u fun-fish-bot --since "$since" -o cat | grep -q "connecté en tant que"; then
+    if journalctl _SYSTEMD_INVOCATION_ID="$invocation" -o cat | grep -q "connecté en tant que"; then
       return 0
     fi
   done

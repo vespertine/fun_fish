@@ -48,7 +48,7 @@ exec "$REAL_PYTHON" "$@"
 esac''',
     "systemctl": r'''echo "$*" >> "$STUB_LOG"
 [ "$1" = "${STUB_SYSTEMCTL_FAIL:-}" ] && exit 1
-case "$1" in is-active) [ "${STUB_ACTIVE:-1}" = 1 ];; *) exit 0;; esac''',
+case "$1" in is-active) [ "${STUB_ACTIVE:-1}" = 1 ];; show) echo "invocation-$RANDOM";; *) exit 0;; esac''',
     "journalctl": '[ "${STUB_CONNECT:-1}" = 1 ] && echo "connecté en tant que FunFishBot"; exit 0',
 }
 
@@ -116,14 +116,14 @@ def test_launcher_works_from_final_location(server):
 
 
 @pytest.mark.parametrize("failure", [{"stub_fail_unit": 1}, {"stub_systemctl_fail": "daemon-reload"},
-                                     {"stub_systemctl_fail": "enable"}])
+                                     {"stub_systemctl_fail": "enable"}, {"stub_systemctl_fail": "restart"}])
 def test_any_switch_failure_rolls_back(server, failure):
     run, base, unit, config = server
     result, log = run(**failure)
     assert result.returncode != 0 and "retour à" in result.stderr
     assert os.readlink(base / "current").endswith("v0.1.0")
     assert unit.read_text() == "unit ancienne\n" and not (config / "drain").exists()
-    assert "restart fun-fish-bot" in log  # l'ancienne version est relancée
+    assert "restart fun-fish-bot" in log  # l'ancienne version est relancée (ou du moins tentée)
 
 
 def test_rollback_restores_link_and_unit(server):
