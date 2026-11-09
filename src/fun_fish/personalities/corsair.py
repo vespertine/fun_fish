@@ -157,15 +157,16 @@ class Corsair(Romantic):
     def motives(self, o: Outcome, own: int) -> dict[str, float]:
         trap = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, own))) / 100
         urge = self.urge()
-        return {"mat": urge * self.w_mate * o.mate, "gain": urge * self.w_win * max(0.0, o.win - o.mate),
-                "piège": self.w_trap * min(trap, self.trap_cap), "étroitesse": self.w_sharp * getattr(o, "error", 0.0)}
+        greed = self.greed()  # panache : gagnant, le matériel en plus (gain, piège) compte moins
+        return {"mat": urge * self.w_mate * o.mate, "gain": greed * urge * self.w_win * max(0.0, o.win - o.mate),
+                "piège": greed * self.w_trap * min(trap, self.trap_cap), "étroitesse": self.w_sharp * getattr(o, "error", 0.0)}
 
     def lead(self, motives: dict[str, float]) -> float:
         top = max(motives.values(), default=0.0)
         return top + self.lead_share * (sum(motives.values()) - top)
 
     def scored(self, e: CandidateEval, best: Line) -> CandidateEval:
-        e.score = self.lead(self.motives(e.outcome, e.line.score)) - self.w_loss * e.loss / 100
+        e.score = self.lead(self.motives(e.outcome, e.line.score)) - self.price(e)
         return e
 
     def opportunity(self, e: CandidateEval) -> float:

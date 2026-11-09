@@ -108,6 +108,7 @@ class Attacker(Personality):
         "opening_plies": "Premiers demi-coups de la partie joués avec ce hasard d'ouverture",
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
+        "panache": "Panache : gagnant, il cherche la manière plutôt que le matériel (0 = jamais ; 1 = en conversion complète, le gain ne compte plus et le style double)",
         "effort": "Pressé par la pendule : 0 = réflexion complète ; 1 à 5 = arbre d'attaque de plus en plus court (voir EFFORT)",
         "luxury_keep": "Luxe du gagnant : avance (cp) qu'il tient à garder en conversion",
         "luxury_cap": "Luxe du gagnant : avance (cp) qu'il s'autorise à lâcher pour un coup de style (0 = jamais)",
@@ -146,7 +147,7 @@ class Attacker(Personality):
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
                  convert_elo: int = 0, w_repeat: float = 0.0, luxury_keep: int = 450, luxury_cap: int = 0,
-                 effort: int = 0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
+                 effort: int = 0, panache: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
         self.tolerance = tolerance
@@ -186,6 +187,8 @@ class Attacker(Personality):
         self._mate_now = mate_within
         self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
         self.effort = effort
+        self.panache = panache
+        self._degree = 0.0  # degré de conversion du coup en cours (0 : pas gagnant, 1 : conversion complète)
         self._luxury, self._depth_now = 0, soundness_depth
         self.anomalies: list[dict] = []  # coups rattrapés par le garde-fou (voir `verified`)
         self._vision: MaiaModel | None = None
@@ -296,12 +299,24 @@ class Attacker(Personality):
             outcome.best = (outcome.best[0], [board.san(line.move), *outcome.best[1]])
         return CandidateEval(line, loss, outcome)
 
+    def greed(self) -> float:
+        """Panache : gagnant, le matériel en plus l'intéresse de moins en moins (1 = comme d'habitude)."""
+        return max(0.0, 1.0 - self.panache * self._degree)
+
+    def flair(self) -> float:
+        """Panache : gagnant, son style compte de plus en plus (1 = comme d'habitude)."""
+        return 1.0 + self.panache * self._degree
+
+    def price(self, e: CandidateEval) -> float:
+        """Prix d'un coup (pions) : sa perte face à une bonne défense, dont son luxe de gagnant paie une part."""
+        return self.w_loss * (e.loss - 0.5 * min(e.loss, self._luxury)) / 100
+
     def scored(self, e: CandidateEval, best: Line) -> CandidateEval:
         o = e.outcome
         reference = max(-CLIP, min(CLIP, best.score))
         urge = self.urge()
-        e.score = (urge * (self.w_mate * o.mate + self.w_win * o.win) + self.w_eval * (o.value - reference) / 100
-                   - self.w_loss * (e.loss - 0.5 * min(e.loss, self._luxury)) / 100)
+        e.score = (urge * (self.w_mate * o.mate + self.greed() * self.w_win * o.win)
+                   + self.w_eval * (o.value - reference) / 100 - self.price(e))
         return e
 
     # ---------- choix ----------
@@ -367,7 +382,7 @@ class Attacker(Personality):
         scores = []
         for e, chance in zip(evals, chances):
             voice = math.exp(-(top - chance) / self.style_margin) if self.style_margin > 0 else 1.0
-            e.style = voice * bonus.get(e.line.move, 0.0)
+            e.style = voice * self.flair() * bonus.get(e.line.move, 0.0)
             scores.append(e.score + e.style)
         return scores
 
@@ -452,6 +467,7 @@ class Attacker(Personality):
         sound = self.more_candidates(board, analyser, sound, seen)
         best = sound[0]
         self._elo_now = self.imagined_elo(degree)
+        self._degree = degree
         self._mate_now = self.mate_within + round(degree)  # gagnant : il cherche le mat un coup plus loin
         style = self.style(board)
         trouble = defending(best.score, self.defend_from, self.defend_full) if self.w_counterplay else 0.0
