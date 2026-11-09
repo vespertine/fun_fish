@@ -223,7 +223,11 @@ class Maia:
                            opponent_elo: int | None = None) -> list[dict[chess.Move, float]]:
         """Comme `probabilities`, pour plusieurs positions en un seul passage du réseau (bien plus rapide)."""
         opponent_elo = opponent_elo if opponent_elo is not None else elo
-        keys = [(b.fen(), elo, opponent_elo) for b in boards]
+        # Maia ne voit que la tranche d'Elo et la position (pas les compteurs de coups) : 600 et 1000
+        # Elo, ou une même position atteinte plus tard, partagent le même calcul. En ouverture, le livre
+        # a ses propres tranches et dépend du demi-coup : clé exacte.
+        keys = [(b.fen(), elo, opponent_elo) if b.ply() <= BOOK_PLIES else
+                (b.epd(), elo_category(elo), elo_category(opponent_elo)) for b in boards]
         opening = _book()
         with self._lock:
             if opening is not None:  # en ouverture, ce que jouent vraiment les humains (voir book.py)

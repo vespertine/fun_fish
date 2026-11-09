@@ -123,6 +123,71 @@ def run(label: str, params: dict, personality: str, limit: int | None, hash_mb: 
           f"({time.perf_counter() - t:.0f} s au total)")
 
 
+TRUTH = OUT / "truth.json"
+TRUTH_DEPTH = 14
+
+
+def truth_game(g) -> dict:
+    from fun_fish.analysis import Analyser
+    from fun_fish.engines import find_stockfish
+
+    out = {}
+    with Analyser(find_stockfish(None), threads=1, hash_mb=128) as analyser:
+        for ply in g["plies"]:
+            board = chess.Board()
+            for uci in g["moves"][:ply]:
+                board.push_uci(uci)
+            lines = analyser.analyse(board, multipv=board.legal_moves.count(), depth=TRUTH_DEPTH)
+            out[f"{g['id']}:{ply}"] = {l.move.uci(): l.score for l in lines}
+    return out
+
+
+def build_truth(workers: int) -> None:
+    """Tous les coups légaux de chaque position, notés par Stockfish à TRUTH_DEPTH (une fois pour toutes)."""
+    import multiprocessing
+
+    games = [g for g in json.loads(POSITIONS.read_text()) if g["plies"]]
+    with multiprocessing.get_context("spawn").Pool(workers) as pool:
+        table = {k: v for part in pool.map(truth_game, games, chunksize=1) for k, v in part.items()}
+    TRUTH.write_text(json.dumps(table))
+    print(len(table), "positions notées à profondeur", TRUTH_DEPTH)
+
+
+def load(label: str) -> dict:
+    return {(r["game"], r["ply"]): r for r in map(json.loads, open(OUT / f"{label}.jsonl"))}
+
+
+def quality(rows: list[dict]) -> tuple[float, float, float]:
+    """Perte attendue (cp, bornée à 1000 par coup), perte du coup tiré, part de coups tirés perdant ≥ 200 cp."""
+    table = json.loads(TRUTH.read_text())
+    expected, drawn, blunders = [], [], 0
+    for r in rows:
+        scores = table[f"{r['game']}:{r['ply']}"]
+        best = max(scores.values())
+        loss = lambda m: min(1000, best - scores.get(m, best - 1000))
+        expected.append(sum(p * loss(m) for m, p in r["candidates"].items()))
+        drawn.append(loss(r["move"]))
+        blunders += loss(r["move"]) >= 200
+    return statistics.mean(expected), statistics.mean(drawn), blunders / len(rows)
+
+
+def table(base: str, labels: list[str]) -> None:
+    B = load(base)
+    print(f"{'réglage':22} {'s/coup':>6} {'SF calc':>7} {'Maia':>5} {'perte att.':>10} {'perte tirée':>11} {'≥200cp':>6} "
+          f"{'même coup':>9} {'écart':>6}")
+    for label in [base, *labels]:
+        R = load(label)
+        keys = [k for k in B if k in R]
+        rows = [R[k] for k in keys]
+        mean = lambda f: statistics.mean(r.get(f, 0) for r in rows)
+        same = sum(B[k]["move"] == R[k]["move"] for k in keys) / len(keys)
+        tv = statistics.mean(0.5 * sum(abs(B[k]["candidates"].get(m, 0) - R[k]["candidates"].get(m, 0))
+                                       for m in set(B[k]["candidates"]) | set(R[k]["candidates"])) for k in keys)
+        exp, drawn, blunder = quality(rows)
+        print(f"{label:22} {mean('seconds'):6.2f} {mean('sf_new'):7.0f} {mean('maia_boards'):5.0f} {exp:10.0f} {drawn:11.0f} "
+              f"{blunder:6.1%} {same:9.1%} {tv:6.3f}")
+
+
 def compare(a: str, b: str) -> None:
     def load(label):
         return {(r["game"], r["ply"]): r for r in map(json.loads, open(OUT / f"{label}.jsonl"))}
@@ -156,6 +221,11 @@ def main():
     r.add_argument("--limit", type=int, help="positions par partie au plus")
     r.add_argument("--hash", type=int, default=64)
     r.add_argument("-w", "--workers", type=int, default=7)
+    t = sub.add_parser("truth")
+    t.add_argument("-w", "--workers", type=int, default=14)
+    tb = sub.add_parser("table")
+    tb.add_argument("base")
+    tb.add_argument("labels", nargs="*")
     c = sub.add_parser("compare")
     c.add_argument("a")
     c.add_argument("b")
@@ -164,6 +234,10 @@ def main():
         build_positions()
     elif args.cmd == "run":
         run(args.label, dict(kv.split("=", 1) for kv in args.set), args.personality, args.limit, args.hash, args.workers)
+    elif args.cmd == "truth":
+        build_truth(args.workers)
+    elif args.cmd == "table":
+        table(args.base, args.labels)
     else:
         compare(args.a, args.b)
 
