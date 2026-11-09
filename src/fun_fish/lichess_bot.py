@@ -28,6 +28,12 @@ DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on fini
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
+# Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
+# DRAW_STREAK coups de suite dans cet état, à partir du coup DRAW_FROM ; acceptée si la position l'est
+# au moment de l'offre. (La probabilité de nulle de Stockfish ne suffit pas : 99 % pour toute position égale.)
+DRAW_SCORE, DRAW_STREAK, DRAW_FROM, DRAW_DEPTH = 15, 8, 30, 16
+DRAW_OFFER = ("La position est complètement bloquée : je vous propose la nulle.",
+              "The position is completely locked: I offer a draw.")
 GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
             "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
 
@@ -76,6 +82,55 @@ class Lichess:
                     yield json.loads(line)
 
 
+VALUES = {chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
+
+
+def locked(board: chess.Board) -> bool:
+    """Mur de pions : seulement des rois et des pions, et aucun pion ne peut avancer ni prendre."""
+    if board.pieces_mask(chess.PAWN, chess.WHITE) == 0 or any(
+            board.pieces_mask(p, c) for p in VALUES for c in chess.COLORS):
+        return False
+    for color in chess.COLORS:
+        side = board.copy(stack=False)
+        side.turn, side.ep_square = color, None
+        if any(side.piece_type_at(m.from_square) == chess.PAWN for m in side.generate_pseudo_legal_moves()):
+            return False
+    return True
+
+
+def bare(board: chess.Board) -> bool:
+    """Plus de pions et un matériel identique et réduit (tour contre tour, fou contre cavalier…)."""
+    if board.pieces_mask(chess.PAWN, chess.WHITE) | board.pieces_mask(chess.PAWN, chess.BLACK):
+        return False
+    material = [sum(v * len(board.pieces(p, c)) for p, v in VALUES.items()) for c in chess.COLORS]
+    return material[0] == material[1] <= 5
+
+
+def dead_draw(board: chess.Board, analyser) -> bool:
+    """Nulle absolue : partie totalement fermée (mur de pions, ou presque plus rien sur l'échiquier) et
+    Stockfish à ±DRAW_SCORE. Une position simplement égale, où il reste à creuser, ne compte pas."""
+    if board.fullmove_number < DRAW_FROM or board.is_game_over() or not (locked(board) or bare(board)):
+        return False
+    lines = analyser.analyse(board, multipv=1, depth=DRAW_DEPTH)
+    return bool(lines) and abs(lines[0].score) <= DRAW_SCORE
+
+
+class DrawSense:
+    """Quand proposer ou accepter la nulle (une seule proposition par tranche de 20 coups)."""
+
+    def __init__(self):
+        self.streak = 0
+        self.offered_at = -100
+
+    def offer(self, board: chess.Board, dead: bool) -> bool:
+        """À notre tour : faut-il proposer la nulle ?"""
+        self.streak = self.streak + 1 if dead else 0
+        if self.streak >= DRAW_STREAK and board.fullmove_number - self.offered_at >= 20:
+            self.offered_at = board.fullmove_number
+            return True
+        return False
+
+
 class BotGame(threading.Thread):
     def __init__(self, bot: "Bot", game_id: str):
         super().__init__(daemon=True, name=f"partie-{game_id}")
@@ -99,6 +154,7 @@ class BotGame(threading.Thread):
         from fun_fish.pace import Pace
 
         api, game, ours, greeted, pace = self.bot.api, None, None, False, Pace()
+        draws, answered = DrawSense(), None  # answered : nombre de coups au moment de la dernière offre traitée
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
@@ -127,8 +183,20 @@ class BotGame(threading.Thread):
             if state.get("status", "started") != "started":
                 self.save(game, state, analyser)
                 return
+            clock = state.get("wtime" if ours == chess.WHITE else "btime", 10**9)
+            offered = state.get("bdraw" if ours == chess.WHITE else "wdraw", False)
+            if offered and answered != len(moves) and clock >= 2 * LOW_CLOCK_MS:
+                answered = len(moves)
+                accept = dead_draw(game.board, analyser)
+                log(self.id, "nulle proposée par l'adversaire :", "acceptée" if accept else "refusée")
+                if api.post(f"/api/bot/game/{self.id}/draw/{'yes' if accept else 'no'}") and accept:
+                    continue
             if game.board.turn == ours and not game.over:
-                clock = state.get("wtime" if ours == chess.WHITE else "btime", 10**9)
+                if clock >= 2 * LOW_CLOCK_MS and draws.offer(game.board, dead_draw(game.board, analyser)):
+                    log(self.id, "propose la nulle (position bloquée)")
+                    if api.post(f"/api/bot/game/{self.id}/draw/yes"):
+                        for text in DRAW_OFFER:
+                            api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text})
                 increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
                 if clock < LOW_CLOCK_MS:
                     move = analyser.analyse(game.board, multipv=1, depth=6)[0].move
