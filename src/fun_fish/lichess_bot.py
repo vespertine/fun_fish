@@ -24,7 +24,7 @@ import chess
 LICHESS = "https://lichess.org"
 TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
-SPEEDS = ("blitz", "rapid", "classical")
+MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 LOW_CLOCK_MS = 15_000  # sous ce temps restant, il joue vite (Stockfish peu profond) plutôt que de perdre au temps
 GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
             "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
@@ -136,6 +136,7 @@ class BotGame(threading.Thread):
     def save(self, game, state: dict, analyser) -> None:
         GAMES_DIR.mkdir(parents=True, exist_ok=True)
         export = game.debug_export(engine=analyser.engine_name)
+        export["anomalies"] = getattr(game.personality, "anomalies", [])
         export["lichess"] = {"id": self.id, "url": f"{LICHESS}/{self.id}", "status": state.get("status"),
                              "winner": state.get("winner")}
         with gzip.open(GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz", "wt", encoding="utf-8") as f:
@@ -160,8 +161,11 @@ class Bot:
     def decline_reason(self, challenge: dict) -> str | None:
         if challenge.get("variant", {}).get("key") != "standard":
             return "standard"
-        if challenge.get("speed") not in SPEEDS:
-            return "tooFast" if challenge.get("speed") in ("ultraBullet", "bullet") else "timeControl"
+        if challenge.get("speed") in ("ultraBullet", "bullet"):
+            return "tooFast"
+        clock = challenge.get("timeControl", {})
+        if clock.get("type") != "clock" or clock.get("limit", 0) + 40 * clock.get("increment", 0) > MAX_ESTIMATE:
+            return "tooSlow"
         if challenge.get("challenger", {}).get("title") == "BOT" and not self.accept_bots:
             return "noBot"
         with self.lock:

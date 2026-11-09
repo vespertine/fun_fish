@@ -29,6 +29,7 @@ seul coup adverse, puis les `deep_candidates` meilleurs sur tout l'horizon.
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 
 import chess
@@ -184,6 +185,7 @@ class Attacker(Personality):
         self._mate_now = mate_within
         self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
         self._luxury, self._depth_now = 0, soundness_depth
+        self.anomalies: list[dict] = []  # coups rattrapés par le garde-fou (voir `verified`)
         self._vision: MaiaModel | None = None
         self.w_repertoire, self.repertoire_rate = w_repertoire, repertoire_rate
         self._planner: Planner | None = None
@@ -307,6 +309,28 @@ class Attacker(Personality):
         o = e.outcome
         hope = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, e.line.score))) / 100
         return self.urge() * (self.w_mate * o.mate + self.w_win * o.win) + self.w_eval * hope
+
+    def verified(self, board: chess.Board, analyser: Analyser, chosen: CandidateEval, evals: list[CandidateEval],
+                 probabilities: list[float], best: Line) -> CandidateEval:
+        """Garde-fou : le coup choisi est revérifié seul. Si sa vraie éval est bien pire que celle de
+        la liste (analyse incohérente, vu une fois en partie : 12.Fc5?? noté −1,19 au lieu de −8) et
+        sort de la tolérance, il prend le plus probable des autres coups."""
+        order = sorted(zip(probabilities, range(len(evals))), reverse=True)
+        tried = 0
+        while tried < 3:
+            check = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=[chosen.line.move])
+            if not check or check[0].score >= chosen.line.score - 200 or regret(best, check[0]) <= self.tolerance:
+                return chosen
+            self.anomalies.append({"fen": board.fen(), "move": chosen.line.move.uci(),
+                                   "listed": chosen.line.score, "checked": check[0].score})
+            print(f"garde-fou : {board.san(chosen.line.move)} noté {chosen.line.score} mais vaut {check[0].score} "
+                  f"({board.fen()})", file=sys.stderr, flush=True)
+            rest = [i for _, i in order if evals[i] is not chosen and evals[i].line.move.uci() not in
+                    {a["move"] for a in self.anomalies[-3:]}]
+            if not rest:
+                return chosen
+            chosen, tried = evals[rest[0]], tried + 1
+        return chosen
 
     def urge(self) -> float:
         """Impatience : 1 au début, puis exponentielle (plate au départ) avec les coups joués."""
@@ -445,7 +469,7 @@ class Attacker(Personality):
                     scores[i] -= self.w_repeat * degree
         hot = self.opening_temperature > 0 and board.ply() < self.opening_plies and board.root() == chess.Board()
         probabilities = softmax(scores, self.opening_temperature if hot else self.temperature)
-        chosen = evals[pick(probabilities, self.rng)]
+        chosen = self.verified(board, analyser, evals[pick(probabilities, self.rng)], evals, probabilities, best)
         kept = planned is not None and chosen.line.move == planned
         self.plan_stats["kept"] += kept
         self.remember_plan(board, chosen)

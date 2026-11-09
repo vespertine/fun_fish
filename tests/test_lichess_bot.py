@@ -58,7 +58,11 @@ def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
 
 def test_decline_reasons():
     bot = lichess_bot.Bot("t", "sf", "stockfish", {})
-    ok = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"name": "h"}}
+    ok = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"name": "h"},
+          "timeControl": {"type": "clock", "limit": 300, "increment": 3}}
+    assert bot.decline_reason({**ok, "speed": "rapid", "timeControl": {"type": "clock", "limit": 600, "increment": 0}}) is None
+    assert bot.decline_reason({**ok, "speed": "rapid", "timeControl": {"type": "clock", "limit": 900, "increment": 10}}) == "tooSlow"
+    assert bot.decline_reason({**ok, "speed": "correspondence", "timeControl": {"type": "unlimited"}}) == "tooSlow"
     assert bot.decline_reason(ok) is None
     assert bot.decline_reason({**ok, "speed": "bullet"}) == "tooFast"
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
