@@ -26,7 +26,7 @@ TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
-LOW_CLOCK_MS = 15_000  # sous ce temps restant, il joue vite (Stockfish peu profond) plutôt que de perdre au temps
+LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
             "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
 
@@ -95,7 +95,9 @@ class BotGame(threading.Thread):
     def play(self, analyser, Game) -> None:
         from fun_fish import personalities
 
-        api, game, ours, greeted = self.bot.api, None, None, False
+        from fun_fish.pace import Pace
+
+        api, game, ours, greeted, pace = self.bot.api, None, None, False, Pace()
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
@@ -126,11 +128,18 @@ class BotGame(threading.Thread):
                 return
             if game.board.turn == ours and not game.over:
                 clock = state.get("wtime" if ours == chess.WHITE else "btime", 10**9)
+                increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
                 if clock < LOW_CLOCK_MS:
                     move = analyser.analyse(game.board, multipv=1, depth=6)[0].move
                     game.board.push(move)
                 else:
+                    agent = game.personality
+                    effort = pace.effort(clock / 1000, increment / 1000, game.board.fullmove_number)
+                    if hasattr(agent, "effort"):
+                        agent.effort = effort
+                    start = time.monotonic()
                     move = game.play_engine(analyser).move
+                    pace.observe(time.monotonic() - start, effort)
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}"):
                     game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état
 
@@ -149,6 +158,8 @@ class Bot:
     def __init__(self, token: str, stockfish, personality: str, params: dict, max_games: int = 2,
                  accept_bots: bool = False):
         self.api = Lichess(token)
+        # Maia peut prendre les cœurs libres : avec une seule partie à la fois, 2 fois plus vite sur 2 cœurs
+        os.environ.setdefault("FUN_FISH_MAIA_THREADS", str(max(1, min(4, (os.cpu_count() or 1) // max(1, max_games)))))
         self.stockfish, self.personality, self.params = stockfish, personality, params
         self.max_games, self.accept_bots = max_games, accept_bots
         self.games: dict[str, BotGame] = {}

@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import random
 import threading
 from collections import OrderedDict
@@ -191,10 +192,12 @@ _shared: dict[str, "Maia"] = {}
 _shared_lock = threading.Lock()
 
 
-def shared(kind: str = "rapid", threads: int = 1) -> "Maia":
-    """Un seul Maia par processus et par type : le chargement prend quelques secondes."""
+def shared(kind: str = "rapid", threads: int | None = None) -> "Maia":
+    """Un seul Maia par processus et par type : le chargement prend quelques secondes. Threads : 1 par
+    défaut (plusieurs parties en parallèle), ou FUN_FISH_MAIA_THREADS."""
     with _shared_lock:
         if kind not in _shared:
+            threads = threads or int(os.environ.get("FUN_FISH_MAIA_THREADS", "1"))
             _shared[kind] = Maia(kind=kind, threads=threads)
         return _shared[kind]
 

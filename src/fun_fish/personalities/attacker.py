@@ -108,6 +108,7 @@ class Attacker(Personality):
         "opening_plies": "Premiers demi-coups de la partie joués avec ce hasard d'ouverture",
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
+        "effort": "Pressé par la pendule : 0 = réflexion complète ; 1 à 5 = arbre d'attaque de plus en plus court (voir EFFORT)",
         "luxury_keep": "Luxe du gagnant : avance (cp) qu'il tient à garder en conversion",
         "luxury_cap": "Luxe du gagnant : avance (cp) qu'il s'autorise à lâcher pour un coup de style (0 = jamais)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
@@ -145,7 +146,7 @@ class Attacker(Personality):
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
                  convert_elo: int = 0, w_repeat: float = 0.0, luxury_keep: int = 450, luxury_cap: int = 0,
-                 instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
+                 effort: int = 0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
         self.tolerance = tolerance
@@ -184,6 +185,7 @@ class Attacker(Personality):
         self._elo_now = opponent_elo
         self._mate_now = mate_within
         self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
+        self.effort = effort
         self._luxury, self._depth_now = 0, soundness_depth
         self.anomalies: list[dict] = []  # coups rattrapés par le garde-fou (voir `verified`)
         self._vision: MaiaModel | None = None
@@ -413,7 +415,31 @@ class Attacker(Personality):
         floor = max(self.vision_min, 1e-3)
         return {m: 0.0 if forcing(board, m) else math.log(max(seen.get(m, 0.0), floor) / top) for m in moves}
 
+    # Pressé par la pendule, il creuse moins ses idées (plafonds cumulatifs, mesurés avec
+    # scripts/perfbench.py) : jamais moins de candidats ni un filtre de sécurité moins profond, donc il
+    # envisage toujours des coups originaux, mais il manque plus souvent les pièges lointains.
+    EFFORT = (
+        {},
+        {"our_options": 1},
+        {"our_options": 1, "deep_candidates": 3},
+        {"our_options": 1, "deep_candidates": 3, "branching": 2},
+        {"our_options": 1, "deep_candidates": 3, "branching": 2, "attack_moves": 2},
+        {"our_options": 1, "deep_candidates": 3, "branching": 2, "attack_moves": 1},
+    )
+
     def choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
+        caps = self.EFFORT[max(0, min(len(self.EFFORT) - 1, self.effort))]
+        saved = {name: getattr(self, name) for name in caps if hasattr(self, name)}
+        for name, cap in caps.items():
+            if name in saved:
+                setattr(self, name, min(saved[name], cap))
+        try:
+            return self._choose_move(board, analyser)
+        finally:
+            for name, value in saved.items():
+                setattr(self, name, value)
+
+    def _choose_move(self, board: chess.Board, analyser: Analyser) -> Decision:
         self._move = board.fullmove_number
         seen = self.seen(board, analyser)
         soundness = self.soundness()
