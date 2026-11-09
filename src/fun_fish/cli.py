@@ -323,6 +323,20 @@ def cmd_book_build(args: argparse.Namespace) -> None:
     book.build(args.month, args.games, Path(args.out), workers=args.workers)
 
 
+def cmd_lichess_bot(args: argparse.Namespace) -> None:
+    from fun_fish import lichess_bot
+
+    token = lichess_bot.read_token()
+    if args.upgrade:
+        lichess_bot.upgrade(token)
+        return
+    if args.personality not in personalities.PERSONALITIES:
+        raise SystemExit(f"Personnalité inconnue : {args.personality}")
+    bot = lichess_bot.Bot(token, find_stockfish(args.stockfish), args.personality, parse_params(args.set),
+                          max_games=args.max_games, accept_bots=args.accept_bots)
+    bot.run()
+
+
 def cmd_stockfish(args: argparse.Namespace) -> None:
     print(find_stockfish(args.stockfish))
 
@@ -429,6 +443,13 @@ def build_parser() -> argparse.ArgumentParser:
     book_build.add_argument("--workers", type=int, default=8)
     book_build.add_argument("-o", "--out", default=str(Path(__file__).parent / "data" / "book.json.gz"))
     book_build.set_defaults(func=cmd_book_build)
+    bot = sub.add_parser("lichess-bot", parents=[common], help="jouer sur Lichess avec un compte BOT")
+    bot.add_argument("--upgrade", action="store_true", help="passer le compte en BOT (définitif)")
+    bot.add_argument("-p", "--personality", default="fun_fish_2_theorie")
+    bot.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR", help="surcharger un réglage")
+    bot.add_argument("--max-games", type=int, default=2, help="parties simultanées au plus")
+    bot.add_argument("--accept-bots", action="store_true", help="accepter aussi les défis d'autres bots")
+    bot.set_defaults(func=cmd_lichess_bot)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)
     return parser
