@@ -25,9 +25,17 @@ def test_plays_a_legal_move_with_fake_engine(fake_analyser):
     assert board.is_legal(decision.move) and decision.candidates and decision.reality
 
 
-def test_goes_for_scholars_mate_against_naive_opponent(stockfish_analyser):
+def test_goes_for_scholars_mate_against_naive_opponent():
     """Après 1.e4 e5 2.Fc4 Cc6, Dh5 menace Dxf7# : sur Lichess, sous 1000 Elo, Cf6?? 9 % du temps."""
     pytest.importorskip("maia2")
+    from fun_fish.analysis import Analyser
+    from fun_fish.engines import find_stockfish
+
+    with Analyser(find_stockfish(download=False), threads=1, hash_mb=16) as analyser:  # neuf : l'équilibre testé
+        check_scholars_mate(analyser)  # est fin, il ne doit pas dépendre des tests précédents
+
+
+def check_scholars_mate(stockfish_analyser):
     board = chess.Board("r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/8/PPPP1PPP/RNBQK1NR w KQkq - 2 3")
     attacker = Attacker(rng=random.Random(0), temperature=0.05, opponent_elo=900)
     evals = {}

@@ -1,8 +1,21 @@
 """Le client UCI maison (analysis._Uci) : scores, mats, MultiPV, coups restreints, cache, historique."""
 
 import chess
+import pytest
 
-from fun_fish.analysis import MATE_SCORE, _parse
+from fun_fish.analysis import MATE_SCORE, Analyser, _parse
+from fun_fish.engines import StockfishNotFound, find_stockfish
+
+
+@pytest.fixture(scope="module")
+def stockfish_analyser():
+    """Un Stockfish à part : ne pas changer l'état de celui que partagent les autres tests."""
+    try:
+        path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    with Analyser(path, threads=1, hash_mb=16) as analyser:
+        yield analyser
 
 
 def test_parse_cp_mate_and_wdl():

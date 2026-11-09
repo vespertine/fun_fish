@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -17,7 +18,16 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
-      - name: Télécharger Stockfish
-        run: uv run --extra dev fun-fish stockfish
-      - name: Tests
-        run: uv run --extra dev pytest -q
+      - name: Cache Stockfish et Maia
+        uses: actions/cache@v4
+        with:
+          # Linux, macOS, Windows (voir engines.cache_dir)
+          path: |
+            ~/.cache/fun_fish
+            ~/Library/Caches/fun_fish
+            ~/AppData/Local/fun_fish
+          key: fun-fish-${{ runner.os }}-${{ hashFiles('src/fun_fish/engines.py', 'src/fun_fish/sim/maia.py') }}
+      - name: Télécharger Stockfish et Maia
+        run: uv run --extra dev --extra maia python -c "from fun_fish.engines import find_stockfish; from fun_fish.sim import maia; print(find_stockfish(None)); print(maia.onnx_ready())"
+      - name: Tests (dont la non-régression du choix de coup)
+        run: uv run --extra dev --extra maia pytest -q
