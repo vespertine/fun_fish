@@ -64,6 +64,15 @@ limités, ou un connecteur.
   n'est pas versionnée (dépôt public). Lecture des
   journaux : `journalctl -u fun-fish-bot`.
 - **Parties :** les exports de debug sont dans `/home/funfish/.local/share/fun_fish/bot_games/`.
+- **Versions installées :** `/srv/fun_fish/releases/vX.Y.Z`, chacune avec son environnement Python.
+  `/srv/fun_fish/current` est un lien vers la version en service, et `/srv/fun_fish/DEPLOYED`
+  indique laquelle. Pendant un déploiement, le drapeau `~funfish/.config/fun_fish/drain` fait
+  refuser les nouveaux défis : s'il traîne après un incident, le bot n'accepte plus rien, et il
+  faut le retirer.
+- **Code de déploiement :** `deploy/update.sh` est testé par `tests/test_deploy.py`, avec des
+  doubles de git, pip, curl et systemd. Pour tout changement de ce script, ajouter le scénario de
+  panne correspondant et vérifier par **mutation** que le test échoue sans la correction : des
+  doubles trop complaisants ont déjà masqué un lanceur cassé.
 
 ## Avant de toucher au moteur
 
