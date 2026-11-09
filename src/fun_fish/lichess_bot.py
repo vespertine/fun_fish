@@ -26,8 +26,8 @@ TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 SPEEDS = ("blitz", "rapid", "classical")
 LOW_CLOCK_MS = 15_000  # sous ce temps restant, il joue vite (Stockfish peu profond) plutôt que de perdre au temps
-GREETING = ("Bonjour ! Je suis Fun Fish, un bot qui préfère les coups qui ont du style aux coups parfaits. "
-            "Hi! I'm Fun Fish, a bot that prefers stylish moves to perfect ones. Have fun!")
+GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
+            "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
 
 
 def log(*parts) -> None:
@@ -114,7 +114,8 @@ class BotGame(threading.Thread):
             if game is None:
                 continue
             if not greeted:
-                api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": GREETING})
+                for text in GREETING:
+                    api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text})
                 greeted = True
             moves = state.get("moves", "").split()
             for uci in moves[len(game.board.move_stack):]:  # rattrape les coups (reconnexion comprise)
