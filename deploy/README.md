@@ -40,7 +40,7 @@ sudo systemctl start fun-fish-bot
 | l'arrêter / le relancer | `sudo systemctl stop fun-fish-bot` / `sudo systemctl restart fun-fish-bot` |
 | changer ses réglages | `echo 'FUN_FISH_BOT_ARGS="--max-games 2 -s luxury_cap=200"' \| sudo tee /etc/default/fun-fish-bot` puis relancer |
 | mettre à jour le code | relancer la commande `curl … setup.sh \| sudo bash` |
-| rapatrier les parties (exports de debug) | `rsync -av ubuntu@ADRESSE:/home/funfish/.local/share/fun_fish/bot_games/ bot_games/` |
+| rapatrier les parties (exports de debug) | `rsync -av --rsync-path="sudo rsync" ubuntu@ADRESSE:/home/funfish/.local/share/fun_fish/bot_games/ bot_games/` |
 
 Un seul bot doit tourner par compte Lichess : arrêter celui de votre machine avant de démarrer
 celui du serveur.
