@@ -1,3 +1,3 @@
 """fun_fish : des personnalités d'échecs construites sur les évaluations de Stockfish."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.1"
