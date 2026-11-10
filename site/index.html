@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en" data-lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fun Fish</title>
+<meta name="description" content="Chess bots that play for style rather than perfection. Challenge FunFishBot and CrazyFishBot on Lichess.">
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,700;1,9..144,500&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono&display=swap">
+<style>
+/* Une page, deux langues ; un bandeau d'ouverture, les deux bots côte à côte, puis jouer chez soi */
+:root {
+  --bg: #eef3f1; --surface: #ffffff; --ink: #14231f; --muted: #52645e; --line: #cfdcd7;
+  --fun: #1f7a68; --crazy: #c24a2c; --board-a: #d7e4df; --board-b: #b9cfc7;
+  --display: "Fraunces", Georgia, serif; --body: "Source Sans 3", system-ui, sans-serif; --mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f1715; --surface: #172220; --ink: #e5eeea; --muted: #97aaa3; --line: #2a3936;
+  --fun: #5cc6ae; --crazy: #f0896b; --board-a: #1b2826; --board-b: #223330; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #0f1715; --surface: #172220; --ink: #e5eeea; --muted: #97aaa3; --line: #2a3936;
+  --fun: #5cc6ae; --crazy: #f0896b; --board-a: #1b2826; --board-b: #223330; color-scheme: dark }
+* { box-sizing: border-box; }
+html[data-lang="fr"] .en, html[data-lang="en"] .fr { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 18px/1.6 var(--body); }
+.wrap { max-width: 1040px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.12; text-wrap: balance; margin: 0; }
+p { margin: 0; }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--fun); outline-offset: 3px; }
+
+.top { display: flex; justify-content: space-between; align-items: center; padding-block: 20px; }
+.brand { font-family: var(--display); font-weight: 700; font-size: 1.2rem; text-decoration: none; }
+.lang { display: flex; gap: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+.lang button { font: 600 .8rem var(--body); letter-spacing: .06em; border: 0; background: none; color: var(--muted); padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.lang button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+
+.hero { position: relative; padding-block: 48px 64px; display: grid; gap: 22px; overflow: hidden; }
+.hero::before { /* un coin d'échiquier en fond */
+  content: ""; position: absolute; right: -40px; top: 10px; width: 320px; height: 320px; z-index: 0; opacity: .7;
+  background: conic-gradient(var(--board-a) 25%, var(--board-b) 0 50%, var(--board-a) 0 75%, var(--board-b) 0) 0 0 / 80px 80px;
+  -webkit-mask-image: radial-gradient(circle at 70% 40%, #000 30%, transparent 70%); mask-image: radial-gradient(circle at 70% 40%, #000 30%, transparent 70%);
+}
+.beta { font-family: var(--body); font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--crazy); border: 1px solid currentColor; border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
+.hero > * { position: relative; z-index: 1; }
+.hero h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); max-width: 14ch; }
+.hero h1 em { font-style: italic; font-weight: 500; color: var(--crazy); }
+.hero .lead { font-size: 1.2rem; color: var(--muted); max-width: 54ch; }
+.cta { display: flex; flex-wrap: wrap; gap: 12px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 600; padding: 12px 18px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); }
+.btn.fun { background: var(--fun); border-color: var(--fun); color: var(--bg); }
+.btn.crazy { background: var(--crazy); border-color: var(--crazy); color: var(--bg); }
+
+section { padding-block: 40px; display: grid; gap: 24px; }
+section > h2 { font-size: 1.9rem; }
+.bots { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.bot { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 26px; display: grid; gap: 14px; align-content: start; min-width: 0; }
+.bot .eyebrow { font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; }
+.bot.f .eyebrow { color: var(--fun); } .bot.c .eyebrow { color: var(--crazy); }
+.bot h3 { font-size: 1.7rem; }
+.meta { font-size: .9rem; color: var(--muted); }
+
+
+pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: .9rem/1.6 var(--mono); }
+.install { display: grid; gap: 14px; max-width: 760px; }
+.install p { color: var(--muted); }
+footer { padding-block: 40px 56px; color: var(--muted); font-size: .92rem; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 24px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav class="top">
+    <a class="brand" href="#">Fun Fish</a>
+    <div class="lang" role="group" aria-label="Language">
+      <button type="button" id="lang-en" data-set="en">EN</button>
+      <button type="button" id="lang-fr" data-set="fr">FR</button>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <h1><span class="en">Chess bots with <em>style</em>, not perfection.</span><span class="fr">Des bots d'échecs qui ont du <em>style</em>, pas la perfection.</span></h1>
+    <p class="lead en">Stockfish knows the best move. Our bots know it too, and often play something more interesting: a trap, an attack, a sacrifice. They play to win, but above all for a fun game.</p>
+    <p class="lead fr">Stockfish connaît le meilleur coup. Nos bots aussi, et ils jouent souvent quelque chose de plus intéressant : un piège, une attaque, un sacrifice. Ils jouent pour gagner, mais surtout pour une partie amusante.</p>
+    <div class="cta">
+      <a class="btn fun" href="https://lichess.org/@/FunFishBot"><span class="en">Challenge FunFishBot</span><span class="fr">Défier FunFishBot</span></a>
+      <a class="btn crazy" href="https://lichess.org/@/CrazyFishBot"><span class="en">Challenge CrazyFishBot</span><span class="fr">Défier CrazyFishBot</span></a>
+      <a class="btn" href="#local"><span class="en">Play on your machine</span><span class="fr">Jouer sur sa machine</span></a>
+    </div>
+  </header>
+
+  <section aria-labelledby="bots-title">
+    <h2 id="bots-title"><span class="en">The bots</span><span class="fr">Les bots</span></h2>
+    <div class="bots">
+      <article class="bot f">
+        <span class="eyebrow">FunFishBot</span>
+        <h3>Fun Fish</h3>
+        <p class="en">The original. Sharp and sound: it sets traps against the replies a human would likely play, and attacks when the attack is real. One game in four opens with a few moves of classical theory.</p>
+        <p class="fr">L'original. Tranchant mais sain : il tend des pièges contre les réponses qu'un humain jouerait probablement, et attaque quand l'attaque est réelle. Une partie sur quatre commence par quelques coups de théorie classique.</p>
+        <p class="meta">Bullet 2+1 · Blitz · Rapid ≤ 15 min</p>
+      </article>
+      <article class="bot c">
+        <span class="eyebrow">CrazyFishBot</span>
+        <h3>Crazy Fish <span class="beta"><span class="en">beta</span><span class="fr">bêta</span></span></h3>
+        <p class="en">A more daring variant of Fun Fish, still being tuned: it takes a few more risks and tries moves no engine would play.</p>
+        <p class="fr">Une variante de Fun Fish qui ose un peu plus, encore en rodage : elle prend davantage de risques et tente des coups qu'aucun moteur ne jouerait.</p>
+        <p class="meta">Bullet 2+1 · Blitz · Rapid ≤ 15 min</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="local" aria-labelledby="local-title">
+    <h2 id="local-title"><span class="en">Play on your machine</span><span class="fr">Jouer sur sa machine</span></h2>
+    <div class="install">
+      <p class="en">Every personality, its settings and its move-by-move reasoning, in your browser. You need Python 3.10+ and <a href="https://docs.astral.sh/uv/getting-started/installation/">uv</a>.</p>
+      <p class="fr">Toutes les personnalités, leurs réglages et leur raisonnement coup par coup, dans votre navigateur. Il faut Python 3.10+ et <a href="https://docs.astral.sh/uv/getting-started/installation/">uv</a>.</p>
+<pre>git clone https://github.com/vespertine/fun_fish.git
+cd fun_fish
+uv run --extra maia fun-fish</pre>
+      <p class="en">Stockfish and the Maia model download on first launch. Add <code>play --debug</code> to see what the AI thinks at every move.</p>
+      <p class="fr">Stockfish et le modèle Maia se téléchargent au premier lancement. Avec <code>play --debug</code>, on voit ce que pense l'IA à chaque coup.</p>
+    </div>
+  </section>
+
+  <footer>
+    <a href="https://github.com/vespertine/fun_fish">GitHub</a>
+    <span class="en">Open source, GPL-3.0. Built on Stockfish, Maia-2, python-chess and chessground.</span>
+    <span class="fr">Open source, GPL-3.0. Construit sur Stockfish, Maia-2, python-chess et chessground.</span>
+  </footer>
+</div>
+<script>
+(function () {
+  var root = document.documentElement, saved = null;
+  try { saved = localStorage.getItem("lang"); } catch (e) {}
+  function set(lang) {
+    root.setAttribute("data-lang", lang); root.lang = lang;
+    document.querySelectorAll(".lang button").forEach(function (b) { b.setAttribute("aria-pressed", String(b.dataset.set === lang)); });
+    try { localStorage.setItem("lang", lang); } catch (e) {}
+  }
+  set(saved || ((navigator.language || "en").slice(0, 2) === "fr" ? "fr" : "en"));
+  document.querySelectorAll(".lang button").forEach(function (b) { b.addEventListener("click", function () { set(b.dataset.set); }); });
+})();
+</script>
+</body>
+</html>
