@@ -70,6 +70,9 @@ limités, ou un connecteur.
   indique laquelle. Pendant un déploiement, le drapeau `~funfish/.config/fun_fish/drain` fait
   refuser les nouveaux défis : s'il traîne après un incident, le bot n'accepte plus rien, et il
   faut le retirer.
+- **Liste noire :** `~funfish/.config/fun_fish/blocked`, un compte Lichess par ligne (`#` pour un
+  commentaire). Les deux bots refusent les défis de ces comptes. Le fichier est relu à chaque défi,
+  sans redémarrage. Il n'est pas versionné : c'est une donnée du serveur, pas du code.
 - **Code de déploiement :** `deploy/update.sh` est testé par `tests/test_deploy.py`, avec des
   doubles de git, pip, curl et systemd. Pour tout changement de ce script, ajouter le scénario de
   panne correspondant et vérifier par **mutation** que le test échoue sans la correction : des

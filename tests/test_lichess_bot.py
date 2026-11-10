@@ -78,6 +78,21 @@ def test_decline_reasons():
     assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "noBot"
 
 
+def test_blocked_players_are_declined(tmp_path, monkeypatch):
+    bot = lichess_bot.Bot("t", "sf", "stockfish", {})
+    ok = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"id": "indianraw_chess", "name": "INDIANRAW_chess"},
+          "timeControl": {"type": "clock", "limit": 300, "increment": 3}}
+    monkeypatch.setattr(lichess_bot, "BLOCKED_PATH", tmp_path / "blocked")
+    assert bot.decline_reason(ok) is None  # pas de fichier : personne n'est bloqué
+    (tmp_path / "blocked").write_text("# tricheurs\n\n  IndianRaw_Chess  # engine, 10/11/2026\nautre\n")
+    assert bot.decline_reason(ok) == "generic"  # relu à chaque défi, sans tenir compte de la casse
+    assert bot.decline_reason({**ok, "challenger": {"name": "AUTRE"}}) == "generic"
+    assert bot.decline_reason({**ok, "challenger": {"id": "h", "name": "h"}}) is None
+    (tmp_path / "blocked").write_bytes(b"caf\xe9 # latin-1\nindianraw_chess\n")  # mal encodé : pas d'exception
+    assert bot.decline_reason(ok) == "generic"
+    assert bot.decline_reason({**ok, "challenger": {"id": "h", "name": "h"}}) is None
+
+
 def test_drain_flag_declines_everything(tmp_path, monkeypatch):
     bot = lichess_bot.Bot("t", "sf", "stockfish", {})
     ok = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"name": "h"},
