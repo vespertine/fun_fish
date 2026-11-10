@@ -32,7 +32,7 @@ Sans uv :
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e ".[maia]"        # Windows : .venv\Scripts\pip install -e .
+.venv/bin/pip install -e ".[maia]"        # Windows : .venv\Scripts\pip install -e ".[maia]"
 .venv/bin/fun-fish
 ```
 
