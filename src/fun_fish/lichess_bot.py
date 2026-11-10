@@ -25,6 +25,7 @@ LICHESS = "https://lichess.org"
 TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on finit ses parties sans en accepter (déploiement)
+BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
@@ -258,6 +259,15 @@ class BotGame(threading.Thread):
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
 
 
+def blocked_players() -> set[str]:
+    """Les comptes dont on refuse les défis (triche, farming...), relus à chaque défi : sans redémarrage."""
+    try:
+        text = BLOCKED_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    return {name.lower() for line in text.splitlines() if (name := line.split("#", 1)[0].strip())}
+
+
 class Bot:
     def __init__(self, token: str, stockfish, personality: str, params: dict, max_games: int = 2,
                  accept_bots: bool = False):
@@ -277,6 +287,9 @@ class Bot:
     def decline_reason(self, challenge: dict) -> str | None:
         if DRAIN_PATH.exists():
             return "later"
+        challenger = challenge.get("challenger", {})
+        if {challenger.get("id", ""), challenger.get("name", "").lower()} & blocked_players():
+            return "generic"
         if challenge.get("variant", {}).get("key") != "standard":
             return "standard"
         clock = challenge.get("timeControl", {})
