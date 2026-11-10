@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fun-fish"
-version = "0.3.0"
+version = "0.3.1"
 description = "Jouer aux échecs contre des personnalités construites sur Stockfish"
 readme = "README.md"
 requires-python = ">=3.10"
