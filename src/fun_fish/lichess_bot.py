@@ -27,7 +27,14 @@ GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on finit ses parties sans en accepter (déploiement)
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
+QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
+# Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
+# DRAW_STREAK coups de suite dans cet état, à partir du coup DRAW_FROM ; acceptée si la position l'est
+# au moment de l'offre. (La probabilité de nulle de Stockfish ne suffit pas : 99 % pour toute position égale.)
+DRAW_SCORE, DRAW_STREAK, DRAW_FROM, DRAW_DEPTH = 15, 8, 30, 16
+DRAW_OFFER = ("La position est complètement bloquée : je vous propose la nulle.",
+              "The position is completely locked: I offer a draw.")
 GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
             "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
 
@@ -51,7 +58,16 @@ class Lichess:
         with self._request("GET", path) as r:
             return json.load(r)
 
-    def post(self, path: str, data: dict | None = None) -> bool:
+    def post(self, path: str, data: dict | None = None, *, quick: bool = False) -> bool:
+        """`quick` : action facultative (nulle, chat) pendant une partie : un seul essai de QUICK_TIMEOUT s
+        au plus, sans les reprises (60 s après un 429) réservées aux actions indispensables."""
+        if quick:
+            try:
+                with self._request("POST", path, data, timeout=QUICK_TIMEOUT):
+                    return True
+            except (urllib.error.HTTPError, OSError) as exc:
+                log("action facultative abandonnée", path, getattr(exc, "code", exc))
+                return False
         for attempt in range(3):
             try:
                 with self._request("POST", path, data):
@@ -74,6 +90,76 @@ class Lichess:
                 line = raw.strip()
                 if line:
                     yield json.loads(line)
+
+
+VALUES = {chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9}
+
+
+def locked(board: chess.Board) -> bool:
+    """Mur de pions infranchissable : seulement des rois et des pions, aucun pion ne peut avancer ni
+    prendre, et aucun roi ne peut atteindre un pion adverse non protégé (en contournant le mur sans
+    passer par une case attaquée par un pion adverse)."""
+    if board.pieces_mask(chess.PAWN, chess.WHITE) == 0 or any(
+            board.pieces_mask(p, c) for p in VALUES for c in chess.COLORS):
+        return False
+    if board.has_legal_en_passant():  # une prise en passant ouvre le mur
+        return False
+    for color in chess.COLORS:
+        side = board.copy(stack=False)
+        side.turn, side.ep_square = color, None  # la case en passant ne vaut que pour le camp au trait
+        if any(side.piece_type_at(m.from_square) == chess.PAWN for m in side.generate_pseudo_legal_moves()):
+            return False
+    pawns = board.pieces_mask(chess.PAWN, chess.WHITE) | board.pieces_mask(chess.PAWN, chess.BLACK)
+    for color in chess.COLORS:
+        enemy = not color
+        guarded = chess.SquareSet()  # cases que les pions adverses attaquent : interdites au roi
+        for sq in board.pieces(chess.PAWN, enemy):
+            guarded |= board.attacks(sq)
+        prey = [sq for sq in board.pieces(chess.PAWN, enemy) if sq not in guarded]  # pions adverses non protégés
+        start = board.king(color)
+        seen, todo = {start}, [start]
+        while todo:  # toutes les cases que le roi peut atteindre
+            sq = todo.pop()
+            if any(chess.square_distance(sq, p) == 1 for p in prey):
+                return False  # il peut venir manger un pion : le mur n'est pas fermé
+            for nxt in chess.SquareSet(chess.BB_KING_ATTACKS[sq]):
+                if nxt not in seen and not (pawns & chess.BB_SQUARES[nxt]) and nxt not in guarded:
+                    seen.add(nxt)
+                    todo.append(nxt)
+    return True
+
+
+def bare(board: chess.Board) -> bool:
+    """Plus de pions et un matériel identique et réduit (tour contre tour, fou contre cavalier…)."""
+    if board.pieces_mask(chess.PAWN, chess.WHITE) | board.pieces_mask(chess.PAWN, chess.BLACK):
+        return False
+    material = [sum(v * len(board.pieces(p, c)) for p, v in VALUES.items()) for c in chess.COLORS]
+    return material[0] == material[1] <= 5
+
+
+def dead_draw(board: chess.Board, analyser) -> bool:
+    """Nulle absolue : partie totalement fermée (mur de pions, ou presque plus rien sur l'échiquier) et
+    Stockfish à ±DRAW_SCORE. Une position simplement égale, où il reste à creuser, ne compte pas."""
+    if board.fullmove_number < DRAW_FROM or board.is_game_over() or not (locked(board) or bare(board)):
+        return False
+    lines = analyser.analyse(board, multipv=1, depth=DRAW_DEPTH)
+    return bool(lines) and abs(lines[0].score) <= DRAW_SCORE
+
+
+class DrawSense:
+    """Quand proposer ou accepter la nulle (une seule proposition par tranche de 20 coups)."""
+
+    def __init__(self):
+        self.streak = 0
+        self.offered_at = -100
+
+    def offer(self, board: chess.Board, dead: bool) -> bool:
+        """À notre tour : faut-il proposer la nulle ?"""
+        self.streak = self.streak + 1 if dead else 0
+        if self.streak >= DRAW_STREAK and board.fullmove_number - self.offered_at >= 20:
+            self.offered_at = board.fullmove_number
+            return True
+        return False
 
 
 class BotGame(threading.Thread):
@@ -99,6 +185,7 @@ class BotGame(threading.Thread):
         from fun_fish.pace import Pace
 
         api, game, ours, greeted, pace = self.bot.api, None, None, False, Pace()
+        draws, answered = DrawSense(), None  # answered : nombre de coups au moment de la dernière offre traitée
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
@@ -127,8 +214,16 @@ class BotGame(threading.Thread):
             if state.get("status", "started") != "started":
                 self.save(game, state, analyser)
                 return
+            clock = state.get("wtime" if ours == chess.WHITE else "btime", 10**9)
+            offered = state.get("bdraw" if ours == chess.WHITE else "wdraw", False)
+            if offered and answered != len(moves) and clock >= 2 * LOW_CLOCK_MS:
+                answered = len(moves)  # refuser, c'est simplement jouer : l'offre tombe avec notre coup
+                accept = dead_draw(game.board, analyser)
+                log(self.id, "nulle proposée par l'adversaire :", "acceptée" if accept else "on joue")
+                if accept and api.post(f"/api/bot/game/{self.id}/draw/yes", quick=True):
+                    continue
             if game.board.turn == ours and not game.over:
-                clock = state.get("wtime" if ours == chess.WHITE else "btime", 10**9)
+                offering = clock >= 2 * LOW_CLOCK_MS and draws.offer(game.board, dead_draw(game.board, analyser))
                 increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
                 if clock < LOW_CLOCK_MS:
                     move = analyser.analyse(game.board, multipv=1, depth=6)[0].move
@@ -141,8 +236,14 @@ class BotGame(threading.Thread):
                     start = time.monotonic()
                     move = game.play_engine(analyser).move
                     pace.observe(time.monotonic() - start, effort)
-                if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}"):
+                # la proposition de nulle voyage avec le coup (une seule requête) ; le message suit, sans le retarder
+                suffix = "?offeringDraw=true" if offering else ""
+                if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):
                     game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état
+                elif offering:
+                    log(self.id, "propose la nulle (position bloquée)")
+                    for text in DRAW_OFFER:
+                        api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
 
     def save(self, game, state: dict, analyser) -> None:
         GAMES_DIR.mkdir(parents=True, exist_ok=True)

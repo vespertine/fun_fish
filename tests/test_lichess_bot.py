@@ -12,7 +12,7 @@ class FakeApi:
     def __init__(self):
         self.posts = []
 
-    def post(self, path, data=None):
+    def post(self, path, data=None, quick=False):
         self.posts.append(path)
         return True
 
@@ -86,3 +86,112 @@ def test_drain_flag_declines_everything(tmp_path, monkeypatch):
     assert bot.decline_reason(ok) is None
     (tmp_path / "drain").touch()  # déploiement en cours : il finit ses parties sans en accepter
     assert bot.decline_reason(ok) == "later"
+
+
+LOCKED = "8/8/2k5/1p1p1p1p/1P1P1P1P/2K5/8/8 w - - 0 50"  # mur de pions : aucun roi ne passe
+OPEN_EQUAL = "r3k2r/pp3ppp/2n5/3p4/3P4/2N5/PP3PPP/R3K2R w KQkq - 0 30"  # égale, mais il reste à jouer
+
+
+def test_locked_and_bare_positions():
+    assert lichess_bot.locked(chess.Board(LOCKED))
+    assert not lichess_bot.locked(chess.Board("8/8/2k5/1p1p1p1p/1P1P1P1P/2K5/8/7B w - - 0 50"))  # un fou peut se sacrifier
+    assert not lichess_bot.locked(chess.Board("8/8/2k5/1p1p1p2/1P1P1P1P/2K5/8/8 w - - 0 50"))  # h5 libre : un pion avance
+    assert not lichess_bot.locked(chess.Board("8/8/2k5/2pp1p1p/1P1P1P1P/2K5/8/8 w - - 0 50"))  # bxc5 : une prise
+    # contre-exemple de la revue : d4/d5 ne ferment rien, Rd3-c3-b4 contourne et mange d4 (ou d5)
+    assert not lichess_bot.locked(chess.Board("8/8/4k3/3p4/3P4/4K3/8/8 w - - 0 50"))
+    # contre-exemple de la revue : après …g7-g5, hxg6 en passant ouvre le mur
+    assert not lichess_bot.locked(chess.Board("8/5k2/7p/p1p1p1pP/P1P1P1P1/2K5/8/8 w - g6 0 50"))
+    assert lichess_bot.bare(chess.Board("8/8/3k4/3r4/8/3K4/3R4/8 w - - 0 60"))  # tour contre tour
+    assert not lichess_bot.bare(chess.Board("8/8/3k4/3b4/8/3K4/3R4/8 w - - 0 60"))  # tour contre fou : à creuser
+
+
+def test_dead_draw_only_for_absolute_draws():
+    try:
+        path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish.analysis import Analyser
+    with Analyser(path, threads=1, hash_mb=16) as analyser:
+        assert lichess_bot.dead_draw(chess.Board(LOCKED), analyser)
+        assert not lichess_bot.dead_draw(chess.Board(OPEN_EQUAL), analyser)
+        assert not lichess_bot.dead_draw(chess.Board("8/5k2/7p/p1p1p1pP/P1P1P1P1/2K5/8/8 w - g6 0 50"), analyser)  # en passant
+        early = chess.Board(LOCKED.replace(" 0 50", " 0 10"))
+        assert not lichess_bot.dead_draw(early, analyser)  # trop tôt dans la partie
+
+
+def test_offers_after_a_streak_and_not_too_often():
+    sense, board = lichess_bot.DrawSense(), chess.Board(LOCKED)
+    offers = [sense.offer(board, True) for _ in range(lichess_bot.DRAW_STREAK)]
+    assert offers == [False] * (lichess_bot.DRAW_STREAK - 1) + [True]
+    assert not sense.offer(board, True)  # pas deux propositions coup sur coup
+    assert not lichess_bot.DrawSense().offer(board, False)
+
+
+class DrawOfferApi(FakeApi):
+    """L'adversaire (Noirs) propose la nulle après 1...e5."""
+
+    def stream(self, path):
+        yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"}, "black": {"id": "x", "name": "x"},
+               "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+        first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1]
+        moves = f"{first} {_reply(first)}"
+        yield {"type": "gameState", "moves": moves, "status": "started", "wtime": 59000, "btime": 59000, "bdraw": True}
+        yield {"type": "gameState", "moves": moves, "status": "draw"}
+
+
+@pytest.mark.parametrize("dead", [True, False])
+def test_answers_a_draw_offer(tmp_path, monkeypatch, dead):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "dead_draw", lambda board, analyser: dead)
+    api = DrawOfferApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "nul").run()
+    assert sum("/draw/yes" in p for p in api.posts) == (1 if dead else 0)
+    assert not any("/draw/no" in p for p in api.posts)  # refuser, c'est jouer : aucune requête en plus
+
+
+def test_optional_actions_never_wait_like_moves(monkeypatch):
+    """Nulle et chat : un seul essai court, jamais les 60 s d'attente après un 429 (perte au temps)."""
+    import urllib.error
+
+    calls, sleeps = [], []
+
+    def refuse(req, timeout=None):
+        calls.append(timeout)
+        raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {}, None)
+
+    monkeypatch.setattr(lichess_bot.urllib.request, "urlopen", refuse)
+    monkeypatch.setattr(lichess_bot.time, "sleep", sleeps.append)
+    api = lichess_bot.Lichess("jeton")
+    assert not api.post("/api/bot/game/x/draw/yes", quick=True)
+    assert calls == [lichess_bot.QUICK_TIMEOUT] and sleeps == []
+    api.post("/api/bot/game/x/move/e2e4")  # un coup, lui, insiste
+    assert 60 in sleeps
+
+
+class OfferApi(FakeApi):
+    """Partie déjà au 40e coup dans un mur de pions : le bot doit proposer la nulle avec son coup."""
+
+    def stream(self, path):
+        yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"}, "black": {"id": "x", "name": "x"},
+               "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+        first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1].split("?")[0]
+        yield {"type": "gameState", "moves": f"{first} {_reply(first)}", "status": "draw"}
+
+
+def test_draw_offer_travels_with_the_move(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "dead_draw", lambda board, analyser: True)
+    monkeypatch.setattr(lichess_bot, "DRAW_STREAK", 1)
+    api = OfferApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "offre").run()
+    move = next(p for p in api.posts if "/move/" in p)
+    assert move.endswith("?offeringDraw=true") and not any(p.endswith("/draw/yes") for p in api.posts)
+    assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.DRAW_OFFER)  # accueil + message de nulle

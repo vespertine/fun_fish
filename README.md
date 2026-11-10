@@ -186,7 +186,9 @@ fun-fish lichess-bot -p fun_fish_2_theorie --max-games 2
 Le jeton (scope `bot:play`) est lu dans `~/.config/fun_fish/lichess_bot_token` ou dans la variable
 `LICHESS_BOT_TOKEN`. Le bot accepte les défis d'humains en partie standard, de 2+1 à environ 15
 minutes estimées. Pressé par la pendule, il raccourcit sa réflexion (`effort`, voir `pace.py`).
-Chaque partie laisse un export de debug dans `~/.local/share/fun_fish/bot_games/`. Pour le
+Il ne propose et n'accepte la nulle que dans les nulles absolues : mur de pions, ou presque plus rien
+sur l'échiquier (tour contre tour…), avec une évaluation nulle (`dead_draw`). Chaque partie laisse un
+export de debug dans `~/.local/share/fun_fish/bot_games/`. Pour le
 faire tourner sur un serveur : [deploy/README.md](deploy/README.md).
 
 ## Développement
