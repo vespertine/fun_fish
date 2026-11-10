@@ -51,6 +51,7 @@ case "$n" in
 esac''',
     "systemctl": r'''echo "$*" >> "$STUB_LOG"
 [ "$1" = "${STUB_SYSTEMCTL_FAIL:-}" ] && exit 1
+[ "$1" = restart ] && [ -e "$FUN_FISH_CONFIG/drain" ] && echo "vidange pendant la relance de $2" >> "$STUB_LOG"
 [ "$1 $2" = "restart ${STUB_RESTART_FAIL:-}" ] && exit 1
 case "$1" in is-active) [ "${STUB_ACTIVE:-1}" = 1 ];; show) echo "invocation-$RANDOM";; *) exit 0;; esac''',
     "journalctl": '[ "${STUB_CONNECT:-1}" = 1 ] && echo "connecté en tant que FunFishBot"; exit 0',
@@ -163,6 +164,9 @@ def test_second_bot_with_token_is_enabled_and_restarted(server):
     result, log = run()
     assert result.returncode == 0, result.stderr
     assert "enable -q fun-fish-crazy" in log and "restart fun-fish-crazy" in log and "restart fun-fish-bot" in log
+    # la vidange couvre chaque relance : aucun bot relancé n'accepte de partie avant la fin de la bascule
+    assert log.count("vidange pendant la relance") == log.count("restart fun-fish") == 2
+    assert not (config / "drain").exists()
 
 
 def test_waits_for_games_of_every_bot(server):
@@ -182,3 +186,4 @@ def test_second_bot_failure_rolls_back_both(server):
     assert os.readlink(base / "current").endswith("v0.1.0") and unit.read_text() == "unit ancienne\n"
     assert not (unit.parent / "fun-fish-crazy.service").exists()  # il n'existait pas avant : retiré
     assert log.count("restart fun-fish-bot") == 2  # le premier bot revient sur l'ancienne version
+    assert log.count("vidange pendant la relance") == 3 and not (config / "drain").exists()  # retour arrière compris

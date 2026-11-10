@@ -34,5 +34,5 @@ if [ ! -s "$TOKEN_FILE" ]; then
   echo "Il reste à poser le jeton Lichess du bot (il ne s'affichera pas) :"
   echo "  sudo install -o $USER_NAME -g $USER_NAME -m 600 /dev/null $TOKEN_FILE"
   echo "  sudo nano $TOKEN_FILE"
-  echo "puis démarrer :  sudo systemctl start fun-fish-bot"
+  echo "puis activer et démarrer :  sudo systemctl enable --now fun-fish-bot"
 fi

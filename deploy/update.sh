@@ -132,11 +132,11 @@ rollback() {
     fi
   done
   systemctl daemon-reload || true
-  rm -f "$DRAIN" || true
-  for u in $(live_units); do
+  for u in $(live_units); do  # toujours en vidange : aucun bot n'accepte de partie entre deux relances
     [ -f "$BASE/$u.previous" ] || continue
     restart_bot "$u" || echo "!! L'ancienne version de $u ne redémarre pas non plus : journalctl -u $u" >&2
   done
+  rm -f "$DRAIN" || true
   exit 1
 }
 switch() {
@@ -146,7 +146,9 @@ switch() {
     install -m 644 "$RELEASE/deploy/$u.service" "$UNIT_DIR/$u.service" || return 1
   done
   systemctl daemon-reload || return 1
-  rm -f "$DRAIN" || return 1
+  # La vidange reste posée pendant toutes les relances (la connexion, notre contrôle de santé, marche
+  # quand même) : sinon un bot déjà relancé accepterait une partie que la relance suivante, ou un
+  # retour arrière, interromprait.
   for u in $(units); do
     if live_units | grep -qx "$u"; then
       systemctl enable -q "$u" || return 1
@@ -155,6 +157,7 @@ switch() {
       log "$u : pas encore de jeton Lichess, service installé, non démarré (voir deploy/README.md)"
     fi
   done
+  rm -f "$DRAIN" || return 1
 }
 log "Bascule sur $TAG"
 switch || rollback
