@@ -34,6 +34,11 @@ sudo nano /home/funfish/.config/fun_fish/lichess_bot_token     # coller le jeton
 sudo systemctl start fun-fish-bot
 ```
 
+**Second bot (CrazyFishBot, personnalité `crazy_fish`) :** même chose avec le fichier
+`crazyfish_bot_token` et le service `fun-fish-crazy` (réglages en plus dans
+`/etc/default/fun-fish-crazy`). `deploy/update.sh` installe les deux unités, mais n'active et ne
+relance que les bots qui ont un jeton ; il attend la fin des parties de **tous** les comptes.
+
 ## Au quotidien
 
 | Pour… | Commande |

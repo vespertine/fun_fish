@@ -17,11 +17,12 @@ STUBS = {
     "runuser": 'while [ "$1" != "--" ]; do shift; done; shift; exec "$@"',
     "chown": "exit 0",
     "install": r'''args=(); while [ $# -gt 0 ]; do case "$1" in -o|-g) shift 2;; *) args+=("$1"); shift;; esac; done
-[ "${STUB_FAIL_UNIT:-0}" = 1 ] && [ "${args[-1]}" = "$FUN_FISH_UNIT" ] && exit 23
+[ "${STUB_FAIL_UNIT:-0}" = 1 ] && [ "${args[-1]}" = "$FUN_FISH_UNIT_DIR/fun-fish-bot.service" ] && exit 23
 exec /usr/bin/install "${args[@]}"''',
     "sleep": "exit 0",
     # git clone -q --depth 1 --branch TAG REPO DIR : les sources d'une fausse version
-    "git": r'''dir="${@: -1}"; mkdir -p "$dir/deploy" && echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service"''',
+    "git": r'''dir="${@: -1}"; mkdir -p "$dir/deploy" && echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service" \
+&& echo "crazy $STUB_TAG" > "$dir/deploy/fun-fish-crazy.service"''',
     # python3 -m venv DIR : un faux interpréteur, et des lanceurs (pip, puis fun-fish écrit par pip) dont
     # le shebang fige le chemin ABSOLU de l'interpréteur à la création, comme les vrais : un virtualenv
     # déplacé après coup ne démarre plus.
@@ -42,12 +43,15 @@ STUB
 fi
 exec "$REAL_PYTHON" "$@"
 """,
-    "curl": r'''case "$STUB_PLAYING" in
+    # chaque compte a ses parties : STUB_PLAYING pour FunFishBot, STUB_PLAYING_CRAZY pour CrazyFishBot
+    "curl": r'''case "$*" in *jeton-crazy*) n=${STUB_PLAYING_CRAZY:-0};; *) n=$STUB_PLAYING;; esac
+case "$n" in
   fail) exit 22;;
-  *) echo "{\"nowPlaying\": [$(seq -s, 1 "$STUB_PLAYING" | sed 's/[0-9]*/{}/g')]}";;
+  *) echo "{\"nowPlaying\": [$(seq -s, 1 "$n" | sed 's/[0-9]*/{}/g')]}";;
 esac''',
     "systemctl": r'''echo "$*" >> "$STUB_LOG"
 [ "$1" = "${STUB_SYSTEMCTL_FAIL:-}" ] && exit 1
+[ "$1 $2" = "restart ${STUB_RESTART_FAIL:-}" ] && exit 1
 case "$1" in is-active) [ "${STUB_ACTIVE:-1}" = 1 ];; show) echo "invocation-$RANDOM";; *) exit 0;; esac''',
     "journalctl": '[ "${STUB_CONNECT:-1}" = 1 ] && echo "connecté en tant que FunFishBot"; exit 0',
 }
@@ -63,7 +67,9 @@ def server(tmp_path):
     base, config = tmp_path / "srv", tmp_path / "config"
     config.mkdir()
     (config / "lichess_bot_token").write_text("jeton")
-    unit = tmp_path / "unit"
+    units = tmp_path / "units"
+    units.mkdir()
+    unit = units / "fun-fish-bot.service"
     unit.write_text("unit ancienne\n")
     old = base / "releases" / "v0.1.0"
     old.mkdir(parents=True)
@@ -71,7 +77,7 @@ def server(tmp_path):
 
     def run(tag="v0.2.0", **stub):
         env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "REAL_PYTHON": sys.executable,
-               "FUN_FISH_BASE": str(base), "FUN_FISH_UNIT": str(unit), "FUN_FISH_CONFIG": str(config),
+               "FUN_FISH_BASE": str(base), "FUN_FISH_UNIT_DIR": str(units), "FUN_FISH_CONFIG": str(config),
                "FUN_FISH_WAIT_GAMES": "60", "STUB_LOG": str(tmp_path / "systemctl.log"), "STUB_TAG": tag,
                "STUB_PLAYING": "0", **{k.upper(): str(v) for k, v in stub.items()}}
         result = subprocess.run(["bash", str(SCRIPT), tag], env=env, capture_output=True, text=True)
@@ -141,3 +147,38 @@ def test_first_install_does_not_wait(server):
     result, log = run(stub_active=0, stub_playing="fail")  # pas encore de bot : rien à attendre
     assert result.returncode == 0, result.stderr
     assert os.readlink(base / "current").endswith("v0.2.0")
+
+
+def test_second_bot_without_token_is_installed_but_not_started(server):
+    run, base, unit, config = server
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert (unit.parent / "fun-fish-crazy.service").read_text() == "crazy v0.2.0\n"
+    assert "fun-fish-crazy" not in log and "pas encore de jeton" in result.stdout
+
+
+def test_second_bot_with_token_is_enabled_and_restarted(server):
+    run, base, unit, config = server
+    (config / "crazyfish_bot_token").write_text("jeton-crazy")
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert "enable -q fun-fish-crazy" in log and "restart fun-fish-crazy" in log and "restart fun-fish-bot" in log
+
+
+def test_waits_for_games_of_every_bot(server):
+    run, base, unit, config = server
+    (config / "crazyfish_bot_token").write_text("jeton-crazy")
+    for playing in ("1", "fail"):  # une partie, ou Lichess muet, sur le second compte seulement
+        result, log = run(stub_playing_crazy=playing)
+        assert result.returncode != 0 and "bascule annulée" in result.stderr
+        assert "restart" not in log and os.readlink(base / "current").endswith("v0.1.0")
+
+
+def test_second_bot_failure_rolls_back_both(server):
+    run, base, unit, config = server
+    (config / "crazyfish_bot_token").write_text("jeton-crazy")
+    result, log = run(stub_restart_fail="fun-fish-crazy")
+    assert result.returncode != 0 and "retour à" in result.stderr
+    assert os.readlink(base / "current").endswith("v0.1.0") and unit.read_text() == "unit ancienne\n"
+    assert not (unit.parent / "fun-fish-crazy.service").exists()  # il n'existait pas avant : retiré
+    assert log.count("restart fun-fish-bot") == 2  # le premier bot revient sur l'ancienne version

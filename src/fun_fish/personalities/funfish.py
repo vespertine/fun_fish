@@ -76,10 +76,11 @@ class FunFish2Theory(Theory, FunFish2):
 # Crazy Fish : réglages trouvés en jouant (parties du 9 novembre 2026 contre le bot Morphy de chess.com,
 # perdues sur le papier, gagnées par un mat préparé) : il imagine un adversaire à 500 Elo et croit donc
 # à tous ses pièges, voit un peu moins loin (5), propose plus de coups créatifs et s'autorise du luxe
-# une fois gagnant. Sans panache par défaut (à tester : -s panache=1).
+# une fois gagnant. Avec panache : gagnant, il soigne la manière plutôt que le matériel (40 parties contre
+# Maia 2000, nuit du 10 novembre : 100 %, sans perte de force mesurable contre Stockfish).
 FROZEN_CRAZY = {**FROZEN_2, "opponent_elo": 500, "soundness_depth": 5, "attack_depth": 5, "temperature": 0.35,
                 "convert_from": 350, "convert_elo": 1100, "luxury_keep": 250, "luxury_cap": 200,
-                "creative_slots": 3, "creative_min": 32}
+                "creative_slots": 3, "creative_min": 32, "panache": 1.0}
 
 
 class CrazyFish(Theory, FunFish2):
