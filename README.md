@@ -64,6 +64,7 @@ fun-fish play --port 9000 --no-browser
 | `fun_fish` | Fun Fish | L'agent public, figé : le flibustier avec les réglages retenus après les parties de test (adversaire imaginé à 600 Elo, tolérance 300, profondeurs 6, budget fun 270). Seul adversaire du mode jeu |
 | `fun_fish_2` | Fun Fish 2 | Fun Fish plus varié en ouverture (deux cavaliers, gambits célèbres, moins d'échecs gratuits) |
 | `fun_fish_theorie`, `fun_fish_2_theorie` | … + théorie | Une partie sur quatre, 1 à 4 coups de théorie classique d'abord (`theory.py`), puis à sa façon. `fun_fish_2_theorie` joue sur Lichess |
+| `crazy_fish` | Crazy Fish | Fun Fish 2 + théorie en plus fou : adversaire imaginé à 500 Elo (il croit à tous ses pièges), profondeurs 5, plus de coups créatifs, du luxe une fois gagnant. Candidat pour un second bot Lichess ; `-s panache=1` pour une conversion plus élégante |
 | `duo` | Le duo | Le romantique choisit ; quand il hésite entre plusieurs coups, l'arnaqueur départage en faveur du meilleur piège |
 | `casual` | Le copain du club | MultiPV 6 à profondeur 6, tire au sort parmi les coups à moins de 1,5 pion du meilleur |
 | `stockfish` | Stockfish | Meilleur coup à profondeur 14 (étalon) |

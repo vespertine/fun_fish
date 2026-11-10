@@ -120,3 +120,15 @@ def test_threefold_only_when_it_happened():
     assert rules.outcome(board) is None  # mais ils ont d'autres coups
     board.push_uci("f6g8")
     assert rules.outcome(board).termination == chess.Termination.THREEFOLD_REPETITION
+
+
+def test_crazy_fish_freezes_the_settings_found_in_play():
+    from fun_fish.personalities import create
+
+    played = {"theory_rate": 0.2, "opponent_elo": 500, "soundness_depth": 5, "attack_depth": 5, "temperature": 0.35,
+              "convert_from": 350, "convert_elo": 1100, "luxury_keep": 250, "luxury_cap": 200,
+              "creative_slots": 3, "creative_min": 32}  # export du 9 novembre 2026, mat contre le bot Morphy
+    assert create("crazy_fish").params() == create("fun_fish_2_theorie", **played).params()
+    assert create("crazy_fish", panache=1).panache == 1.0
+    specs = {s["name"]: s["default"] for s in type(create("crazy_fish")).param_specs()}
+    assert specs["opponent_elo"] == 500 and specs["theory_rate"] == 0.2  # le panneau de réglages affiche les bons défauts
