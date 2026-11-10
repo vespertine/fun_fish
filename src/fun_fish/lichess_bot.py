@@ -261,8 +261,8 @@ class BotGame(threading.Thread):
 
 def blocked_players() -> set[str]:
     """Les comptes dont on refuse les défis (triche, farming...), relus à chaque défi : sans redémarrage."""
-    try:
-        text = BLOCKED_PATH.read_text(encoding="utf-8")
+    try:  # un octet invalide ne doit pas bloquer tous les défis : on garde les noms lisibles
+        text = BLOCKED_PATH.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return set()
     return {name.lower() for line in text.splitlines() if (name := line.split("#", 1)[0].strip())}

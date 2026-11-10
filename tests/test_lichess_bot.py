@@ -88,6 +88,9 @@ def test_blocked_players_are_declined(tmp_path, monkeypatch):
     assert bot.decline_reason(ok) == "generic"  # relu à chaque défi, sans tenir compte de la casse
     assert bot.decline_reason({**ok, "challenger": {"name": "AUTRE"}}) == "generic"
     assert bot.decline_reason({**ok, "challenger": {"id": "h", "name": "h"}}) is None
+    (tmp_path / "blocked").write_bytes(b"caf\xe9 # latin-1\nindianraw_chess\n")  # mal encodé : pas d'exception
+    assert bot.decline_reason(ok) == "generic"
+    assert bot.decline_reason({**ok, "challenger": {"id": "h", "name": "h"}}) is None
 
 
 def test_drain_flag_declines_everything(tmp_path, monkeypatch):
