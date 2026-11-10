@@ -326,7 +326,7 @@ def cmd_book_build(args: argparse.Namespace) -> None:
 def cmd_lichess_bot(args: argparse.Namespace) -> None:
     from fun_fish import lichess_bot
 
-    token = lichess_bot.read_token()
+    token = lichess_bot.read_token(Path(args.token_file).expanduser()) if args.token_file else lichess_bot.read_token()
     if args.upgrade:
         lichess_bot.upgrade(token)
         return
@@ -446,6 +446,7 @@ def build_parser() -> argparse.ArgumentParser:
     bot = sub.add_parser("lichess-bot", parents=[common], help="jouer sur Lichess avec un compte BOT")
     bot.add_argument("--upgrade", action="store_true", help="passer le compte en BOT (définitif)")
     bot.add_argument("-p", "--personality", default="fun_fish_2_theorie")
+    bot.add_argument("--token-file", help="jeton du compte BOT (défaut : ~/.config/fun_fish/lichess_bot_token)")
     bot.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR", help="surcharger un réglage")
     bot.add_argument("--max-games", type=int, default=2, help="parties simultanées au plus")
     bot.add_argument("--accept-bots", action="store_true", help="accepter aussi les défis d'autres bots")

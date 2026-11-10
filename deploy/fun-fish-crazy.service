@@ -1,0 +1,23 @@
+[Unit]
+Description=fun_fish : second bot Lichess (CrazyFishBot)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=funfish
+# La version en service : /srv/fun_fish/current, un lien posé par deploy/update.sh
+WorkingDirectory=/srv/fun_fish/current
+# Réglages en plus : /etc/default/fun-fish-crazy (FUN_FISH_BOT_ARGS="-s temperature=0.4")
+EnvironmentFile=-/etc/default/fun-fish-crazy
+ExecStart=/bin/sh -c 'exec /srv/fun_fish/current/.venv/bin/fun-fish lichess-bot --token-file /home/funfish/.config/fun_fish/crazyfish_bot_token -p crazy_fish --max-games 1 $FUN_FISH_BOT_ARGS'
+Restart=always
+RestartSec=30
+Environment=PYTHONUNBUFFERED=1
+# Durcissement : le bot n'écrit que dans son propre dossier
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/home/funfish
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

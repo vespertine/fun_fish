@@ -31,8 +31,13 @@ aussi un service
 ```sh
 sudo install -o funfish -g funfish -m 600 /dev/null /home/funfish/.config/fun_fish/lichess_bot_token
 sudo nano /home/funfish/.config/fun_fish/lichess_bot_token     # coller le jeton, Ctrl+O, Ctrl+X
-sudo systemctl start fun-fish-bot
+sudo systemctl enable --now fun-fish-bot   # activé : il revient après un redémarrage du serveur
 ```
+
+**Second bot (CrazyFishBot, personnalité `crazy_fish`) :** même chose avec le fichier
+`crazyfish_bot_token` et le service `fun-fish-crazy` (`sudo systemctl enable --now fun-fish-crazy`) (réglages en plus dans
+`/etc/default/fun-fish-crazy`). `deploy/update.sh` installe les deux unités, mais n'active et ne
+relance que les bots qui ont un jeton ; il attend la fin des parties de **tous** les comptes.
 
 ## Au quotidien
 
