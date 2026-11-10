@@ -195,3 +195,12 @@ def test_draw_offer_travels_with_the_move(tmp_path, monkeypatch):
     move = next(p for p in api.posts if "/move/" in p)
     assert move.endswith("?offeringDraw=true") and not any(p.endswith("/draw/yes") for p in api.posts)
     assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.DRAW_OFFER)  # accueil + message de nulle
+
+
+def test_greetings_name_the_bot_and_fit_lichess_chat():
+    from fun_fish import personalities
+    assert "Fun Fish" in lichess_bot.GREETING[0]
+    for key, texts in lichess_bot.GREETINGS.items():
+        assert key in personalities.PERSONALITIES and "Crazy Fish" in texts[0] and "Crazy Fish" in texts[1]
+    for texts in (lichess_bot.GREETING, *lichess_bot.GREETINGS.values()):
+        assert all(len(t) <= 140 for t in texts)

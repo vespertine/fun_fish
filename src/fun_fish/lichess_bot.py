@@ -37,6 +37,8 @@ DRAW_OFFER = ("La position est complètement bloquée : je vous propose la nulle
               "The position is completely locked: I offer a draw.")
 GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
             "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
+GREETINGS = {"crazy_fish": ("Salut à vous ! Je suis Crazy Fish : mes cavaliers vont où bon leur semble, et la raison suit… parfois.",
+                            "Well met! I am Crazy Fish: my knights roam where fancy leads, and reason follows… sometimes. Have fun!")}
 
 
 def log(*parts) -> None:
@@ -205,7 +207,7 @@ class BotGame(threading.Thread):
             if game is None:
                 continue
             if not greeted:
-                for text in GREETING:
+                for text in GREETINGS.get(self.bot.personality, GREETING):
                     api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text})
                 greeted = True
             moves = state.get("moves", "").split()
