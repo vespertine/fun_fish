@@ -58,3 +58,21 @@ def test_maia_model_mentions_elo(stockfish_analyser):
     decision = Attacker(rng=random.Random(0), opponent_elo=1100, temperature=0.05).choose_move(board, stockfish_analyser)
     assert decision.san == "Nxe5"
     assert "1100 Elo" in decision.explanation
+
+
+def test_panache_also_lets_style_speak_when_material_is_all_the_attack_sees():
+    """Gagnant, avec du panache, un gain de matériel ne doit plus faire taire le style (via l'occasion)."""
+    from fun_fish.analysis import Line
+    from fun_fish.personalities.attacker import CandidateEval, Outcome
+
+    def candidate(uci, win):
+        line = Line(move=chess.Move.from_uci(uci), score=800, mate=None, wdl=None, pv=(), depth=6)
+        return CandidateEval(line, loss=0, outcome=Outcome(win=win, value=800))
+
+    for cls in ("attacker", "romantic"):
+        a = personalities.create(cls, panache=1, w_eval=0)
+        a._degree, a._luxury = 1.0, 0
+        greedy, stylish = candidate("e2e4", 1.0), candidate("d2d4", 0.0)
+        evals = [a.scored(greedy, greedy.line), a.scored(stylish, stylish.line)]
+        scores = a.combine(evals, {greedy.line.move: 0.5, stylish.line.move: 1.0})
+        assert scores[1] > scores[0], cls  # le plus stylé l'emporte : le gain ne compte plus
