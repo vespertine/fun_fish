@@ -30,7 +30,7 @@ class FunFish(Buccaneer):
 
 # Essai v2 : goût du centre réduit (le premier romantique, sans lui, jouait Cf3, Cc3 puis e4 !?),
 # échecs sans suite peu « fun », répertoire propre plus souvent tiré.
-FROZEN_2 = {**FROZEN, "w_center": 0.0, "w_creative": 1.2, "cheap_check": 0.3, "repertoire_rate": 0.35, "creative_slots": 2,
+FROZEN_2 = {**FROZEN, "mate_sure": 3, "w_pretty": 1.0, "w_center": 0.0, "w_creative": 1.2, "cheap_check": 0.3, "repertoire_rate": 0.35, "creative_slots": 2,
             "w_develop": 0.9, "opening_temperature": 0.8, "opening_plies": 6,
             "vision_from": 10, "opening_vision_min": 0.0}
 
@@ -80,7 +80,8 @@ class FunFish2Theory(Theory, FunFish2):
 # Maia 2000, nuit du 10 novembre : 100 %, sans perte de force mesurable contre Stockfish).
 FROZEN_CRAZY = {**FROZEN_2, "opponent_elo": 500, "soundness_depth": 5, "attack_depth": 5, "temperature": 0.35,
                 "convert_from": 350, "convert_elo": 1100, "luxury_keep": 250, "luxury_cap": 200,
-                "creative_slots": 3, "creative_min": 32, "panache": 1.0}
+                "creative_slots": 3, "creative_min": 32, "panache": 1.0,
+                "w_pretty": 2.0}
 
 
 class CrazyFish(Theory, FunFish2):

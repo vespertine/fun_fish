@@ -114,6 +114,8 @@ class Attacker(Personality):
         "luxury_cap": "Luxe du gagnant : avance (cp) qu'il s'autorise à lâcher pour un coup de style (0 = jamais)",
         "convert_elo": "Conversion : Elo de l'adversaire imaginé quand la conversion est complète (0 = inchangé) ; on ne compte plus sur ses gaffes",
         "w_repeat": "Conversion : pénalité pour revenir à une position déjà vue (× degré de conversion)",
+        "mate_sure": "Mat court : un mat forcé en N coups ou moins est toujours joué, par le plus court chemin (0 = jamais)",
+        "w_pretty": "Mat court : goût pour les jolis mats (pion ou pièce mineure qui mate, sous-promotion, coup calme, sacrifice)",
         "mate_within": "Un mat forcé en N coups ou moins compte comme un mat (vérifié plus profond si l'éval est écrasante)",
         "big_gain": "Gain de matériel qui compte comme une réussite (pions)",
         "w_mate": "Poids de la probabilité de mater",
@@ -147,7 +149,7 @@ class Attacker(Personality):
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
                  convert_elo: int = 0, w_repeat: float = 0.0, luxury_keep: int = 450, luxury_cap: int = 0,
-                 effort: int = 0, panache: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
+                 effort: int = 0, panache: float = 0.0, mate_sure: int = 0, w_pretty: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
         self.tolerance = tolerance
@@ -188,6 +190,7 @@ class Attacker(Personality):
         self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
         self.effort = effort
         self.panache = panache
+        self.mate_sure, self.w_pretty = mate_sure, w_pretty
         self._degree = 0.0  # degré de conversion du coup en cours (0 : pas gagnant, 1 : conversion complète)
         self._luxury, self._depth_now = 0, soundness_depth
         self.anomalies: list[dict] = []  # coups rattrapés par le garde-fou (voir `verified`)
@@ -466,6 +469,8 @@ class Attacker(Personality):
         self._luxury, self._depth_now = soundness.luxury, self.soundness_depth + soundness.extra
         sound = self.more_candidates(board, analyser, sound, seen)
         best = sound[0]
+        if self.mate_sure and best.mate is not None and 0 < best.mate <= self.mate_sure:
+            return self.mate_move(board, sound, best)
         self._elo_now = self.imagined_elo(degree)
         self._degree = degree
         self._mate_now = self.mate_within + round(degree)  # gagnant : il cherche le mat un coup plus loin
@@ -548,6 +553,21 @@ class Attacker(Personality):
             text += f" Scénario le plus probable ({o.best[0]:.0%}) : {' '.join(o.best[1])}."
         return text
 
+    def mate_move(self, board: chess.Board, sound: list[Line], best: Line) -> Decision:
+        """Mat court : il le joue toujours, par le plus court chemin ; entre plusieurs chemins aussi courts,
+        son goût pour les jolis mats décide (pas d'arbre : le mat est forcé, vérifié par Stockfish)."""
+        shortest = min(l.mate for l in sound if l.mate is not None and l.mate > 0)
+        lines = [l for l in sound if l.mate == shortest]
+        probabilities = softmax([self.w_pretty * pretty(board, l) for l in lines], self.temperature)
+        chosen = lines[pick(probabilities, self.rng)]
+        san = board.san(chosen.move)
+        candidates = [Candidate(move=l.move, san=board.san(l.move), score=l.score, mate=l.mate, probability=p)
+                      for l, p in sorted(zip(lines, probabilities), key=lambda x: -x[1])]
+        what = "mate" if shortest == 1 else f"lance un mat en {shortest}"
+        return Decision(move=chosen.move, san=san, color=board.turn, candidates=candidates,
+                        explanation=f"Joue {san} : il {what}" + (", par le chemin qu'il trouve le plus joli." if len(lines) > 1 else "."),
+                        reality=f"Mat forcé en {shortest} selon Stockfish.")
+
     def cost(self, board: chess.Board, chosen: CandidateEval, best: Line, truth: Line | None = None) -> str:
         sign = 1 if board.turn == chess.WHITE else -1
         fmt = lambda line: format_score(sign * line.score, None if line.mate is None else sign * line.mate)  # noqa: E731
@@ -559,3 +579,28 @@ class Attacker(Personality):
             return f"C'est aussi le meilleur coup selon Stockfish ({fmt(best)})."
         return (f"Prix de l'attaque : {chosen.loss / 100:.2f} si l'adversaire se défend bien "
                 f"({fmt(chosen.line)} contre {fmt(best)} pour {board.san(best.move)}).")
+
+
+PRETTY_PIECE = {chess.PAWN: 1.0, chess.KNIGHT: 0.8, chess.BISHOP: 0.7, chess.KING: 1.0, chess.ROOK: 0.4, chess.QUEEN: 0.0}
+PIECE_VALUE = {chess.PAWN: 1, chess.KNIGHT: 3, chess.BISHOP: 3, chess.ROOK: 5, chess.QUEEN: 9, chess.KING: 0}
+
+
+def pretty(board: chess.Board, line: Line) -> float:
+    """Beauté d'un coup d'une séquence de mat (0 à ~2) : le coup qui mate avec un pion ou une pièce mineure
+    plutôt que la dame, une sous-promotion ; avant le mat, un coup calme (sans échec) ou un sacrifice (le coup
+    qui mate n'en est jamais un : personne ne peut le prendre)."""
+    move = line.move
+    piece = board.piece_type_at(move.from_square)
+    value = 0.0
+    if line.mate == 1:
+        value += PRETTY_PIECE.get(piece, 0.0)
+    elif not board.gives_check(move):
+        value += 0.5
+    if move.promotion and move.promotion != chess.QUEEN:
+        value += 1.0
+    taken = board.piece_type_at(move.to_square)
+    after = board.copy(stack=False)
+    after.push(move)
+    if line.mate != 1 and after.is_attacked_by(after.turn, move.to_square) and PIECE_VALUE[piece] > PIECE_VALUE.get(taken, 0) + 1:
+        value += 0.7 if piece != chess.QUEEN else 1.0  # sacrifice (de dame : encore plus beau)
+    return value

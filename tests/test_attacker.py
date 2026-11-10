@@ -76,3 +76,18 @@ def test_panache_also_lets_style_speak_when_material_is_all_the_attack_sees():
         evals = [a.scored(greedy, greedy.line), a.scored(stylish, stylish.line)]
         scores = a.combine(evals, {greedy.line.move: 0.5, stylish.line.move: 1.0})
         assert scores[1] > scores[0], cls  # le plus stylé l'emporte : le gain ne compte plus
+
+
+def test_short_mate_is_always_played_and_prettily(stockfish_analyser):
+    """Mat court : un mat en 1 est toujours joué (plus d'échecs sans fin) ; entre deux mats en 1, le goût
+    pour les jolis mats préfère le cavalier à la dame."""
+    from fun_fish.personalities.attacker import pretty
+    board = chess.Board("6k1/8/6K1/8/8/8/8/7Q w - - 0 1")  # Qh7# ou Qa8# ; les autres échecs font durer
+    for seed in range(6):
+        agent = personalities.create("crazy_fish", rng=random.Random(seed))
+        assert agent.choose_move(board.copy(), stockfish_analyser).san.endswith("#")
+    # mat étouffé au cavalier contre mat de la dame (deux mats en 1 construits à la main)
+    from fun_fish.analysis import Line
+    two = chess.Board("6rk/6pp/8/6N1/8/8/8/1Q4K1 w - - 0 1")
+    mate = lambda uci: Line(chess.Move.from_uci(uci), 99999, 1, None, (), 8)  # noqa: E731
+    assert pretty(two, mate("g5f7")) > pretty(two, mate("b1h7"))
