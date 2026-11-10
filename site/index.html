@@ -42,6 +42,7 @@ a { color: inherit; }
   background: conic-gradient(var(--board-a) 25%, var(--board-b) 0 50%, var(--board-a) 0 75%, var(--board-b) 0) 0 0 / 80px 80px;
   -webkit-mask-image: radial-gradient(circle at 70% 40%, #000 30%, transparent 70%); mask-image: radial-gradient(circle at 70% 40%, #000 30%, transparent 70%);
 }
+.beta { font-family: var(--body); font-size: .75rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--crazy); border: 1px solid currentColor; border-radius: 999px; padding: 2px 8px; vertical-align: middle; }
 .hero > * { position: relative; z-index: 1; }
 .hero h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); max-width: 14ch; }
 .hero h1 em { font-style: italic; font-weight: 500; color: var(--crazy); }
@@ -58,15 +59,8 @@ section > h2 { font-size: 1.9rem; }
 .bot .eyebrow { font-size: .78rem; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; }
 .bot.f .eyebrow { color: var(--fun); } .bot.c .eyebrow { color: var(--crazy); }
 .bot h3 { font-size: 1.7rem; }
-.bot blockquote { margin: 0; font-family: var(--display); font-style: italic; font-weight: 500; line-height: 1.45; color: var(--muted); border-left: 3px solid var(--line); padding-left: 14px; }
-.bot ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
 .meta { font-size: .9rem; color: var(--muted); }
 
-.steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 18px; padding: 0; margin: 0; list-style: none; counter-reset: s; }
-.steps li { display: grid; gap: 6px; padding-top: 14px; border-top: 2px solid var(--line); min-width: 0; }
-.steps li::before { counter-increment: s; content: counter(s); font-family: var(--display); font-size: 1.6rem; color: var(--fun); }
-.steps b { font-size: 1.05rem; }
-.steps span { color: var(--muted); font-size: .98rem; }
 
 pre { margin: 0; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; overflow-x: auto; font: .9rem/1.6 var(--mono); }
 .install { display: grid; gap: 14px; max-width: 760px; }
@@ -96,38 +90,23 @@ footer { padding-block: 40px 56px; color: var(--muted); font-size: .92rem; borde
   </header>
 
   <section aria-labelledby="bots-title">
-    <h2 id="bots-title"><span class="en">Two bots, two temperaments</span><span class="fr">Deux bots, deux tempéraments</span></h2>
+    <h2 id="bots-title"><span class="en">The bots</span><span class="fr">Les bots</span></h2>
     <div class="bots">
       <article class="bot f">
         <span class="eyebrow">FunFishBot</span>
         <h3>Fun Fish</h3>
         <p class="en">The original. Sharp and sound: it sets traps against the replies a human would likely play, and attacks when the attack is real. One game in four opens with a few moves of classical theory.</p>
         <p class="fr">L'original. Tranchant mais sain : il tend des pièges contre les réponses qu'un humain jouerait probablement, et attaque quand l'attaque est réelle. Une partie sur quatre commence par quelques coups de théorie classique.</p>
-        <ul class="en"><li>Imagines a 600-rated opponent</li><li>Never blunders on purpose: Stockfish checks every move</li><li>Finishes short mates the shortest way</li></ul>
-        <ul class="fr"><li>Imagine un adversaire à 600 Elo</li><li>Ne gaffe jamais exprès : Stockfish vérifie chaque coup</li><li>Conclut les mats courts par le plus court chemin</li></ul>
         <p class="meta">Bullet 2+1 · Blitz · Rapid ≤ 15 min</p>
       </article>
       <article class="bot c">
         <span class="eyebrow">CrazyFishBot</span>
-        <h3>Crazy Fish</h3>
-        <blockquote>I'm Crazy Fish; I give my knights free rein,<br>And trust a little less to sober thought.<br>Should one leap out and ne'er come home again,<br>Pray call it freedom, rather dearly bought.</blockquote>
-        <p class="en">Believes in all its traps, dares moves no engine would play, and once winning cares more about how it wins than about material.</p>
-        <p class="fr">Croit à tous ses pièges, ose des coups qu'aucun moteur ne jouerait, et une fois gagnant soigne la manière plus que le matériel.</p>
+        <h3>Crazy Fish <span class="beta"><span class="en">beta</span><span class="fr">bêta</span></span></h3>
+        <p class="en">A more daring variant of Fun Fish, still being tuned: it takes a few more risks and tries moves no engine would play.</p>
+        <p class="fr">Une variante de Fun Fish qui ose un peu plus, encore en rodage : elle prend davantage de risques et tente des coups qu'aucun moteur ne jouerait.</p>
         <p class="meta">Bullet 2+1 · Blitz · Rapid ≤ 15 min</p>
       </article>
     </div>
-    <p class="meta en">In 200 games against each other: 85 wins for Fun Fish, 73 for Crazy Fish, 42 draws. Same strength, different manners.</p>
-    <p class="meta fr">En 200 parties l'un contre l'autre : 85 victoires pour Fun Fish, 73 pour Crazy Fish, 42 nulles. Même force, autres manières.</p>
-  </section>
-
-  <section aria-labelledby="how-title">
-    <h2 id="how-title"><span class="en">How a move is chosen</span><span class="fr">Comment un coup est choisi</span></h2>
-    <ol class="steps">
-      <li><b class="en">Sound moves</b><b class="fr">Coups sains</b><span class="en">Stockfish lists the moves that don't lose much.</span><span class="fr">Stockfish garde les coups qui ne perdent pas grand-chose.</span></li>
-      <li><b class="en">A human opponent</b><b class="fr">Un adversaire humain</b><span class="en">Maia, a model trained on human games, predicts your likely replies.</span><span class="fr">Maia, un modèle entraîné sur des parties humaines, prédit vos réponses probables.</span></li>
-      <li><b class="en">Traps and attacks</b><b class="fr">Pièges et attaques</b><span class="en">Each move is scored on mates, material won, and the chance you go wrong.</span><span class="fr">Chaque coup est noté sur le mat, le matériel gagné et la chance que vous vous trompiez.</span></li>
-      <li><b class="en">Style and chance</b><b class="fr">Style et hasard</b><span class="en">Taste breaks ties, a dice roll picks, and a safety net catches real blunders.</span><span class="fr">Le goût départage, un tirage choisit, et un garde-fou rattrape les vraies gaffes.</span></li>
-    </ol>
   </section>
 
   <section id="local" aria-labelledby="local-title">
