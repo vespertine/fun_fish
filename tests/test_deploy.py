@@ -187,3 +187,12 @@ def test_second_bot_failure_rolls_back_both(server):
     assert not (unit.parent / "fun-fish-crazy.service").exists()  # il n'existait pas avant : retiré
     assert log.count("restart fun-fish-bot") == 2  # le premier bot revient sur l'ancienne version
     assert log.count("vidange pendant la relance") == 3 and not (config / "drain").exists()  # retour arrière compris
+
+
+def test_drain_covers_restarts_even_when_no_bot_was_running(server):
+    run, base, unit, config = server
+    (config / "crazyfish_bot_token").write_text("jeton-crazy")
+    result, log = run(stub_active=0, stub_restart_fail="fun-fish-crazy")
+    assert result.returncode != 0 and "retour à" in result.stderr
+    assert log.count("vidange pendant la relance") == log.count("restart fun-fish") == 3
+    assert not (config / "drain").exists()

@@ -95,9 +95,10 @@ log "Tests de $TAG sur le serveur (dont la non-régression du choix de coup)"
   || fail "Tests en échec : rien n'a changé sur le serveur"
 
 # ---------- 2. attendre qu'aucune partie ne soit en cours ----------
+# La vidange est posée même si aucun bot ne tourne : elle doit couvrir toutes les relances qui suivent.
+install -o "$USER_NAME" -g "$USER_NAME" -m 644 /dev/null "$DRAIN"
 if bot_running; then
   log "Vidange : plus de nouveaux défis, attente de la fin des parties (au plus $WAIT_GAMES s)"
-  install -o "$USER_NAME" -g "$USER_NAME" -m 644 /dev/null "$DRAIN"
   waited=0
   while true; do
     playing=$(games_in_progress)
