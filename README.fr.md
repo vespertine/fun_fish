@@ -25,14 +25,14 @@ Il faut Python 3.10 ou plus et [uv](https://docs.astral.sh/uv/) (pour l'installe
 ```bash
 git clone https://github.com/vespertine/fun_fish.git
 cd fun_fish
-uv run fun-fish
+uv run --extra maia fun-fish
 ```
 
 Sans uv :
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e .        # Windows : .venv\Scripts\pip install -e .
+.venv/bin/pip install -e ".[maia]"        # Windows : .venv\Scripts\pip install -e .
 .venv/bin/fun-fish
 ```
 
@@ -44,8 +44,9 @@ Le navigateur s'ouvre sur l'échiquier, en **mode jeu** : on choisit son adversa
 agents publics (dont ceux de Lichess, avec les mêmes réglages), sans réglages ni raisonnement
 affichés. `fun-fish play --debug` (ou `make debug`) ouvre le **mode debug** :
 toutes les personnalités, leurs réglages, le raisonnement de l'IA à chaque coup, les flèches de
-candidats et l'export de débogage. Au premier lancement, Stockfish 19 est
-téléchargé depuis ses releases officielles et mis en cache (`~/.cache/fun_fish`,
+candidats et l'export de débogage. Au premier lancement, Stockfish 19 et le modèle
+humain Maia-2 (93 Mo, extra `maia` ; sans lui, les agents imaginent un adversaire plus grossier et ne
+jouent plus comme les bots de Lichess) sont téléchargés et mis en cache (`~/.cache/fun_fish`,
 `~/Library/Caches/fun_fish` ou `%LOCALAPPDATA%\fun_fish`). Pour utiliser un autre
 binaire : `--stockfish CHEMIN` ou la variable `FUN_FISH_STOCKFISH`.
 

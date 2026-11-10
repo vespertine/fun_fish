@@ -24,21 +24,23 @@ You need Python 3.10 or later and [uv](https://docs.astral.sh/uv/) (to install i
 ```bash
 git clone https://github.com/vespertine/fun_fish.git
 cd fun_fish
-uv run fun-fish
+uv run --extra maia fun-fish
 ```
 
 Without uv:
 
 ```bash
 python -m venv .venv
-.venv/bin/pip install -e .        # Windows: .venv\Scripts\pip install -e .
+.venv/bin/pip install -e ".[maia]"        # Windows: .venv\Scripts\pip install -e .
 .venv/bin/fun-fish
 ```
 
 Your browser opens on the board in **play mode**: pick your opponent among the public agents
 (including the Lichess bots, with the same settings). `fun-fish play --debug` opens **debug mode**:
 every personality, its settings, the AI's reasoning at each move, candidate arrows and a debug
-export. On first launch, Stockfish 19 is downloaded from its official releases and cached.
+export. On first launch, Stockfish 19 and the Maia-2 human model (93 MB, the `maia` extra) are
+downloaded and cached. Without that extra, the agents fall back to a cruder model of the opponent and
+no longer play like the Lichess bots.
 
 ## Personalities
 
