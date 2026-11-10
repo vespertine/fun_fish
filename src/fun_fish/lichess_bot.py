@@ -102,9 +102,11 @@ def locked(board: chess.Board) -> bool:
     if board.pieces_mask(chess.PAWN, chess.WHITE) == 0 or any(
             board.pieces_mask(p, c) for p in VALUES for c in chess.COLORS):
         return False
+    if board.has_legal_en_passant():  # une prise en passant ouvre le mur
+        return False
     for color in chess.COLORS:
         side = board.copy(stack=False)
-        side.turn, side.ep_square = color, None
+        side.turn, side.ep_square = color, None  # la case en passant ne vaut que pour le camp au trait
         if any(side.piece_type_at(m.from_square) == chess.PAWN for m in side.generate_pseudo_legal_moves()):
             return False
     pawns = board.pieces_mask(chess.PAWN, chess.WHITE) | board.pieces_mask(chess.PAWN, chess.BLACK)

@@ -99,6 +99,8 @@ def test_locked_and_bare_positions():
     assert not lichess_bot.locked(chess.Board("8/8/2k5/2pp1p1p/1P1P1P1P/2K5/8/8 w - - 0 50"))  # bxc5 : une prise
     # contre-exemple de la revue : d4/d5 ne ferment rien, Rd3-c3-b4 contourne et mange d4 (ou d5)
     assert not lichess_bot.locked(chess.Board("8/8/4k3/3p4/3P4/4K3/8/8 w - - 0 50"))
+    # contre-exemple de la revue : après …g7-g5, hxg6 en passant ouvre le mur
+    assert not lichess_bot.locked(chess.Board("8/5k2/7p/p1p1p1pP/P1P1P1P1/2K5/8/8 w - g6 0 50"))
     assert lichess_bot.bare(chess.Board("8/8/3k4/3r4/8/3K4/3R4/8 w - - 0 60"))  # tour contre tour
     assert not lichess_bot.bare(chess.Board("8/8/3k4/3b4/8/3K4/3R4/8 w - - 0 60"))  # tour contre fou : à creuser
 
@@ -112,6 +114,7 @@ def test_dead_draw_only_for_absolute_draws():
     with Analyser(path, threads=1, hash_mb=16) as analyser:
         assert lichess_bot.dead_draw(chess.Board(LOCKED), analyser)
         assert not lichess_bot.dead_draw(chess.Board(OPEN_EQUAL), analyser)
+        assert not lichess_bot.dead_draw(chess.Board("8/5k2/7p/p1p1p1pP/P1P1P1P1/2K5/8/8 w - g6 0 50"), analyser)  # en passant
         early = chess.Board(LOCKED.replace(" 0 50", " 0 10"))
         assert not lichess_bot.dead_draw(early, analyser)  # trop tôt dans la partie
 
