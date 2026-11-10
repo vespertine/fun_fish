@@ -8,7 +8,7 @@ La force n'est pas le but. L'agent public s'appelle **Fun Fish**. Sa version 2 a
 pour rivaliser avec Stockfish.
 
 Ce guide donne la carte du projet, la façon dont un coup est choisi, les outils pour mesurer un
-changement, et les règles de travail. Le [README](README.md) détaille les commandes, le
+changement, et les règles de travail. Le [README](README.fr.md) détaille les commandes, le
 [CADRAGE](docs/CADRAGE.md) l'historique des décisions, et [deploy/README.md](deploy/README.md)
 le serveur.
 
