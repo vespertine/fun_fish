@@ -79,7 +79,9 @@ GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du styl
 GREETINGS = {"crazy_fish": ("Salut à vous ! Je suis Crazy Fish : mes cavaliers vont où bon leur semble, et la raison suit… parfois.",
                             "Well met! I am Crazy Fish: my knights roam where fancy leads, and reason follows… sometimes. Have fun!"),
              "dubot": ("Bonjour ! Je suis DuBot : je cherche les positions où ça brûle, quitte à y laisser un pion ou deux.",
-                       "Hi! I'm DuBot: I go looking for positions on fire, even if it costs me a pawn or two. Have fun!")}
+                       "Hi! I'm DuBot: I go looking for positions on fire, even if it costs me a pawn or two. Have fun!"),
+             "capabot": ("Bonjour ! Je suis CapaBot : des positions claires, des pièces bien placées, et la patience d'attendre.",
+                         "Hi! I'm CapaBot: clear positions, well-placed pieces, and all the patience in the world. Have fun!")}
 
 
 def log(*parts) -> None:

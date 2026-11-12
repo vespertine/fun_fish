@@ -20,7 +20,7 @@ RELEASE="$BASE/releases/$TAG"
 CURRENT="$BASE/current"
 UNIT_DIR=${FUN_FISH_UNIT_DIR:-/etc/systemd/system}
 CONFIG=${FUN_FISH_CONFIG:-/home/$USER_NAME/.config/fun_fish}
-BOTS=(fun-fish-bot:lichess_bot_token fun-fish-crazy:crazyfish_bot_token fun-fish-dubot:dubot_token)  # unité:jeton
+BOTS=(fun-fish-bot:lichess_bot_token fun-fish-crazy:crazyfish_bot_token fun-fish-dubot:dubot_token fun-fish-capabot:capabot_token)  # unité:jeton
 DRAIN=$CONFIG/drain  # présent : le bot refuse les nouveaux défis (voir lichess_bot.DRAIN_PATH)
 WAIT_GAMES=${FUN_FISH_WAIT_GAMES:-1800}  # s d'attente max de la fin des parties
 KEEP=3  # versions gardées sur le disque
@@ -89,7 +89,7 @@ if [ ! -f "$RELEASE/.installed" ]; then
     # Le goût des positions de DuBot (77 Mo) : téléchargé ici, avant la bascule, et non au démarrage du
     # bot, qui doit se connecter en moins d'une minute (sinon retour arrière).
     as_user "$RELEASE/.venv/bin/python" -c "from fun_fish import position_style; assert position_style.ready()" \
-      || { echo "!! Goût des positions (DuBot) indisponible" >&2; return 1; }
+      || { echo "!! Goût des positions (DuBot, CapaBot) indisponible" >&2; return 1; }
   }
   installed || { rm -rf "$RELEASE"; fail "Installation de $TAG impossible : rien n'a changé sur le serveur"; }
   touch "$RELEASE/.installed"

@@ -49,6 +49,8 @@ les redirige (`ssh … 'cat > fichier' < jeton`).
 | `lichess_token` | Explorateur des maîtres de Lichess (aucun scope) |
 | `lichess_bot_token` | Compte BOT FunFishBot (`bot:play`) ; présent aussi sur le serveur |
 | `crazyfish_bot_token` | Compte BOT CrazyFishBot (`bot:play`) ; présent aussi sur le serveur |
+| `dubot_token` | Compte BOT DuBot (`bot:play`) ; présent aussi sur le serveur |
+| `capabot_token` | Compte BOT CapaBot (`bot:play`) ; présent aussi sur le serveur |
 | `gh_token` | `gh` pour vespertine/fun_fish (voir plus haut) |
 | `hcloud_token` | API Hetzner en **lecture seule** : état et métriques du serveur |
 | `server` | Adresse SSH du serveur (`root@IP`), lue par `deploy/release.sh` |
@@ -58,8 +60,9 @@ limités, ou un connecteur.
 
 ## Le bot et le serveur
 
-- **Un seul bot par compte Lichess :** FunFishBot (systemd `fun-fish-bot`) et CrazyFishBot
-  (`fun-fish-crazy`, personnalité `crazy_fish`) tournent sur le serveur, donc ne pas lancer
+- **Un seul bot par compte Lichess :** FunFishBot (systemd `fun-fish-bot`), CrazyFishBot
+  (`fun-fish-crazy`, personnalité `crazy_fish`), DuBot (`fun-fish-dubot`) et CapaBot
+  (`fun-fish-capabot`) tournent sur le serveur, donc ne pas lancer
   `fun-fish lichess-bot` en local, sauf accord explicite et après avoir arrêté le service.
 - **Accès :** `ssh -i ~/.ssh/vespertine -o IdentitiesOnly=yes $(cat ~/.config/fun_fish/server)`. L'adresse
   n'est pas versionnée (dépôt public). Lecture des

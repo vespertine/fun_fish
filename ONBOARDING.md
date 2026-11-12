@@ -94,9 +94,10 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 
 ## Le bot Lichess et le serveur
 
-- **Les comptes :** trois comptes BOT, un service chacun : [FunFishBot](https://lichess.org/@/FunFishBot)
-  (Fun Fish 2 + théorie), [CrazyFishBot](https://lichess.org/@/CrazyFishBot) (`crazy_fish`) et
-  [DuBot](https://lichess.org/@/DuBot) (`dubot`).
+- **Les comptes :** quatre comptes BOT, un service chacun : [FunFishBot](https://lichess.org/@/FunFishBot)
+  (Fun Fish 2 + théorie), [CrazyFishBot](https://lichess.org/@/CrazyFishBot) (`crazy_fish`),
+  [DuBot](https://lichess.org/@/DuBot) (`dubot`, goût des positions d'attaque) et
+  [CapaBot](https://lichess.org/@/CapaBot) (`capabot`, goût des positions solides).
 - **Les défis acceptés :** à partir de 2+1 et jusqu'à environ 15 minutes estimées (`decline_reason`).
   Les autres bots sont rationnés, pour laisser la place aux humains (voir `BOT_PAUSE`) : après une
   partie contre un bot, une pause de trois fois sa durée ; après une partie contre un humain, deux

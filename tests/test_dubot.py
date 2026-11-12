@@ -1,4 +1,4 @@
-"""DuBot : Fun Fish 2 et le goût des positions d'attaque (`fun_fish.position_style`)."""
+"""DuBot et CapaBot : Fun Fish 2 et le goût des positions d'attaque ou solides (`fun_fish.position_style`)."""
 
 from types import SimpleNamespace
 
@@ -16,9 +16,9 @@ def line(uci: str, score: int = 0) -> Line:
     return Line(chess.Move.from_uci(uci), score, None, None, (), 1)
 
 
-def bonuses(monkeypatch, values, **params):
+def bonuses(monkeypatch, values, key="dubot", **params):
     monkeypatch.setattr(position_style, "logits", lambda boards: values)
-    bot = personalities.create("dubot", **params)
+    bot = personalities.create(key, **params)
     bot._creative = {}
     sound = [line("e2e4"), line("d2d4"), line("g1f3")]
     bonus, style = {}, SimpleNamespace(reasons={})
@@ -40,6 +40,24 @@ def test_bonus_follows_the_position_taste_around_the_mean(monkeypatch):
     assert bonus[chess.Move.from_uci("g1f3")] == pytest.approx(-4.0)
     assert "joueur d'attaque" in style.reasons[chess.Move.from_uci("e2e4")]
     assert chess.Move.from_uci("g1f3") not in style.reasons
+
+
+def test_capabot_is_dubot_the_other_way_round(monkeypatch):
+    specs = {s["name"]: s["default"] for s in personalities.PERSONALITIES["capabot"].param_specs()}
+    assert specs["w_pos"] == -4.0 and specs["w_repertoire"] == 0
+    bot = personalities.create("capabot")
+    assert bot.w_pos == -4.0 and bot.w_repertoire == 0 and personalities.PERSONALITIES["dubot"]().w_pos == 4.0
+    bonus, style = bonuses(monkeypatch, [1.0, 0.0, -1.0], key="capabot")
+    assert bonus[chess.Move.from_uci("e2e4")] == pytest.approx(-4.0)
+    assert bonus[chess.Move.from_uci("g1f3")] == pytest.approx(4.0)
+    assert "joueur solide" in style.reasons[chess.Move.from_uci("g1f3")]
+    assert chess.Move.from_uci("e2e4") not in style.reasons
+
+
+@pytest.mark.parametrize("key", ["dubot", "capabot"])
+def test_lichess_bot_greets_as_itself(key):
+    from fun_fish import lichess_bot
+    assert all(personalities.PERSONALITIES[key].name in text for text in lichess_bot.GREETINGS[key])
 
 
 def test_without_style_model_it_plays_like_fun_fish_2(monkeypatch):
