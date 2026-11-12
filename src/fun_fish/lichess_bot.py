@@ -33,6 +33,10 @@ MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 
 # jusqu'à 5+2 (380 s) ; à partir de 5+3 (420 s), et en rapide, c'est « tooSlow ».
 BOT_MAX_ESTIMATE = 400  # s, même estimation que MAX_ESTIMATE
 BOT_INTERVAL = 2400  # s entre deux défis de bots acceptés
+# Jamais deux parties contre des bots en même temps, tous nos comptes réunis (des services distincts) :
+# un marqueur par partie dans ce dossier partagé. Au-delà de BOT_GAME_STALE, un marqueur est oublié (plantage).
+BOT_GAMES_DIR = Path("~/.local/state/fun_fish/bot_games").expanduser()
+BOT_GAME_STALE = 3600  # s
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
@@ -275,6 +279,38 @@ def blocked_players() -> set[str]:
     return {name.lower() for line in text.splitlines() if (name := line.split("#", 1)[0].strip())}
 
 
+def bot_game_running() -> bool:
+    """Un de nos comptes joue-t-il déjà contre un bot ?"""
+    try:
+        marks = list(BOT_GAMES_DIR.iterdir())
+    except OSError:
+        return False
+    now = time.time()
+    for mark in marks:
+        try:
+            if now - mark.stat().st_mtime < BOT_GAME_STALE:
+                return True
+        except OSError:  # effacé entre-temps
+            pass
+    return False
+
+
+def mark_bot_game(account: str, game_id: str) -> None:
+    try:
+        BOT_GAMES_DIR.mkdir(parents=True, exist_ok=True)
+        (BOT_GAMES_DIR / f"{account}--{game_id}").touch()
+    except OSError as exc:  # sans marqueur, seuls les autres comptes risquent d'accepter un bot en même temps
+        log("marqueur de partie contre un bot impossible :", exc)
+
+
+def unmark_bot_games(account: str, game_id: str = "*") -> None:
+    try:
+        for mark in BOT_GAMES_DIR.glob(f"{account}--{game_id}"):
+            mark.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 class Bot:
     def __init__(self, token: str, stockfish, personality: str, params: dict, max_games: int = 2,
                  accept_bots: bool = False):
@@ -291,6 +327,7 @@ class Bot:
     def finished(self, game_id: str) -> None:
         with self.lock:
             self.games.pop(game_id, None)
+        unmark_bot_games(self.me, game_id)
 
     def decline_reason(self, challenge: dict) -> str | None:
         if DRAIN_PATH.exists():
@@ -309,6 +346,8 @@ class Bot:
             if clock.get("limit", 0) + 40 * clock.get("increment", 0) > BOT_MAX_ESTIMATE:
                 return "tooSlow"
             if self.bot_accepted is not None and time.monotonic() - self.bot_accepted < BOT_INTERVAL:
+                return "later"
+            if bot_game_running():
                 return "later"
         with self.lock:
             if len(self.games) >= self.max_games:
@@ -330,6 +369,7 @@ class Bot:
             return
         if self.rationed(c):
             self.bot_accepted = time.monotonic()
+            mark_bot_game(self.me, c["id"])  # la partie porte l'identifiant du défi
 
     def rationed(self, challenge: dict) -> bool:
         """Un défi d'un autre bot, soumis aux limites (sauf `--accept-bots`)."""
@@ -349,6 +389,7 @@ class Bot:
             raise SystemExit(f"Le compte {account['username']} n'est pas un compte BOT "
                              "(voir `fun-fish lichess-bot --upgrade`).")
         log(f"connecté en tant que {account['username']} — {self.personality}, {self.max_games} parties à la fois")
+        unmark_bot_games(self.me)  # marqueurs laissés par un arrêt brutal : ces parties-là sont finies
         while True:
             try:
                 for event in self.api.stream("/api/stream/event"):

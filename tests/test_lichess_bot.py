@@ -89,6 +89,13 @@ class Api:
         return not (self.fail_accept and path.endswith("/accept"))
 
 
+@pytest.fixture(autouse=True)
+def bot_games_dir(tmp_path, monkeypatch):
+    """Jamais le vrai dossier partagé des parties contre des bots."""
+    monkeypatch.setattr(lichess_bot, "BOT_GAMES_DIR", tmp_path / "bot_games")
+    return tmp_path / "bot_games"
+
+
 def rationed_bot(monkeypatch, **kw):
     now = [10_000.0]
     monkeypatch.setattr(lichess_bot.time, "monotonic", lambda: now[0])
@@ -121,9 +128,34 @@ def test_bot_challenges_are_rationed(monkeypatch):
     now[0] += 2399
     assert not accepted(bot, bullet)
     now[0] += 1
+    bot.finished("c")
     assert accepted(bot, bullet)  # 40 minutes plus tard
     free, _ = rationed_bot(monkeypatch, accept_bots=True)
     assert accepted(free, blitz) and accepted(free, blitz) and accepted(free, challenge("rapid", 600, 0))
+
+
+def test_never_two_bot_games_at_once_across_our_accounts(monkeypatch, bot_games_dir):
+    import os
+    fun, _ = rationed_bot(monkeypatch)
+    crazy, now = rationed_bot(monkeypatch)  # la même horloge pour les deux (le dernier monkeypatch)
+    fun.me, crazy.me = "funfishbot", "crazyfishbot"
+    blitz = challenge("blitz", 180, 2)
+    assert accepted(fun, blitz)
+    assert crazy.decline_reason(blitz) == "later"  # l'autre compte joue déjà contre un bot
+    assert accepted(crazy, challenge("blitz", 180, 2, title=None))  # les humains, toujours
+    fun.finished("c")
+    assert accepted(crazy, blitz)
+    crazy.api.get = lambda path: {"id": "crazyfishbot", "username": "CrazyFishBot", "title": "BOT"}
+    crazy.api.stream = lambda path: (_ for _ in ()).throw(SystemExit)
+    with pytest.raises(SystemExit):
+        crazy.run()  # redémarrage après un arrêt brutal : ses marqueurs sont effacés
+    now[0] += 2400  # passé le quota de 40 minutes de chaque compte
+    assert fun.decline_reason(blitz) is None
+    mark = bot_games_dir / "autre--x"
+    mark.touch()
+    assert fun.decline_reason(blitz) == "later"
+    os.utime(mark, (0, 0))  # marqueur oublié depuis longtemps : ignoré
+    assert fun.decline_reason(blitz) is None
 
 
 def test_quota_spent_only_when_lichess_confirms(monkeypatch):
