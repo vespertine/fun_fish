@@ -36,7 +36,13 @@ sudo systemctl enable --now fun-fish-bot   # activé : il revient après un red�
 
 **Second bot (CrazyFishBot, personnalité `crazy_fish`) :** même chose avec le fichier
 `crazyfish_bot_token` et le service `fun-fish-crazy` (`sudo systemctl enable --now fun-fish-crazy`) (réglages en plus dans
-`/etc/default/fun-fish-crazy`). `deploy/update.sh` installe les deux unités, mais n'active et ne
+`/etc/default/fun-fish-crazy`).
+
+**Troisième bot (DuBot, personnalité `dubot`) :** fichier `dubot_token`, service `fun-fish-dubot`.
+Il télécharge en plus, à son premier coup, le modèle du goût des positions (`rapid_style.onnx`, 77 Mo,
+release `maia2-style-v1`).
+
+`deploy/update.sh` installe les trois unités, mais n'active et ne
 relance que les bots qui ont un jeton ; il attend la fin des parties de **tous** les comptes.
 
 ## Au quotidien

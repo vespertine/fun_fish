@@ -34,6 +34,7 @@ grossier. Sans `uv`, `make install`, puis `make test`, fonctionnent aussi.
 | `book.py` | Livre d'ouverture humain (base Lichess). Il remplace Maia sur les 10 premiers demi-coups. |
 | `opponent.py` | L'adversaire *imaginé* : Maia à `opponent_elo`, ou l'instinct naïf (`naive.py`). |
 | `personalities/` | Les joueurs. La chaîne principale est `attacker` (cogneur) → `romantic` → `corsair` → `buccaneer` (flibustier) → `funfish.py` (réglages figés). |
+| `position_style.py` | Le goût des positions : un classifieur (sur la représentation de Maia-2) qui reconnaît les positions des joueurs d'attaque et des joueurs solides. Utilisé par DuBot (`personalities/dubot.py`). |
 | `style.py`, `fun.py` | Les goûts : développement, roi, sacrifices… (`style`) et l'« allure » des coups sans Stockfish (`fun`). |
 | `theory.py` | La surcouche « théorie » : quelques coups classiques en début de partie, avec des lignes et des poids écrits à la main. |
 | `pace.py` | La gestion du temps à la pendule : elle choisit le niveau d'`effort`. |
@@ -93,7 +94,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 
 ## Le bot Lichess et le serveur
 
-- **Le compte :** [FunFishBot](https://lichess.org/@/FunFishBot), un compte BOT.
+- **Les comptes :** trois comptes BOT, un service chacun : [FunFishBot](https://lichess.org/@/FunFishBot)
+  (Fun Fish 2 + théorie), [CrazyFishBot](https://lichess.org/@/CrazyFishBot) (`crazy_fish`) et
+  [DuBot](https://lichess.org/@/DuBot) (`dubot`).
 - **Les défis acceptés :** des humains seulement, à partir de 2+1 et jusqu'à environ 15 minutes
   estimées (`decline_reason`).
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par

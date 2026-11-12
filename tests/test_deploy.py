@@ -22,7 +22,8 @@ exec /usr/bin/install "${args[@]}"''',
     "sleep": "exit 0",
     # git clone -q --depth 1 --branch TAG REPO DIR : les sources d'une fausse version
     "git": r'''dir="${@: -1}"; mkdir -p "$dir/deploy" && echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service" \
-&& echo "crazy $STUB_TAG" > "$dir/deploy/fun-fish-crazy.service"''',
+&& echo "crazy $STUB_TAG" > "$dir/deploy/fun-fish-crazy.service" \
+&& echo "dubot $STUB_TAG" > "$dir/deploy/fun-fish-dubot.service"''',
     # python3 -m venv DIR : un faux interpréteur, et des lanceurs (pip, puis fun-fish écrit par pip) dont
     # le shebang fige le chemin ABSOLU de l'interpréteur à la création, comme les vrais : un virtualenv
     # déplacé après coup ne démarre plus.
@@ -156,6 +157,18 @@ def test_second_bot_without_token_is_installed_but_not_started(server):
     assert result.returncode == 0, result.stderr
     assert (unit.parent / "fun-fish-crazy.service").read_text() == "crazy v0.2.0\n"
     assert "fun-fish-crazy" not in log and "pas encore de jeton" in result.stdout
+
+
+def test_third_bot_dubot_is_installed_and_only_started_with_its_token(server):
+    run, base, unit, config = server
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert (unit.parent / "fun-fish-dubot.service").read_text() == "dubot v0.2.0\n"
+    assert "fun-fish-dubot" not in log
+    (config / "dubot_token").write_text("jeton-dubot")
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert "enable -q fun-fish-dubot" in log and "restart fun-fish-dubot" in log
 
 
 def test_second_bot_with_token_is_enabled_and_restarted(server):
