@@ -28,11 +28,16 @@ DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on fini
 BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
-# Défis d'autres bots : une partie toutes les 40 minutes au plus, et seulement des parties courtes,
-# pour que le bot reste libre pour les humains (il ne joue qu'une partie à la fois). Bullet et blitz
-# jusqu'à 5+2 (380 s) ; à partir de 5+3 (420 s), et en rapide, c'est « tooSlow ».
-BOT_MAX_ESTIMATE = 400  # s, même estimation que MAX_ESTIMATE
-BOT_INTERVAL = 2400  # s entre deux défis de bots acceptés
+# Défis d'autres bots : le bot ne joue qu'une partie à la fois, il doit rester libre pour les humains.
+# - Après une partie contre un bot, pause de BOT_PAUSE × sa durée réelle : au plus un quart du temps
+#   contre des bots, et une partie courte coûte moins qu'une longue (2+1 : ~15 min ; 5+2 : ~35 min).
+# - Après une partie contre un humain, HUMAN_GRACE pour qu'il puisse enchaîner (revanche, nouveau défi).
+# - Le même bot, au plus une fois par BOT_SAME_OPPONENT : un seul bot ne prend pas toutes les places.
+# - Jusqu'à 10+0 (BOT_MAX_ESTIMATE, même estimation que MAX_ESTIMATE) ; au-delà, « tooSlow ».
+BOT_MAX_ESTIMATE = 600  # s
+BOT_PAUSE = 3
+HUMAN_GRACE = 120  # s
+BOT_SAME_OPPONENT = 7200  # s
 # Jamais deux parties contre des bots en même temps, tous nos comptes réunis (des services distincts) :
 # un marqueur par partie dans ce dossier partagé. Au-delà de BOT_GAME_STALE, un marqueur est oublié (plantage).
 BOT_GAMES_DIR = Path("~/.local/state/fun_fish/bot_games").expanduser()
@@ -319,14 +324,24 @@ class Bot:
         os.environ.setdefault("FUN_FISH_MAIA_THREADS", str(max(1, min(4, (os.cpu_count() or 1) // max(1, max_games)))))
         self.stockfish, self.personality, self.params = stockfish, personality, params
         self.max_games, self.accept_bots = max_games, accept_bots
-        self.bot_accepted: float | None = None  # dernier défi de bot accepté (time.monotonic)
+        # Défis de bots (horloge time.monotonic) : pas de bot avant bot_free_at ; parties en cours contre
+        # des bots (début) ; dernier défi accepté de chaque bot adverse.
+        self.bot_free_at = 0.0
+        self.bot_games: dict[str, float] = {}
+        self.bot_opponents: dict[str, float] = {}
         self.games: dict[str, BotGame] = {}
         self.lock = threading.Lock()
         self.me = ""
 
     def finished(self, game_id: str) -> None:
+        now = time.monotonic()
         with self.lock:
             self.games.pop(game_id, None)
+            start = self.bot_games.pop(game_id, None)
+            if start is not None:
+                self.bot_free_at = now + BOT_PAUSE * (now - start)
+            else:  # un humain : il a le temps d'enchaîner avant qu'un bot prenne la place
+                self.bot_free_at = max(self.bot_free_at, now + HUMAN_GRACE)
         unmark_bot_games(self.me, game_id)
 
     def decline_reason(self, challenge: dict) -> str | None:
@@ -345,7 +360,9 @@ class Bot:
         if self.rationed(challenge):
             if clock.get("limit", 0) + 40 * clock.get("increment", 0) > BOT_MAX_ESTIMATE:
                 return "tooSlow"
-            if self.bot_accepted is not None and time.monotonic() - self.bot_accepted < BOT_INTERVAL:
+            now = time.monotonic()
+            last = self.bot_opponents.get(challenge.get("challenger", {}).get("id", ""))
+            if now < self.bot_free_at or (last is not None and now - last < BOT_SAME_OPPONENT):
                 return "later"
             if bot_game_running():
                 return "later"
@@ -368,7 +385,9 @@ class Bot:
         if not self.api.post(f"/api/challenge/{c['id']}/accept"):  # False : Lichess a refusé, ou réseau
             return
         if self.rationed(c):
-            self.bot_accepted = time.monotonic()
+            now = time.monotonic()
+            self.bot_games[c["id"]] = self.bot_opponents[c.get("challenger", {}).get("id", "")] = now
+            self.bot_free_at = now + BOT_GAME_STALE  # au cas où la fin de partie ne serait jamais vue
             mark_bot_game(self.me, c["id"])  # la partie porte l'identifiant du défi
 
     def rationed(self, challenge: dict) -> bool:

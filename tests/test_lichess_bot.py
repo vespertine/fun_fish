@@ -75,7 +75,8 @@ def test_decline_reasons():
         bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
         assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
-    assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "tooSlow"  # trop lent pour un bot
+    slow = {"type": "clock", "limit": 600, "increment": 5}  # 10+5 : pour un humain, oui
+    assert bot.decline_reason({**ok, "timeControl": slow, "challenger": {"title": "BOT"}}) == "tooSlow"
 
 
 class Api:
@@ -104,34 +105,62 @@ def rationed_bot(monkeypatch, **kw):
     return bot, now
 
 
-def challenge(speed, limit, inc, title="BOT"):
-    return {"id": "c", "variant": {"key": "standard"}, "speed": speed, "challenger": {"title": title, "name": "r"},
+def challenge(speed, limit, inc, title="BOT", who="r", id="c"):
+    return {"id": id, "variant": {"key": "standard"}, "speed": speed,
+            "challenger": {"title": title, "name": who, "id": who.lower()},
             "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
 
 
 def accepted(bot, c):
     bot.api.calls.clear()
     bot.handle_challenge(c)
-    return bot.api.calls == ["/api/challenge/c/accept"]
+    return bot.api.calls == [f"/api/challenge/{c['id']}/accept"]
 
 
 def test_bot_challenges_are_rationed(monkeypatch):
     bot, now = rationed_bot(monkeypatch)
-    blitz, bullet = challenge("blitz", 180, 2), challenge("bullet", 120, 1)
     assert bot.decline_reason(challenge("bullet", 60, 0)) == "tooFast"
-    assert bot.decline_reason(challenge("blitz", 300, 3)) == "tooSlow"  # blitz lent : pas contre les bots
-    assert bot.decline_reason(challenge("rapid", 600, 0)) == "tooSlow"
-    assert bot.decline_reason(challenge("blitz", 300, 0)) is None  # 5+0, oui
-    assert accepted(bot, blitz)  # le premier
-    assert not accepted(bot, bullet)  # un seul quota pour toutes les cadences
+    assert bot.decline_reason(challenge("rapid", 600, 5)) == "tooSlow"  # au-delà de 10+0 : pas contre les bots
+    assert bot.decline_reason(challenge("rapid", 600, 0)) is None  # 10+0, oui
+    assert accepted(bot, challenge("blitz", 180, 2, who="a", id="g1"))
+    assert not accepted(bot, challenge("bullet", 120, 1, who="b"))  # en pleine partie contre un bot
     assert accepted(bot, challenge("rapid", 600, 0, title=None))  # les humains, toujours
-    now[0] += 2399
-    assert not accepted(bot, bullet)
+    now[0] += 300
+    bot.finished("g1")  # 5 minutes de partie : 15 minutes de pause
+    now[0] += 899
+    assert not accepted(bot, challenge("bullet", 120, 1, who="b"))
     now[0] += 1
-    bot.finished("c")
-    assert accepted(bot, bullet)  # 40 minutes plus tard
+    assert accepted(bot, challenge("bullet", 120, 1, who="b", id="g2"))
+    now[0] += 20
+    bot.finished("g2")  # partie annulée : une minute de pause
+    now[0] += 60
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="c")) is None
     free, _ = rationed_bot(monkeypatch, accept_bots=True)
-    assert accepted(free, blitz) and accepted(free, blitz) and accepted(free, challenge("rapid", 600, 0))
+    blitz = challenge("blitz", 180, 2)
+    assert accepted(free, blitz) and accepted(free, blitz) and accepted(free, challenge("rapid", 900, 0))
+
+
+def test_a_human_can_chain_games_before_any_bot(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    assert accepted(bot, challenge("blitz", 180, 2, title=None, who="h", id="h1"))
+    now[0] += 600
+    bot.finished("h1")
+    now[0] += 119
+    assert bot.decline_reason(challenge("blitz", 180, 2)) == "later"  # le temps pour l'humain d'enchaîner
+    assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="h")) is None
+    now[0] += 1
+    assert bot.decline_reason(challenge("blitz", 180, 2)) is None
+
+
+def test_one_bot_does_not_take_all_the_bot_games(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    assert accepted(bot, challenge("bullet", 120, 1, who="Glouton", id="g1"))
+    bot.finished("g1")
+    now[0] += 3600
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="Glouton")) == "later"
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="Autre")) is None
+    now[0] += 3600
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="Glouton")) is None  # deux heures plus tard
 
 
 def test_never_two_bot_games_at_once_across_our_accounts(monkeypatch, bot_games_dir):
@@ -149,8 +178,8 @@ def test_never_two_bot_games_at_once_across_our_accounts(monkeypatch, bot_games_
     crazy.api.stream = lambda path: (_ for _ in ()).throw(SystemExit)
     with pytest.raises(SystemExit):
         crazy.run()  # redémarrage après un arrêt brutal : ses marqueurs sont effacés
-    now[0] += 2400  # passé le quota de 40 minutes de chaque compte
-    assert fun.decline_reason(blitz) is None
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="autre")) is None
+    blitz = challenge("blitz", 180, 2, who="autre")
     mark = bot_games_dir / "autre--x"
     mark.touch()
     assert fun.decline_reason(blitz) == "later"
@@ -349,6 +378,16 @@ def test_quota_kept_when_the_real_client_fails_to_accept(monkeypatch, failure):
     monkeypatch.setattr(bot.api, "_request", request)
     blitz = challenge("blitz", 180, 2)
     bot.handle_challenge(blitz)
-    assert bot.bot_accepted is None  # rien de consommé
+    assert bot.bot_games == {}  # rien de consommé
     bot.handle_challenge(blitz)
-    assert bot.bot_accepted is not None
+    assert "c" in bot.bot_games
+
+
+def test_a_lost_game_end_still_pauses_the_bots(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    monkeypatch.setattr(lichess_bot, "bot_game_running", lambda: False)  # marqueur impossible à écrire
+    assert accepted(bot, challenge("bullet", 120, 1, who="a", id="g1"))
+    now[0] += 1800  # fin de partie jamais vue (flux coupé) : on ne repart pas pour autant
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) == "later"
+    now[0] += 1800
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) is None
