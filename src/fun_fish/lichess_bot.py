@@ -50,7 +50,8 @@ BOT_GAME_STALE = 3600  # s
 # un bot de niveau proche (MATCH_RANGE), ni l'un des nôtres, ni un bot qui nous a refusé depuis peu.
 MATCH_IDLE = 600  # s sans partie
 MATCH_SPACING = 300  # s
-MATCH_CHECK = 60  # s entre deux examens
+MATCH_CHECK = 60  # s entre deux examens, en moyenne : tiré entre la moitié et une fois et demie, pour que
+# nos comptes, qui se disputent le même créneau (MATCH_SPACING), ne soient pas toujours servis dans le même ordre
 MATCH_RANGE = 250  # points de classement
 MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
@@ -714,7 +715,7 @@ class Bot:
     def watch_forever(self) -> None:
         """Chaque minute : les acceptations sans gameStart, puis la recherche d'adversaires si elle est active."""
         while True:
-            time.sleep(MATCH_CHECK)
+            time.sleep(random.uniform(MATCH_CHECK / 2, MATCH_CHECK * 1.5))
             try:
                 self.seek() if self.matchmaking else self.reconcile_accepting()
             except Exception as exc:  # jamais au prix du bot
@@ -768,9 +769,9 @@ class Bot:
                         self.game_started(event["game"]["gameId"] if "gameId" in event["game"] else event["game"]["id"])
                     elif kind in ("challengeDeclined", "challengeCanceled"):
                         c = event.get("challenge", {})
-                        if kind == "challengeDeclined":
+                        if kind == "challengeDeclined" and c.get("challenger", {}).get("id") == self.me:
                             log("défi refusé par", c.get("destUser", {}).get("name", "?"), ":",
-                                c.get("declineReasonKey", "?"))
+                                c.get("declineReasonKey", "?"))  # (pas l'écho de nos propres refus)
                         self.drop_outgoing(c.get("id", ""), declined=kind == "challengeDeclined")
             except (OSError, ValueError) as exc:
                 log("flux interrompu, reconnexion dans 10 s :", exc)
