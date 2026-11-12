@@ -75,7 +75,79 @@ def test_decline_reasons():
         bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
         assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
-    assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "noBot"
+    assert bot.decline_reason({**ok, "speed": "classical", "challenger": {"title": "BOT"}}) == "noBot"  # hors quota
+
+
+class Api:
+    def __init__(self, fail_accept=False):
+        self.fail_accept, self.calls = fail_accept, []
+
+    def post(self, path, data=None):  # comme Lichess.post : False en cas d'échec, une exception si le flux tombe
+        self.calls.append(path)
+        if self.fail_accept == "raise" and path.endswith("/accept"):
+            raise OSError("réseau coupé")
+        return not (self.fail_accept and path.endswith("/accept"))
+
+
+def rationed_bot(monkeypatch, **kw):
+    now = [10_000.0]
+    monkeypatch.setattr(lichess_bot.time, "monotonic", lambda: now[0])
+    bot = lichess_bot.Bot("t", "sf", "stockfish", {}, **kw)
+    bot.api = Api()
+    return bot, now
+
+
+def challenge(speed, limit, inc, title="BOT"):
+    return {"id": "c", "variant": {"key": "standard"}, "speed": speed, "challenger": {"title": title, "name": "r"},
+            "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
+
+
+def accepted(bot, c):
+    bot.api.calls.clear()
+    bot.handle_challenge(c)
+    return bot.api.calls == ["/api/challenge/c/accept"]
+
+
+def test_bot_challenges_are_rationed(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    blitz, bullet, rapid = challenge("blitz", 180, 2), challenge("bullet", 120, 1), challenge("rapid", 600, 0)
+    assert bot.decline_reason(challenge("bullet", 60, 0)) == "tooFast"
+    assert accepted(bot, blitz)  # le premier de l'heure
+    assert not accepted(bot, bullet)  # bullet et blitz partagent leur quota
+    assert accepted(bot, rapid) and not accepted(bot, rapid)  # le rapide a le sien
+    assert accepted(bot, challenge("blitz", 180, 2, title=None))  # les humains, toujours
+    now[0] += 3600
+    assert accepted(bot, bullet) and not accepted(bot, rapid)
+    now[0] += 3600
+    assert accepted(bot, rapid)
+    free, _ = rationed_bot(monkeypatch, accept_bots=True)
+    assert accepted(free, blitz) and accepted(free, blitz)
+
+
+def test_quota_spent_only_when_lichess_confirms(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    blitz = challenge("blitz", 180, 2)
+    bot.api.fail_accept = True  # Lichess répond par une erreur : post() renvoie False
+    bot.handle_challenge(blitz)
+    bot.api.fail_accept = "raise"
+    with pytest.raises(OSError):
+        bot.handle_challenge(blitz)
+    bot.api.fail_accept = False
+    assert accepted(bot, blitz)  # aucun des deux échecs n'a consommé le quota
+
+
+def test_busy_bot_does_not_spend_the_bot_quota(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch, max_games=1)
+    bot.games["x"] = object()
+    assert bot.decline_reason(challenge("blitz", 180, 2)) == "later"
+    bot.games.clear()
+    assert accepted(bot, challenge("blitz", 180, 2))
+
+
+def test_describe_challenge_pace():
+    c = {"speed": "bullet", "challenger": {"title": "BOT"}, "timeControl": {"type": "clock", "limit": 30, "increment": 0}}
+    assert lichess_bot.describe(c) == "(0.5+0 bullet, bot)"
+    assert lichess_bot.describe({"speed": "correspondence", "timeControl": {"type": "unlimited"}}) == "(unlimited correspondence)"
 
 
 def test_blocked_players_are_declined(tmp_path, monkeypatch):
@@ -220,3 +292,29 @@ def test_greetings_name_the_bot_and_fit_lichess_chat():
         assert name in texts[0] and name in texts[1]
     for texts in (lichess_bot.GREETING, *lichess_bot.GREETINGS.values()):
         assert all(len(t) <= 140 for t in texts)
+
+
+@pytest.mark.parametrize("failure", ["http", "network"])
+def test_quota_kept_when_the_real_client_fails_to_accept(monkeypatch, failure):
+    import io
+    import urllib.error
+    bot, _ = rationed_bot(monkeypatch)
+    bot.api = lichess_bot.Lichess("t")  # le vrai client, transport simulé
+    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: None)
+    sent = []
+
+    def request(method, path, data=None, timeout=30):
+        sent.append(path)
+        if path.endswith("/accept") and len(sent) == 1:
+            if failure == "http":
+                raise urllib.error.HTTPError(path, 404, "défi annulé", {}, io.BytesIO(b"{}"))
+            raise OSError("réseau coupé")
+        if path.endswith("/accept") and failure == "network" and len(sent) <= 3:
+            raise OSError("réseau coupé")
+        return io.BytesIO(b"{}")
+    monkeypatch.setattr(bot.api, "_request", request)
+    blitz = challenge("blitz", 180, 2)
+    bot.handle_challenge(blitz)
+    assert bot.bot_accepted == {}  # rien de consommé
+    bot.handle_challenge(blitz)
+    assert "vif" in bot.bot_accepted
