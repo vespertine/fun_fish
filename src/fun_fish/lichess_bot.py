@@ -28,10 +28,11 @@ DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on fini
 BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
-# Défis d'autres bots : acceptés avec parcimonie, pour laisser la place aux humains (mêmes cadences
-# qu'eux). Bullet et blitz : une partie par heure au plus ; parties rapides : une toutes les deux heures.
-BOT_GROUPS = {"bullet": "vif", "blitz": "vif", "rapid": "rapide"}
-BOT_INTERVAL = {"vif": 3600, "rapide": 7200}  # s entre deux défis de bots acceptés
+# Défis d'autres bots : une partie toutes les 40 minutes au plus, et seulement des parties courtes,
+# pour que le bot reste libre pour les humains (il ne joue qu'une partie à la fois). Bullet et blitz
+# rapides jusqu'à 3+2 et 5+0 ; à partir de 5+3, et en rapide, c'est « tooSlow ».
+BOT_MAX_ESTIMATE = 400  # s, même estimation que MAX_ESTIMATE
+BOT_INTERVAL = 2400  # s entre deux défis de bots acceptés
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
@@ -282,7 +283,7 @@ class Bot:
         os.environ.setdefault("FUN_FISH_MAIA_THREADS", str(max(1, min(4, (os.cpu_count() or 1) // max(1, max_games)))))
         self.stockfish, self.personality, self.params = stockfish, personality, params
         self.max_games, self.accept_bots = max_games, accept_bots
-        self.bot_accepted: dict[str, float] = {}  # groupe de cadences → dernier défi de bot accepté
+        self.bot_accepted: float | None = None  # dernier défi de bot accepté (time.monotonic)
         self.games: dict[str, BotGame] = {}
         self.lock = threading.Lock()
         self.me = ""
@@ -304,13 +305,10 @@ class Bot:
             return "tooSlow"
         if clock.get("limit", 0) < MIN_LIMIT or (clock.get("limit", 0) < 180 and clock.get("increment", 0) < 1):
             return "tooFast"
-        group = None
-        if challenge.get("challenger", {}).get("title") == "BOT" and not self.accept_bots:
-            group = BOT_GROUPS.get(challenge.get("speed", ""))
-            if group is None:
-                return "noBot"
-            last = self.bot_accepted.get(group)
-            if last is not None and time.monotonic() - last < BOT_INTERVAL[group]:
+        if self.rationed(challenge):
+            if clock.get("limit", 0) + 40 * clock.get("increment", 0) > BOT_MAX_ESTIMATE:
+                return "tooSlow"
+            if self.bot_accepted is not None and time.monotonic() - self.bot_accepted < BOT_INTERVAL:
                 return "later"
         with self.lock:
             if len(self.games) >= self.max_games:
@@ -330,9 +328,12 @@ class Bot:
         log("défi de", who, "accepté", what)
         if not self.api.post(f"/api/challenge/{c['id']}/accept"):  # False : Lichess a refusé, ou réseau
             return
-        group = BOT_GROUPS.get(c.get("speed", ""))
-        if c.get("challenger", {}).get("title") == "BOT" and not self.accept_bots and group is not None:
-            self.bot_accepted[group] = time.monotonic()
+        if self.rationed(c):
+            self.bot_accepted = time.monotonic()
+
+    def rationed(self, challenge: dict) -> bool:
+        """Un défi d'un autre bot, soumis aux limites (sauf `--accept-bots`)."""
+        return challenge.get("challenger", {}).get("title") == "BOT" and not self.accept_bots
 
     def start_game(self, game_id: str) -> None:
         with self.lock:

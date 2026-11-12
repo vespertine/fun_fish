@@ -75,7 +75,7 @@ def test_decline_reasons():
         bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
         assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
-    assert bot.decline_reason({**ok, "speed": "classical", "challenger": {"title": "BOT"}}) == "noBot"  # hors quota
+    assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "tooSlow"  # trop lent pour un bot
 
 
 class Api:
@@ -110,18 +110,20 @@ def accepted(bot, c):
 
 def test_bot_challenges_are_rationed(monkeypatch):
     bot, now = rationed_bot(monkeypatch)
-    blitz, bullet, rapid = challenge("blitz", 180, 2), challenge("bullet", 120, 1), challenge("rapid", 600, 0)
+    blitz, bullet = challenge("blitz", 180, 2), challenge("bullet", 120, 1)
     assert bot.decline_reason(challenge("bullet", 60, 0)) == "tooFast"
-    assert accepted(bot, blitz)  # le premier de l'heure
-    assert not accepted(bot, bullet)  # bullet et blitz partagent leur quota
-    assert accepted(bot, rapid) and not accepted(bot, rapid)  # le rapide a le sien
-    assert accepted(bot, challenge("blitz", 180, 2, title=None))  # les humains, toujours
-    now[0] += 3600
-    assert accepted(bot, bullet) and not accepted(bot, rapid)
-    now[0] += 3600
-    assert accepted(bot, rapid)
+    assert bot.decline_reason(challenge("blitz", 300, 3)) == "tooSlow"  # blitz lent : pas contre les bots
+    assert bot.decline_reason(challenge("rapid", 600, 0)) == "tooSlow"
+    assert bot.decline_reason(challenge("blitz", 300, 0)) is None  # 5+0, oui
+    assert accepted(bot, blitz)  # le premier
+    assert not accepted(bot, bullet)  # un seul quota pour toutes les cadences
+    assert accepted(bot, challenge("rapid", 600, 0, title=None))  # les humains, toujours
+    now[0] += 2399
+    assert not accepted(bot, bullet)
+    now[0] += 1
+    assert accepted(bot, bullet)  # 40 minutes plus tard
     free, _ = rationed_bot(monkeypatch, accept_bots=True)
-    assert accepted(free, blitz) and accepted(free, blitz)
+    assert accepted(free, blitz) and accepted(free, blitz) and accepted(free, challenge("rapid", 600, 0))
 
 
 def test_quota_spent_only_when_lichess_confirms(monkeypatch):
@@ -315,6 +317,6 @@ def test_quota_kept_when_the_real_client_fails_to_accept(monkeypatch, failure):
     monkeypatch.setattr(bot.api, "_request", request)
     blitz = challenge("blitz", 180, 2)
     bot.handle_challenge(blitz)
-    assert bot.bot_accepted == {}  # rien de consommé
+    assert bot.bot_accepted is None  # rien de consommé
     bot.handle_challenge(blitz)
-    assert "vif" in bot.bot_accepted
+    assert bot.bot_accepted is not None
