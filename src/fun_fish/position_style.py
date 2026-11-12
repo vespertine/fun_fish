@@ -9,7 +9,8 @@ il range du bon côté 86 % d'entre eux (moyenne de leurs positions). Une positi
 chose (60 % du bon côté) : c'est un goût, qui pèse coup après coup sur toute une partie.
 
 Le réseau et le classifieur sont exportés ensemble en un seul fichier ONNX (`export`, qui demande
-PyTorch et maia2), publié comme les fichiers de Maia et téléchargé à la première utilisation.
+PyTorch et maia2), publié comme les fichiers de Maia. Sur le serveur, `deploy/update.sh` le télécharge à l'installation
+et le bot Lichess le vérifie au démarrage (`prepare`) ; l'échiquier local le télécharge au premier usage.
 Les poids du classifieur sont dans `data/position_style.npz` (mu, sd, w, b).
 """
 
