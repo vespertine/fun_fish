@@ -86,6 +86,10 @@ if [ ! -f "$RELEASE/.installed" ]; then
     as_user "$RELEASE/.venv/bin/fun-fish" stockfish >/dev/null || return 1
     as_user "$RELEASE/.venv/bin/python" -c "from fun_fish.sim import maia; assert maia.onnx_ready()" \
       || { echo "!! Maia indisponible (sans lui, la non-régression serait ignorée)" >&2; return 1; }
+    # Le goût des positions de DuBot (77 Mo) : téléchargé ici, avant la bascule, et non au démarrage du
+    # bot, qui doit se connecter en moins d'une minute (sinon retour arrière).
+    as_user "$RELEASE/.venv/bin/python" -c "from fun_fish import position_style; assert position_style.ready()" \
+      || { echo "!! Goût des positions (DuBot) indisponible" >&2; return 1; }
   }
   installed || { rm -rf "$RELEASE"; fail "Installation de $TAG impossible : rien n'a changé sur le serveur"; }
   touch "$RELEASE/.installed"

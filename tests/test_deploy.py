@@ -32,6 +32,7 @@ exec /usr/bin/install "${args[@]}"''',
   cat > "$abs/bin/python" <<STUB
 #!/bin/sh
 case "\$*" in *"-m pytest"*) exit \${STUB_TESTS_FAIL:-0};; esac
+case "\$*" in *position_style*) echo "style" >> "$abs/../style.log"; exit \${STUB_STYLE_FAIL:-0};; esac
 case "\$1" in */pip)
   case "\$*" in *--upgrade*) exit 0;; esac
   printf '#!%s/bin/python\n' "$abs" > "$abs/bin/fun-fish"; chmod +x "$abs/bin/fun-fish";;
@@ -113,6 +114,16 @@ def test_failing_tests_change_nothing(server):
     assert result.returncode != 0 and "Tests en échec" in result.stderr
     assert log == "" and unit.read_text() == "unit ancienne\n"
     assert os.readlink(base / "current").endswith("v0.1.0") and not (config / "drain").exists()
+
+
+def test_dubot_model_is_fetched_before_the_switch(server):
+    run, base, unit, config = server
+    result, log = run(stub_style_fail=1)  # 77 Mo introuvables : on ne bascule pas
+    assert result.returncode != 0 and "Goût des positions" in result.stderr
+    assert log == "" and os.readlink(base / "current").endswith("v0.1.0")
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert (base / "releases" / "v0.2.0" / "style.log").read_text() == "style\n"  # demandé pendant l'installation
 
 
 def test_launcher_works_from_final_location(server):
