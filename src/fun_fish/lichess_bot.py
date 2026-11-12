@@ -440,7 +440,9 @@ class Bot:
         self.early_drops: dict[str, bool] = {}
         self.declined: dict[str, float] = {}
         self.idle_since = time.monotonic()
-        self.accepting: dict[str, float] = {}  # défis acceptés dont la partie n'a pas encore commencé
+        # Défis acceptés dont la partie n'a pas commencé : None tant que le POST d'acceptation est en
+        # cours (il peut durer : 429, réseau), puis l'heure de sa réponse.
+        self.accepting: dict[str, float | None] = {}
         self.games: dict[str, BotGame] = {}
         self.lock = threading.Lock()
         self.me = ""
@@ -507,10 +509,10 @@ class Bot:
                 return "later"
         return None
 
-    def accepting_now(self) -> dict[str, float]:
-        """Acceptations envoyées depuis moins d'une minute, dont `gameStart` n'est pas arrivé (sous verrou)."""
+    def accepting_now(self) -> dict[str, float | None]:
+        """Acceptations en cours, ou confirmées depuis moins d'une minute sans `gameStart` (sous verrou)."""
         now = time.monotonic()
-        self.accepting = {k: t for k, t in self.accepting.items() if now - t < 60}
+        self.accepting = {k: t for k, t in self.accepting.items() if t is None or now - t < 60}
         return self.accepting
 
     def handle_challenge(self, c: dict) -> None:
@@ -532,7 +534,7 @@ class Bot:
         with self.lock:  # même verrou que la recherche : jamais un défi lancé et une acceptation ensemble
             free = cancelled and self.outgoing is None
             if free:
-                self.accepting[c["id"]] = time.monotonic()
+                self.accepting[c["id"]] = None  # POST en cours : n'expire pas
         if not free:
             log("défi de", who, "refusé : later (notre défi à un bot est en cours)", what)
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": "later"})
@@ -544,9 +546,12 @@ class Bot:
         try:
             ok = self.api.post(f"/api/challenge/{c['id']}/accept")  # False : Lichess a refusé, ou réseau
         finally:
-            if not ok:
-                with self.lock:
+            with self.lock:
+                if not ok:
                     self.accepting.pop(c["id"], None)
+                elif c["id"] in self.accepting:  # gameStart pas encore là : une minute pour arriver
+                    self.accepting[c["id"]] = time.monotonic()
+            if not ok:
                 if rationed:
                     unmark_bot_games(self.me, c["id"])  # place rendue
         if not ok or not rationed:
@@ -582,6 +587,32 @@ class Bot:
                 self.declined[opponent] = time.monotonic()
         unmark_bot_games(self.me, challenge_id or "sortant")
 
+    def settle_outgoing(self, pending: tuple[str, float, str]) -> bool:
+        """Défi resté sans nouvelles (pas de réponse, réponse de création perdue, flux coupé) : avant de
+        rendre la place, Lichess dit si une partie a commencé contre cet adversaire ; elle est alors suivie
+        et jouée. Sans réponse de Lichess, la place reste prise (False) : on réessaiera."""
+        try:
+            playing = self.api.get("/api/account/playing").get("nowPlaying", [])
+        except (OSError, ValueError) as exc:
+            log("défi sans nouvelles, parties en cours inconnues :", exc)
+            return False
+        game_id = next((g.get("gameId") for g in playing if g.get("gameId") == pending[0] or (
+            not pending[0] and g.get("opponent", {}).get("id") == pending[2])), None)
+        if not game_id:
+            self.drop_outgoing(pending[0])
+            return True
+        with self.lock:
+            if self.outgoing != pending:  # réglé entre-temps (gameStart, refus)
+                return True
+            if not pending[0]:
+                rename_bot_game(self.me, "sortant", game_id)
+            self.outgoing = None
+            self.bot_games[game_id] = pending[1]
+            self.bot_free_at = time.monotonic() + BOT_GAME_STALE
+        log(f"défi à {pending[2]} : partie {game_id} commencée sans nouvelles, reprise")
+        self.start_game(game_id)
+        return True
+
     def ready_to_seek(self, now: float) -> bool:
         """Compte libre depuis assez longtemps, sans défi en cours ni pause (sous verrou)."""
         return (not self.games and not self.accepting_now() and self.outgoing is None
@@ -592,8 +623,8 @@ class Bot:
         now = time.monotonic()
         with self.lock:
             pending = self.outgoing
-        if pending and now - pending[1] > MATCH_WAIT:  # resté sans réponse (ou réponse perdue)
-            self.drop_outgoing(pending[0])
+        if pending and now - pending[1] > MATCH_WAIT and not self.settle_outgoing(pending):
+            return None
         with self.lock:
             if not self.ready_to_seek(now):
                 return None

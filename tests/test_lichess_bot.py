@@ -510,7 +510,13 @@ class MatchApi(Api):
                                "blitz": {"rating": 1700, "rd": 60, "games": 40}}
         self.on_create = None
 
+    playing: list | Exception = []
+
     def get(self, path):
+        if path == "/api/account/playing":
+            if isinstance(self.playing, Exception):
+                raise self.playing
+            return {"nowPlaying": self.playing}
         return {"id": "funfishbot", "username": "FunFishBot", "title": "BOT", "perfs": self.perfs}
 
     def lines(self, path):
@@ -726,19 +732,42 @@ def test_a_lost_creation_response_keeps_the_place_and_the_game(monkeypatch, bot_
     assert bot.bot_free_at == now[0] + 900  # la pause d'une partie contre un bot
 
 
-def test_an_uncertain_creation_keeps_the_place_until_it_expires(monkeypatch, bot_games_dir):
+def uncertain_seek(monkeypatch):
     bot, now = seeker(monkeypatch, [online_bot("rival")])
+    monkeypatch.setattr(bot, "start_game", lambda game_id: bot.games.__setitem__(game_id, object()))
 
     def lost(path, data):
         raise OSError("réseau coupé")
     bot.api.create = lost
     now[0] += 600
     assert bot.seek() is None and bot.outgoing[0] == ""
+    return bot, now
+
+
+def test_an_uncertain_creation_keeps_the_place_until_lichess_says_no_game(monkeypatch, bot_games_dir):
+    bot, now = uncertain_seek(monkeypatch)
     assert [m.name for m in bot_games_dir.glob("*--*")] == ["funfishbot--sortant"]
     assert bot.decline_reason(challenge("blitz", 180, 2, who="autre")) == "later"
-    now[0] += 31
+    now[0] += 61
+    bot.api.playing = OSError("Lichess muet")
+    bot.seek()
+    assert bot.outgoing is not None and [m.name for m in bot_games_dir.glob("*--*")] == ["funfishbot--sortant"]
+    bot.api.playing = [{"gameId": "h9", "opponent": {"id": "un_humain"}}]
     bot.seek()
     assert bot.outgoing is None and list(bot_games_dir.glob("*--*")) == []
+
+
+def test_a_game_started_without_news_is_found_and_played(monkeypatch, bot_games_dir):
+    bot, now = uncertain_seek(monkeypatch)
+    now[0] += 61
+    bot.api.playing = [{"gameId": "late", "opponent": {"id": "rival", "username": "rival"}}]
+    assert bot.seek() is None
+    assert "late" in bot.games and "late" in bot.bot_games and bot.outgoing is None
+    assert [m.name for m in bot_games_dir.glob("*--*")] == ["funfishbot--late"]
+    bot.game_started("late")  # le gameStart retardé arrive enfin : rien de plus
+    now[0] += 300
+    bot.finished("late")
+    assert bot.bot_free_at == now[0] + 3 * 361  # une partie contre un bot, depuis le défi
 
 
 @pytest.mark.parametrize("event", ["declined", "canceled"])
@@ -760,3 +789,32 @@ def test_a_human_is_not_accepted_if_a_seek_claims_the_account_meanwhile(monkeypa
     monkeypatch.setattr(bot, "cancel_outgoing", seek_slips_in)
     bot.handle_challenge(challenge("blitz", 180, 2, title=None, who="h", id="h1"))
     assert bot.api.calls == ["/api/challenge/h1/decline"] and bot.accepting == {}
+
+
+def test_a_slow_human_acceptance_never_expires_while_its_post_runs(monkeypatch):
+    import io
+    import urllib.error
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=None)
+    bot.max_games = 1
+    real = lichess_bot.Lichess("t")  # le vrai client : un 429, une minute d'attente, puis le succès
+    answers = iter([urllib.error.HTTPError("/accept", 429, "trop vite", {}, io.BytesIO(b"")), None])
+
+    def request(method, path, data=None, timeout=30):
+        answer = next(answers)
+        if answer:
+            raise answer
+        return io.BytesIO(b"{}")
+    monkeypatch.setattr(real, "_request", request)
+    seen = []
+
+    def wait(seconds):  # pendant l'attente du 429, le fil de recherche passe
+        now[0] += seconds + 1
+        seen.append(bot.seek())
+    monkeypatch.setattr(lichess_bot.time, "sleep", wait)
+    bot.api.post = real.post
+    now[0] += 600
+    bot.handle_challenge(challenge("blitz", 180, 2, title=None, who="h", id="h1"))
+    assert seen == [None] and bot.api.created == [] and bot.outgoing is None
+    assert bot.accepting["h1"] is not None  # confirmé : l'attente de gameStart commence maintenant
+    now[0] += 59
+    assert bot.seek() is None
