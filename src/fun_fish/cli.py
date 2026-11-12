@@ -332,6 +332,9 @@ def cmd_lichess_bot(args: argparse.Namespace) -> None:
         return
     if args.personality not in personalities.PERSONALITIES:
         raise SystemExit(f"Personnalité inconnue : {args.personality}")
+    prepare = getattr(personalities.PERSONALITIES[args.personality], "prepare", None)
+    if prepare is not None and not prepare():  # jamais de téléchargement en pleine partie : on réessaiera
+        raise SystemExit(f"{args.personality} : modèle de style indisponible : arrêt avant toute partie (le service réessaiera)")
     bot = lichess_bot.Bot(token, find_stockfish(args.stockfish), args.personality, parse_params(args.set),
                           max_games=args.max_games, accept_bots=args.accept_bots)
     bot.run()

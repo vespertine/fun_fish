@@ -32,6 +32,11 @@ class DuBot(FunFish2):
         for k, v in extra.items():
             setattr(self, k, v)
 
+    @staticmethod
+    def prepare() -> bool:
+        """Au démarrage du bot Lichess : le modèle de style est prêt avant la première partie."""
+        return position_style.prepare()
+
     @classmethod
     def param_specs(cls) -> list[dict]:
         specs = [{**s, "default": cls.OVERRIDES.get(s["name"], s["default"])} for s in super().param_specs()]

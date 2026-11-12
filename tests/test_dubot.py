@@ -60,3 +60,45 @@ def test_weight_zero_asks_nothing(monkeypatch):
 def test_real_model_tells_attack_from_solid():
     attack, solid = position_style.logits([chess.Board(ATTACK), chess.Board(SOLID)])
     assert attack > 1.0 and solid < -1.0
+
+
+def test_no_download_during_a_game_once_the_bot_prepared(monkeypatch, tmp_path):
+    from fun_fish.sim import maia
+    monkeypatch.setattr(position_style, "model_path", lambda: tmp_path / "rapid_style.onnx")
+    monkeypatch.setattr(position_style, "_shared", {})
+    monkeypatch.setattr(maia, "_has", lambda module: True)
+    monkeypatch.setattr(position_style, "DOWNLOAD_IN_GAME", True)
+
+    def offline():
+        raise OSError("réseau coupé")
+    monkeypatch.setattr(position_style, "_download", offline)
+    assert position_style.prepare() is False and position_style.DOWNLOAD_IN_GAME is False
+
+    def forbidden():
+        raise AssertionError("téléchargement en pleine partie")
+    monkeypatch.setattr(position_style, "_download", forbidden)
+    assert position_style.logits([chess.Board()]) is None
+
+
+def test_prepare_fetches_the_model_before_any_game(monkeypatch, tmp_path):
+    from fun_fish.sim import maia
+    target = tmp_path / "rapid_style.onnx"
+    monkeypatch.setattr(position_style, "model_path", lambda: target)
+    monkeypatch.setattr(maia, "_has", lambda module: True)
+    monkeypatch.setattr(position_style, "DOWNLOAD_IN_GAME", True)
+    monkeypatch.setattr(position_style, "_download", lambda: target.write_bytes(b"modele"))
+    assert position_style.prepare() is True and target.exists()
+
+
+def test_lichess_bot_stops_before_any_game_without_its_model(monkeypatch):
+    from fun_fish import cli, lichess_bot
+    from fun_fish.personalities.dubot import DuBot
+    monkeypatch.setattr(lichess_bot, "read_token", lambda *a: "jeton")
+    monkeypatch.setattr(DuBot, "prepare", staticmethod(lambda: False))
+
+    def no_bot(*a, **k):
+        raise AssertionError("le bot ne doit pas démarrer")
+    monkeypatch.setattr(lichess_bot, "Bot", no_bot)
+    args = cli.build_parser().parse_args(["lichess-bot", "-p", "dubot", "--token-file", "x"])
+    with pytest.raises(SystemExit, match="modèle de style indisponible"):
+        args.func(args)

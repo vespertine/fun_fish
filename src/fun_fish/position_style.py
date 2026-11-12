@@ -28,6 +28,9 @@ FILE = "rapid_style.onnx"
 SHA256 = "aa8cd9f4f4935285a607bc90eec1b77effc20c01655a0d79b2def5806d705016"
 WEIGHTS = Path(__file__).parent / "data" / "position_style.npz"
 ELO = 2400  # tranche d'Elo de Maia utilisée à l'apprentissage (la plus haute)
+# Télécharger le modèle en pleine partie (77 Mo) ? Oui pour l'échiquier local ; le bot Lichess le prépare
+# au démarrage (`prepare`) puis l'interdit : une panne réseau ne doit jamais bloquer une partie.
+DOWNLOAD_IN_GAME = True
 
 
 def model_path() -> Path:
@@ -48,6 +51,14 @@ def ready(download: bool = True) -> bool:
         print(f"Téléchargement du goût des positions impossible : {exc}", file=sys.stderr)
         return False
     return True
+
+
+def prepare() -> bool:
+    """Avant d'accepter des parties : le modèle est là (téléchargé au besoin), et plus aucun
+    téléchargement n'aura lieu pendant une partie."""
+    global DOWNLOAD_IN_GAME
+    DOWNLOAD_IN_GAME = False
+    return ready(download=True)
 
 
 def _download() -> None:
@@ -93,7 +104,7 @@ def logits(boards: list[chess.Board]):
     """Logit « attaque » de chaque position (> 0 : côté attaque), ou None si le modèle manque."""
     with _shared_lock:
         if "s" not in _shared:
-            _shared["s"] = _Session() if ready() else None
+            _shared["s"] = _Session() if ready(download=DOWNLOAD_IN_GAME) else None
     session = _shared["s"]
     if session is None or not boards:
         return None
