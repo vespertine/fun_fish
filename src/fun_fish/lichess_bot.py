@@ -328,7 +328,8 @@ class Bot:
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": reason})
             return
         log("défi de", who, "accepté", what)
-        self.api.post(f"/api/challenge/{c['id']}/accept")
+        if not self.api.post(f"/api/challenge/{c['id']}/accept"):  # False : Lichess a refusé, ou réseau
+            return
         group = BOT_GROUPS.get(c.get("speed", ""))
         if c.get("challenger", {}).get("title") == "BOT" and not self.accept_bots and group is not None:
             self.bot_accepted[group] = time.monotonic()

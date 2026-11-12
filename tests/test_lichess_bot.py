@@ -82,10 +82,11 @@ class Api:
     def __init__(self, fail_accept=False):
         self.fail_accept, self.calls = fail_accept, []
 
-    def post(self, path, data=None):
+    def post(self, path, data=None):  # comme Lichess.post : False en cas d'échec, une exception si le flux tombe
         self.calls.append(path)
-        if self.fail_accept and path.endswith("/accept"):
-            raise OSError("défi déjà annulé")
+        if self.fail_accept == "raise" and path.endswith("/accept"):
+            raise OSError("réseau coupé")
+        return not (self.fail_accept and path.endswith("/accept"))
 
 
 def rationed_bot(monkeypatch, **kw):
@@ -126,11 +127,13 @@ def test_bot_challenges_are_rationed(monkeypatch):
 def test_quota_spent_only_when_lichess_confirms(monkeypatch):
     bot, _ = rationed_bot(monkeypatch)
     blitz = challenge("blitz", 180, 2)
-    bot.api.fail_accept = True
+    bot.api.fail_accept = True  # Lichess répond par une erreur : post() renvoie False
+    bot.handle_challenge(blitz)
+    bot.api.fail_accept = "raise"
     with pytest.raises(OSError):
         bot.handle_challenge(blitz)
     bot.api.fail_accept = False
-    assert accepted(bot, blitz)  # l'échec n'a rien consommé
+    assert accepted(bot, blitz)  # aucun des deux échecs n'a consommé le quota
 
 
 def test_busy_bot_does_not_spend_the_bot_quota(monkeypatch):
@@ -289,3 +292,29 @@ def test_greetings_name_the_bot_and_fit_lichess_chat():
         assert name in texts[0] and name in texts[1]
     for texts in (lichess_bot.GREETING, *lichess_bot.GREETINGS.values()):
         assert all(len(t) <= 140 for t in texts)
+
+
+@pytest.mark.parametrize("failure", ["http", "network"])
+def test_quota_kept_when_the_real_client_fails_to_accept(monkeypatch, failure):
+    import io
+    import urllib.error
+    bot, _ = rationed_bot(monkeypatch)
+    bot.api = lichess_bot.Lichess("t")  # le vrai client, transport simulé
+    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: None)
+    sent = []
+
+    def request(method, path, data=None, timeout=30):
+        sent.append(path)
+        if path.endswith("/accept") and len(sent) == 1:
+            if failure == "http":
+                raise urllib.error.HTTPError(path, 404, "défi annulé", {}, io.BytesIO(b"{}"))
+            raise OSError("réseau coupé")
+        if path.endswith("/accept") and failure == "network" and len(sent) <= 3:
+            raise OSError("réseau coupé")
+        return io.BytesIO(b"{}")
+    monkeypatch.setattr(bot.api, "_request", request)
+    blitz = challenge("blitz", 180, 2)
+    bot.handle_challenge(blitz)
+    assert bot.bot_accepted == {}  # rien de consommé
+    bot.handle_challenge(blitz)
+    assert "vif" in bot.bot_accepted
