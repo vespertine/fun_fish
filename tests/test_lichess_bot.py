@@ -818,3 +818,63 @@ def test_a_slow_human_acceptance_never_expires_while_its_post_runs(monkeypatch):
     assert bot.accepting["h1"] is not None  # confirmé : l'attente de gameStart commence maintenant
     now[0] += 59
     assert bot.seek() is None
+
+
+def test_a_found_game_keeps_the_account_busy_until_its_thread_starts(monkeypatch):
+    bot, now = uncertain_seek(monkeypatch)
+    bot.max_games = 1
+    start = bot.start_game
+
+    def human_slips_in(game_id):  # le fil des événements passe juste avant le démarrage de la partie
+        bot.handle_challenge(challenge("blitz", 180, 2, title=None, who="h", id="h1"))
+        start(game_id)
+    monkeypatch.setattr(bot, "start_game", human_slips_in)
+    now[0] += 61
+    bot.api.playing = [{"gameId": "late", "opponent": {"id": "rival"}}]
+    bot.api.calls.clear()
+    bot.seek()
+    assert bot.api.calls == ["/api/challenge/h1/decline"] and list(bot.games) == ["late"]
+
+
+def test_confirmed_acceptances_are_checked_with_lichess_before_being_forgotten(monkeypatch):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    started = []
+    def start(game_id):  # comme le vrai : la partie est en cours, l'acceptation est réglée
+        started.append(game_id)
+        bot.games[game_id] = object()
+        bot.accepting.pop(game_id, None)
+    monkeypatch.setattr(bot, "start_game", start)
+    now[0] += 600
+    assert accepted(bot, challenge("blitz", 180, 2, title=None, who="h", id="h1"))  # puis aucun gameStart
+    now[0] += 61
+    bot.api.playing = OSError("Lichess muet")
+    assert bot.seek() is None and "h1" in bot.accepting and bot.api.created == []
+    bot.api.playing = [{"gameId": "h1", "opponent": {"id": "h"}}]
+    assert bot.seek() is None and started == ["h1"] and bot.api.created == []  # la partie est jouée
+    bot.finished("h1")
+    now[0] += 120  # passé le délai laissé à l'humain pour enchaîner
+    assert accepted(bot, challenge("blitz", 180, 2, title=None, who="h", id="h2"))
+    now[0] += 61
+    bot.api.playing = []  # jamais commencée : oubliée, le compte est libre
+    assert bot.seek() is None and "h2" not in bot.accepting
+    now[0] += 600  # libre depuis dix minutes
+    assert bot.seek() == "m1"
+
+
+def test_the_watch_thread_reconciles_even_without_matchmaking(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    calls = []
+    monkeypatch.setattr(bot, "reconcile_accepting", lambda: calls.append("vérifié"))
+    monkeypatch.setattr(bot, "seek", lambda: calls.append("recherche"))
+    ticks = iter([None, None])
+    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: next(ticks))
+    with pytest.raises(StopIteration):
+        bot.watch_forever()
+    assert calls == ["vérifié", "vérifié"]
+
+
+def test_a_confirmed_acceptance_still_holds_the_place_for_a_second_human(monkeypatch):
+    bot, now = rationed_bot(monkeypatch, max_games=1)
+    assert accepted(bot, challenge("blitz", 180, 2, title=None, who="h", id="h1"))  # gameStart en retard
+    now[0] += 61  # avant toute vérification auprès de Lichess
+    assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="h2")) == "later"

@@ -453,6 +453,7 @@ class Bot:
         now = time.monotonic()
         with self.lock:
             self.games.pop(game_id, None)
+            self.accepting.pop(game_id, None)
             self.idle_since = now
             if not over:
                 return
@@ -510,10 +511,31 @@ class Bot:
         return None
 
     def accepting_now(self) -> dict[str, float | None]:
-        """Acceptations en cours, ou confirmées depuis moins d'une minute sans `gameStart` (sous verrou)."""
-        now = time.monotonic()
-        self.accepting = {k: t for k, t in self.accepting.items() if t is None or now - t < 60}
+        """Acceptations en cours, ou confirmées sans `gameStart` (sous verrou). Elles ne s'oublient pas
+        seules : `reconcile_accepting` les vérifie auprès de Lichess."""
         return self.accepting
+
+    def reconcile_accepting(self) -> bool:
+        """Acceptations confirmées depuis une minute sans `gameStart` (flux coupé ou en retard) : une partie
+        active sur Lichess est jouée, les autres sont oubliées. Sans réponse de Lichess, elles restent (False)."""
+        now = time.monotonic()
+        with self.lock:
+            stale = [k for k, t in self.accepting.items() if t is not None and now - t >= 60]
+        if not stale:
+            return True
+        try:
+            playing = {g.get("gameId") for g in self.api.get("/api/account/playing").get("nowPlaying", [])}
+        except (OSError, ValueError) as exc:
+            log("acceptations sans gameStart, parties en cours inconnues :", exc)
+            return False
+        for game_id in stale:
+            if game_id in playing:
+                log(game_id, ": acceptée, commencée sans gameStart, reprise")
+                self.start_game(game_id)
+            else:
+                with self.lock:
+                    self.accepting.pop(game_id, None)
+        return True
 
     def handle_challenge(self, c: dict) -> None:
         """Accepte ou refuse un défi. Le quota des bots n'est compté qu'une fois l'acceptation confirmée
@@ -607,6 +629,7 @@ class Bot:
             if not pending[0]:
                 rename_bot_game(self.me, "sortant", game_id)
             self.outgoing = None
+            self.accepting[game_id] = None  # compte occupé sans interruption jusqu'à `start_game`
             self.bot_games[game_id] = pending[1]
             self.bot_free_at = time.monotonic() + BOT_GAME_STALE
         log(f"défi à {pending[2]} : partie {game_id} commencée sans nouvelles, reprise")
@@ -624,6 +647,8 @@ class Bot:
         with self.lock:
             pending = self.outgoing
         if pending and now - pending[1] > MATCH_WAIT and not self.settle_outgoing(pending):
+            return None
+        if not self.reconcile_accepting():
             return None
         with self.lock:
             if not self.ready_to_seek(now):
@@ -684,13 +709,14 @@ class Bot:
         log(f"défi lancé à {opponent} ({limit // 60}+{increment} {speed}, notre classement {rating})")
         return game_id
 
-    def seek_forever(self) -> None:
+    def watch_forever(self) -> None:
+        """Chaque minute : les acceptations sans gameStart, puis la recherche d'adversaires si elle est active."""
         while True:
             time.sleep(MATCH_CHECK)
             try:
-                self.seek()
-            except Exception as exc:  # la recherche ne doit jamais arrêter le bot
-                log("recherche d'adversaire :", repr(exc))
+                self.seek() if self.matchmaking else self.reconcile_accepting()
+            except Exception as exc:  # jamais au prix du bot
+                log("surveillance :", repr(exc))
 
     def game_started(self, game_id: str) -> None:
         """`gameStart`. Pendant la création de notre défi (identifiant pas encore connu, ou réponse perdue),
@@ -726,8 +752,7 @@ class Bot:
                              "(voir `fun-fish lichess-bot --upgrade`).")
         log(f"connecté en tant que {account['username']} — {self.personality}, {self.max_games} parties à la fois")
         self.resume_bot_games()  # marqueurs laissés par un arrêt : parties encore en cours, ou finies
-        if self.matchmaking:
-            threading.Thread(target=self.seek_forever, daemon=True, name="recherche").start()
+        threading.Thread(target=self.watch_forever, daemon=True, name="surveillance").start()
         while True:
             try:
                 for event in self.api.stream("/api/stream/event"):
