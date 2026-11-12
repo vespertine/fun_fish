@@ -9,7 +9,7 @@ User=funfish
 WorkingDirectory=/srv/fun_fish/current
 # Réglages en plus : /etc/default/fun-fish-dubot (FUN_FISH_BOT_ARGS="-s temperature=0.4")
 EnvironmentFile=-/etc/default/fun-fish-dubot
-ExecStart=/bin/sh -c 'exec /srv/fun_fish/current/.venv/bin/fun-fish lichess-bot --token-file /home/funfish/.config/fun_fish/dubot_token -p dubot --max-games 1 $FUN_FISH_BOT_ARGS'
+ExecStart=/bin/sh -c 'exec /srv/fun_fish/current/.venv/bin/fun-fish lichess-bot --token-file /home/funfish/.config/fun_fish/dubot_token -p dubot --max-games 1 --matchmaking $FUN_FISH_BOT_ARGS'
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1

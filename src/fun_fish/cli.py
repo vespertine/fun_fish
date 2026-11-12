@@ -336,7 +336,8 @@ def cmd_lichess_bot(args: argparse.Namespace) -> None:
     if prepare is not None and not prepare():  # jamais de téléchargement en pleine partie : on réessaiera
         raise SystemExit(f"{args.personality} : modèle de style indisponible : arrêt avant toute partie (le service réessaiera)")
     bot = lichess_bot.Bot(token, find_stockfish(args.stockfish), args.personality, parse_params(args.set),
-                          max_games=args.max_games, accept_bots=args.accept_bots)
+                          max_games=args.max_games, accept_bots=args.accept_bots,
+                          matchmaking=args.matchmaking)
     bot.run()
 
 
@@ -452,6 +453,7 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--token-file", help="jeton du compte BOT (défaut : ~/.config/fun_fish/lichess_bot_token)")
     bot.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR", help="surcharger un réglage")
     bot.add_argument("--max-games", type=int, default=2, help="parties simultanées au plus")
+    bot.add_argument("--matchmaking", action="store_true", help="libre depuis 10 minutes : défier un bot en ligne de niveau proche (cadence où notre classement est le plus incertain)")
     bot.add_argument("--accept-bots", action="store_true", help="accepter sans limite les défis d'autres bots (sinon : pauses proportionnelles au temps de jeu, jusqu'à 10+0)")
     bot.set_defaults(func=cmd_lichess_bot)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")

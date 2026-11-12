@@ -498,3 +498,188 @@ def test_a_busy_lock_never_lets_a_bot_in_without_its_reservation(monkeypatch, bo
     assert not accepted(fun, challenge("blitz", 180, 2, who="a", id="g1"))
     assert fun.api.calls == ["/api/challenge/g1/decline"] and fun.bot_games == {}
     assert not accepted(crazy, challenge("blitz", 180, 2, who="b", id="g2"))
+
+
+class MatchApi(Api):
+    """Lichess vu par la recherche d'adversaires : notre compte, les bots en ligne, les défis créés."""
+
+    def __init__(self, online, perfs=None):
+        super().__init__()
+        self.online, self.created = online, []
+        self.perfs = perfs or {"bullet": {"rating": 1800, "rd": 150, "games": 3},
+                               "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+        self.on_create = None
+
+    def get(self, path):
+        return {"id": "funfishbot", "username": "FunFishBot", "title": "BOT", "perfs": self.perfs}
+
+    def lines(self, path):
+        return self.online
+
+    def create(self, path, data):
+        self.created.append((path.rsplit("/", 1)[1], data))
+        game_id = f"m{len(self.created)}"
+        if self.on_create:
+            self.on_create(game_id)
+        return {"id": game_id}
+
+
+def online_bot(name, bullet=1800, blitz=1700):
+    return {"id": name, "username": name, "title": "BOT",
+            "perfs": {"bullet": {"rating": bullet}, "blitz": {"rating": blitz}}}
+
+
+def seeker(monkeypatch, online, now=None, me="funfishbot", **kw):
+    bot, now = rationed_bot(monkeypatch, now=now, matchmaking=True)
+    bot.api, bot.me = MatchApi(online, **kw), me
+    return bot, now
+
+
+def test_seeks_a_bot_only_after_ten_idle_minutes(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    now[0] += 599
+    assert bot.seek() is None and bot.api.created == []
+    now[0] += 1
+    game_id = bot.seek()
+    assert game_id == "m1" and bot.outgoing[0] == "m1"
+    opponent, data = bot.api.created[0]
+    assert opponent == "rival" and data["rated"] == "true"
+    assert (data["clock.limit"], data["clock.increment"]) == (120, 1)  # le bullet, au classement le plus incertain
+    assert (bot_games_dir / "funfishbot--m1").exists()  # la place commune est prise
+
+
+def test_seek_picks_only_suitable_opponents(monkeypatch, tmp_path):
+    monkeypatch.setattr(lichess_bot, "BLOCKED_PATH", tmp_path / "blocked")
+    (tmp_path / "blocked").write_text("tricheur\n")
+    online = [online_bot("crazyfishbot"), online_bot("funfishbot"), online_bot("trop_fort", blitz=2100),
+              online_bot("tricheur"), online_bot("refuse"), online_bot("deja_joue"), online_bot("le_bon")]
+    for _ in range(10):
+        bot, now = seeker(monkeypatch, online, perfs={"bullet": {"rating": 1800, "rd": 45, "games": 90},
+                                                     "blitz": {"rating": 1700, "rd": 200, "games": 2}})
+        bot.declined["refuse"] = bot.bot_opponents["deja_joue"] = now[0]
+        now[0] += 600
+        assert bot.seek()
+        assert bot.api.created[0][0] == "le_bon"
+        assert bot.api.created[0][1]["clock.limit"] in (180, 300)  # du blitz, cette fois
+        bot.drop_outgoing(bot.outgoing[0])
+        os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+
+
+def test_no_seek_while_busy_paused_draining_or_waiting(monkeypatch, tmp_path):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    now[0] += 600
+    bot.games["x"] = object()
+    assert bot.seek() is None
+    bot.games.clear()
+    bot.bot_free_at = now[0] + 1
+    assert bot.seek() is None
+    bot.bot_free_at = 0
+    (tmp_path / "drain").touch()
+    assert bot.seek() is None
+    (tmp_path / "drain").unlink()
+    assert bot.seek() == "m1"
+    assert bot.seek() is None  # un défi en attente de réponse
+    now[0] += 31
+    assert bot.seek() is None and bot.outgoing is None  # sans réponse : oublié, place rendue
+    assert list(lichess_bot.BOT_GAMES_DIR.glob("*--*")) == []
+    assert bot.api.created == [("rival", bot.api.created[0][1])]
+
+
+def test_a_declined_challenge_frees_the_place_and_the_bot_is_left_alone(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    bot.bot_opponents.clear()
+    now[0] += 600
+    bot.seek()
+    bot.drop_outgoing("m1", declined=True)  # événement challengeDeclined
+    assert bot.outgoing is None and list(bot_games_dir.glob("*--*")) == []
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    bot.bot_opponents.clear()
+    assert bot.seek() is None  # il nous a refusé : pas avant un jour
+    now[0] += 86400
+    assert bot.seek() == "m2"
+
+
+def test_our_accounts_space_their_challenges(monkeypatch, bot_games_dir):
+    fun, now = seeker(monkeypatch, [online_bot("rival"), online_bot("autre")])
+    crazy, _ = seeker(monkeypatch, [online_bot("rival"), online_bot("autre")], now=now, me="crazyfishbot")
+    now[0] += 600
+    assert fun.seek() == "m1"
+    fun.drop_outgoing("m1", declined=True)
+    assert crazy.seek() is None  # moins de 5 minutes depuis le défi de fun
+    os.utime(bot_games_dir / "dernier-defi", (time.time() - 300, time.time() - 300))
+    assert crazy.seek() == "m1"
+
+
+def test_an_accepted_challenge_is_a_bot_game(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    monkeypatch.setattr(bot, "start_game", lambda game_id: bot.games.__setitem__(game_id, object()))
+    now[0] += 600
+    bot.seek()
+    bot.game_started("m1")
+    assert bot.outgoing is None and "m1" in bot.bot_games
+    now[0] += 300
+    bot.finished("m1")
+    assert bot.bot_free_at == now[0] + 900 and list(bot_games_dir.glob("*--*")) == []
+
+
+def test_an_instant_acceptance_is_still_a_bot_game(monkeypatch):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    bot.api.on_create = lambda game_id: bot.games.__setitem__(game_id, object())  # gameStart avant la réponse
+    now[0] += 600
+    bot.seek()
+    assert bot.outgoing is None and "m1" in bot.bot_games
+
+
+def test_a_human_takes_the_place_of_our_pending_challenge(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    now[0] += 600
+    bot.seek()
+    bot.api.calls.clear()
+    bot.handle_challenge(challenge("blitz", 180, 2, title=None, who="h", id="h1"))
+    assert bot.api.calls == ["/api/challenge/m1/cancel", "/api/challenge/h1/accept"]
+    assert bot.outgoing is None and list(bot_games_dir.glob("*--*")) == []
+    other, now = seeker(monkeypatch, [online_bot("rival")])
+    now[0] += 600
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    other.seek()
+    other.api.fail_accept = False
+    other.api.post = lambda path, data=None: other.api.calls.append(path) or not path.endswith("/cancel")
+    other.api.calls.clear()
+    other.handle_challenge(challenge("blitz", 180, 2, title=None, who="h", id="h2"))
+    assert other.api.calls == ["/api/challenge/m1/cancel", "/api/challenge/h2/decline"]  # déjà accepté ?
+
+
+def test_a_human_arriving_while_our_challenge_is_created_waits(monkeypatch):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    bot.api.on_create = lambda game_id: bot.handle_challenge(challenge("blitz", 180, 2, title=None, who="h", id="h1"))
+    now[0] += 600
+    bot.seek()
+    assert bot.api.calls == ["/api/challenge/h1/decline"]  # on ne sait pas encore si le bot a accepté
+
+
+def test_the_event_stream_reports_a_declined_challenge(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    now[0] += 600
+    bot.seek()
+
+    def events(path):
+        yield {"type": "challenge", "challenge": {"id": "m1", "challenger": {"id": "funfishbot"}}}  # le nôtre
+        yield {"type": "challengeDeclined", "challenge": {"id": "m1", "destUser": {"name": "rival"},
+                                                          "declineReasonKey": "later"}}
+        raise SystemExit
+    bot.api.stream = events
+    bot.matchmaking = False  # pas de fil de recherche dans ce test
+    with pytest.raises(SystemExit):
+        bot.run()
+    assert bot.outgoing is None and "rival" in bot.declined and not (bot_games_dir / "funfishbot--m1").exists()
+
+
+def test_reference_rating_ignores_the_placeholder_of_unplayed_speeds():
+    unplayed = {"rating": 3000, "rd": 500, "games": 0, "prov": True}
+    dubot = {"bullet": unplayed, "blitz": unplayed, "classical": unplayed,
+             "rapid": {"rating": 2590, "rd": 227, "games": 19, "prov": True}}
+    assert lichess_bot.reference_rating(dubot, "bullet") == 2590
+    crazy = {**dubot, "blitz": {"rating": 2433, "rd": 163, "games": 5}, "bullet": {"rating": 2403, "rd": 371, "games": 2}}
+    assert lichess_bot.reference_rating(crazy, "bullet") == 2403  # déjà jouée : son propre classement
+    assert lichess_bot.reference_rating({**dubot, "rapid": unplayed}, "blitz") == 2000
+    assert lichess_bot.reference_rating(crazy, "rapid") == 2590
