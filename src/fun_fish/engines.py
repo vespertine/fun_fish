@@ -131,7 +131,7 @@ def download_stockfish(*, log: Log = _stderr) -> Path:
 
 
 def _download(url: str, dest: Path, log: Log) -> None:
-    with urllib.request.urlopen(url) as response, open(dest, "wb") as out:
+    with urllib.request.urlopen(url, timeout=60) as response, open(dest, "wb") as out:  # 60 s sans données : abandon
         total = int(response.headers.get("Content-Length") or 0)
         done, next_report = 0, 10
         while chunk := response.read(1 << 20):

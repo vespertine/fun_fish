@@ -22,7 +22,8 @@ exec /usr/bin/install "${args[@]}"''',
     "sleep": "exit 0",
     # git clone -q --depth 1 --branch TAG REPO DIR : les sources d'une fausse version
     "git": r'''dir="${@: -1}"; mkdir -p "$dir/deploy" && echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service" \
-&& echo "crazy $STUB_TAG" > "$dir/deploy/fun-fish-crazy.service"''',
+&& echo "crazy $STUB_TAG" > "$dir/deploy/fun-fish-crazy.service" \
+&& echo "dubot $STUB_TAG" > "$dir/deploy/fun-fish-dubot.service"''',
     # python3 -m venv DIR : un faux interpréteur, et des lanceurs (pip, puis fun-fish écrit par pip) dont
     # le shebang fige le chemin ABSOLU de l'interpréteur à la création, comme les vrais : un virtualenv
     # déplacé après coup ne démarre plus.
@@ -31,6 +32,7 @@ exec /usr/bin/install "${args[@]}"''',
   cat > "$abs/bin/python" <<STUB
 #!/bin/sh
 case "\$*" in *"-m pytest"*) exit \${STUB_TESTS_FAIL:-0};; esac
+case "\$*" in *position_style*) echo "style" >> "$abs/../style.log"; exit \${STUB_STYLE_FAIL:-0};; esac
 case "\$1" in */pip)
   case "\$*" in *--upgrade*) exit 0;; esac
   printf '#!%s/bin/python\n' "$abs" > "$abs/bin/fun-fish"; chmod +x "$abs/bin/fun-fish";;
@@ -114,6 +116,16 @@ def test_failing_tests_change_nothing(server):
     assert os.readlink(base / "current").endswith("v0.1.0") and not (config / "drain").exists()
 
 
+def test_dubot_model_is_fetched_before_the_switch(server):
+    run, base, unit, config = server
+    result, log = run(stub_style_fail=1)  # 77 Mo introuvables : on ne bascule pas
+    assert result.returncode != 0 and "Goût des positions" in result.stderr
+    assert log == "" and os.readlink(base / "current").endswith("v0.1.0")
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert (base / "releases" / "v0.2.0" / "style.log").read_text() == "style\n"  # demandé pendant l'installation
+
+
 def test_launcher_works_from_final_location(server):
     run, base, unit, config = server
     result, _ = run()
@@ -156,6 +168,18 @@ def test_second_bot_without_token_is_installed_but_not_started(server):
     assert result.returncode == 0, result.stderr
     assert (unit.parent / "fun-fish-crazy.service").read_text() == "crazy v0.2.0\n"
     assert "fun-fish-crazy" not in log and "pas encore de jeton" in result.stdout
+
+
+def test_third_bot_dubot_is_installed_and_only_started_with_its_token(server):
+    run, base, unit, config = server
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert (unit.parent / "fun-fish-dubot.service").read_text() == "dubot v0.2.0\n"
+    assert "fun-fish-dubot" not in log
+    (config / "dubot_token").write_text("jeton-dubot")
+    result, log = run()
+    assert result.returncode == 0, result.stderr
+    assert "enable -q fun-fish-dubot" in log and "restart fun-fish-dubot" in log
 
 
 def test_second_bot_with_token_is_enabled_and_restarted(server):

@@ -216,6 +216,7 @@ def test_greetings_name_the_bot_and_fit_lichess_chat():
     from fun_fish import personalities
     assert "Fun Fish" in lichess_bot.GREETING[0]
     for key, texts in lichess_bot.GREETINGS.items():
-        assert key in personalities.PERSONALITIES and "Crazy Fish" in texts[0] and "Crazy Fish" in texts[1]
+        name = personalities.PERSONALITIES[key].name
+        assert name in texts[0] and name in texts[1]
     for texts in (lichess_bot.GREETING, *lichess_bot.GREETINGS.values()):
         assert all(len(t) <= 140 for t in texts)
