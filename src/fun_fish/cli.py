@@ -452,7 +452,7 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--token-file", help="jeton du compte BOT (défaut : ~/.config/fun_fish/lichess_bot_token)")
     bot.add_argument("-s", "--set", action="append", default=[], metavar="PARAM=VALEUR", help="surcharger un réglage")
     bot.add_argument("--max-games", type=int, default=2, help="parties simultanées au plus")
-    bot.add_argument("--accept-bots", action="store_true", help="accepter aussi les défis d'autres bots")
+    bot.add_argument("--accept-bots", action="store_true", help="accepter sans limite les défis d'autres bots (sinon : au plus un par heure en bullet et blitz, un toutes les deux heures en rapide)")
     bot.set_defaults(func=cmd_lichess_bot)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)

@@ -28,6 +28,10 @@ DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on fini
 BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
+# Défis d'autres bots : acceptés avec parcimonie, pour laisser la place aux humains (mêmes cadences
+# qu'eux). Bullet et blitz : une partie par heure au plus ; parties rapides : une toutes les deux heures.
+BOT_GROUPS = {"bullet": "vif", "blitz": "vif", "rapid": "rapide"}
+BOT_INTERVAL = {"vif": 3600, "rapide": 7200}  # s entre deux défis de bots acceptés
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
@@ -278,6 +282,7 @@ class Bot:
         os.environ.setdefault("FUN_FISH_MAIA_THREADS", str(max(1, min(4, (os.cpu_count() or 1) // max(1, max_games)))))
         self.stockfish, self.personality, self.params = stockfish, personality, params
         self.max_games, self.accept_bots = max_games, accept_bots
+        self.bot_accepted: dict[str, float] = {}  # groupe de cadences → dernier défi de bot accepté
         self.games: dict[str, BotGame] = {}
         self.lock = threading.Lock()
         self.me = ""
@@ -299,11 +304,19 @@ class Bot:
             return "tooSlow"
         if clock.get("limit", 0) < MIN_LIMIT or (clock.get("limit", 0) < 180 and clock.get("increment", 0) < 1):
             return "tooFast"
+        group = None
         if challenge.get("challenger", {}).get("title") == "BOT" and not self.accept_bots:
-            return "noBot"
+            group = BOT_GROUPS.get(challenge.get("speed", ""))
+            if group is None:
+                return "noBot"
+            last = self.bot_accepted.get(group)
+            if last is not None and time.monotonic() - last < BOT_INTERVAL[group]:
+                return "later"
         with self.lock:
             if len(self.games) >= self.max_games:
                 return "later"
+        if group is not None:
+            self.bot_accepted[group] = time.monotonic()
         return None
 
     def start_game(self, game_id: str) -> None:
@@ -330,17 +343,27 @@ class Bot:
                             continue
                         reason = self.decline_reason(c)
                         who = c.get("challenger", {}).get("name", "?")
+                        what = describe(c)
                         if reason:
-                            log("défi de", who, "refusé :", reason)
+                            log("défi de", who, "refusé :", reason, what)
                             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": reason})
                         else:
-                            log("défi de", who, "accepté")
+                            log("défi de", who, "accepté", what)
                             self.api.post(f"/api/challenge/{c['id']}/accept")
                     elif kind == "gameStart":
                         self.start_game(event["game"]["gameId"] if "gameId" in event["game"] else event["game"]["id"])
             except (OSError, ValueError) as exc:
                 log("flux interrompu, reconnexion dans 10 s :", exc)
                 time.sleep(10)
+
+
+def describe(challenge: dict) -> str:
+    """La cadence d'un défi, pour le journal : « (3+2 blitz, bot) »."""
+    clock = challenge.get("timeControl", {})
+    pace = f"{clock.get('limit', 0) / 60:g}+{clock.get('increment', 0)}" if clock.get("type") == "clock" \
+        else clock.get("type", "?")
+    bot = ", bot" if challenge.get("challenger", {}).get("title") == "BOT" else ""
+    return f"({pace} {challenge.get('speed', '?')}{bot})"
 
 
 def read_token(path: Path = TOKEN_PATH) -> str:

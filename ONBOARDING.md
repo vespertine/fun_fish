@@ -97,8 +97,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 - **Les comptes :** trois comptes BOT, un service chacun : [FunFishBot](https://lichess.org/@/FunFishBot)
   (Fun Fish 2 + théorie), [CrazyFishBot](https://lichess.org/@/CrazyFishBot) (`crazy_fish`) et
   [DuBot](https://lichess.org/@/DuBot) (`dubot`).
-- **Les défis acceptés :** des humains seulement, à partir de 2+1 et jusqu'à environ 15 minutes
-  estimées (`decline_reason`).
+- **Les défis acceptés :** à partir de 2+1 et jusqu'à environ 15 minutes estimées (`decline_reason`).
+  Les autres bots sont rationnés (`BOT_INTERVAL`) : une partie par heure en bullet et blitz, une toutes
+  les deux heures en rapide. Le journal note la cadence de chaque défi, accepté ou refusé.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans

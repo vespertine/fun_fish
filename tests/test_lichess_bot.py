@@ -75,7 +75,45 @@ def test_decline_reasons():
         bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
         assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
-    assert bot.decline_reason({**ok, "challenger": {"title": "BOT"}}) == "noBot"
+    assert bot.decline_reason({**ok, "speed": "classical", "challenger": {"title": "BOT"}}) == "noBot"  # hors quota
+
+
+def test_bot_challenges_are_rationed(monkeypatch):
+    now = [10_000.0]
+    monkeypatch.setattr(lichess_bot.time, "monotonic", lambda: now[0])
+    bot = lichess_bot.Bot("t", "sf", "stockfish", {})
+    robot = {"title": "BOT", "name": "r"}
+    blitz = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": robot,
+             "timeControl": {"type": "clock", "limit": 180, "increment": 2}}
+    bullet = {**blitz, "speed": "bullet", "timeControl": {"type": "clock", "limit": 120, "increment": 1}}
+    rapid = {**blitz, "speed": "rapid", "timeControl": {"type": "clock", "limit": 600, "increment": 0}}
+    assert bot.decline_reason({**bullet, "timeControl": {"type": "clock", "limit": 60, "increment": 0}}) == "tooFast"
+    assert bot.decline_reason(blitz) is None  # le premier de l'heure
+    assert bot.decline_reason(bullet) == "later"  # bullet et blitz partagent leur quota
+    assert bot.decline_reason(rapid) is None  # le rapide a le sien
+    assert bot.decline_reason(rapid) == "later"
+    assert bot.decline_reason({**blitz, "challenger": {"name": "h"}}) is None  # les humains, toujours
+    now[0] += 3600
+    assert bot.decline_reason(bullet) is None and bot.decline_reason(rapid) == "later"
+    now[0] += 3600
+    assert bot.decline_reason(rapid) is None
+    assert lichess_bot.Bot("t", "sf", "stockfish", {}, accept_bots=True).decline_reason(blitz) is None
+
+
+def test_busy_bot_does_not_spend_the_bot_quota(monkeypatch):
+    bot = lichess_bot.Bot("t", "sf", "stockfish", {}, max_games=1)
+    bot.games["x"] = object()
+    blitz = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"title": "BOT", "name": "r"},
+             "timeControl": {"type": "clock", "limit": 180, "increment": 2}}
+    assert bot.decline_reason(blitz) == "later"
+    bot.games.clear()
+    assert bot.decline_reason(blitz) is None
+
+
+def test_describe_challenge_pace():
+    c = {"speed": "bullet", "challenger": {"title": "BOT"}, "timeControl": {"type": "clock", "limit": 30, "increment": 0}}
+    assert lichess_bot.describe(c) == "(0.5+0 bullet, bot)"
+    assert lichess_bot.describe({"speed": "correspondence", "timeControl": {"type": "unlimited"}}) == "(unlimited correspondence)"
 
 
 def test_blocked_players_are_declined(tmp_path, monkeypatch):
