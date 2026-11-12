@@ -8,6 +8,7 @@ Bibliothèque standard seulement : pas de dépendance en plus.
 
 from __future__ import annotations
 
+import contextlib
 import gzip
 import json
 import os
@@ -185,6 +186,7 @@ class BotGame(threading.Thread):
     def __init__(self, bot: "Bot", game_id: str):
         super().__init__(daemon=True, name=f"partie-{game_id}")
         self.bot, self.id = bot, game_id
+        self.over = False  # fin confirmée par Lichess (et non flux coupé ou erreur)
 
     def run(self) -> None:
         from fun_fish.analysis import Analyser
@@ -196,7 +198,7 @@ class BotGame(threading.Thread):
         except Exception as exc:  # une partie qui plante ne doit pas arrêter le bot
             log(self.id, "erreur", repr(exc))
         finally:
-            self.bot.finished(self.id)
+            self.bot.finished(self.id, self.over)
 
     def play(self, analyser, Game) -> None:
         from fun_fish import personalities
@@ -208,7 +210,7 @@ class BotGame(threading.Thread):
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
-                    api.post(f"/api/bot/game/{self.id}/abort")
+                    self.over = api.post(f"/api/bot/game/{self.id}/abort")
                     return
                 ours = chess.WHITE if event["white"].get("id") == self.bot.me else chess.BLACK
                 agent = personalities.create(self.bot.personality, rng=random.Random(), **self.bot.params)
@@ -231,6 +233,7 @@ class BotGame(threading.Thread):
             for uci in moves[len(game.board.move_stack):]:  # rattrape les coups (reconnexion comprise)
                 game.board.push_uci(uci)
             if state.get("status", "started") != "started":
+                self.over = True
                 self.save(game, state, analyser)
                 return
             clock = state.get("wtime" if ours == chess.WHITE else "btime", 10**9)
@@ -285,9 +288,9 @@ def blocked_players() -> set[str]:
 
 
 def bot_game_running() -> bool:
-    """Un de nos comptes joue-t-il déjà contre un bot ?"""
+    """Un de nos comptes joue-t-il déjà contre un bot (ou s'apprête-t-il à le faire) ?"""
     try:
-        marks = list(BOT_GAMES_DIR.iterdir())
+        marks = list(BOT_GAMES_DIR.glob("*--*"))
     except OSError:
         return False
     now = time.time()
@@ -300,12 +303,59 @@ def bot_game_running() -> bool:
     return False
 
 
-def mark_bot_game(account: str, game_id: str) -> None:
+@contextlib.contextmanager
+def bot_games_lock():
+    """Verrou commun à tous nos comptes (des processus distincts), le temps de vérifier puis réserver
+    la place : sans lui, deux comptes pourraient voir la place libre et l'accepter ensemble.
+    Un verrou de plus de 10 s est celui d'un processus mort : on le reprend."""
+    BOT_GAMES_DIR.mkdir(parents=True, exist_ok=True)
+    lock = BOT_GAMES_DIR / "verrou"
+    for _ in range(200):
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > 10:
+                    lock.unlink(missing_ok=True)
+                    continue
+            except OSError:
+                continue
+            time.sleep(0.01)
+    else:
+        raise OSError("verrou des parties contre des bots toujours pris")
     try:
-        BOT_GAMES_DIR.mkdir(parents=True, exist_ok=True)
-        (BOT_GAMES_DIR / f"{account}--{game_id}").touch()
-    except OSError as exc:  # sans marqueur, seuls les autres comptes risquent d'accepter un bot en même temps
-        log("marqueur de partie contre un bot impossible :", exc)
+        yield
+    finally:
+        lock.unlink(missing_ok=True)
+
+
+def reserve_bot_game(account: str, game_id: str) -> bool:
+    """Réserve la place commune (une seule partie contre un bot à la fois), atomiquement."""
+    try:
+        with bot_games_lock():
+            if bot_game_running():
+                return False
+            (BOT_GAMES_DIR / f"{account}--{game_id}").touch()
+            return True
+    except OSError as exc:  # dossier inutilisable : la pause de ce compte limite encore les bots
+        log("réservation de partie contre un bot impossible :", exc)
+        return True
+
+
+def bot_game_marks(account: str) -> dict[str, float]:
+    """Nos parties contre des bots marquées : identifiant → âge du marqueur (s)."""
+    try:
+        marks = list(BOT_GAMES_DIR.glob(f"{account}--*"))
+    except OSError:
+        return {}
+    found, now = {}, time.time()
+    for mark in marks:
+        try:
+            found[mark.name.split("--", 1)[1]] = now - mark.stat().st_mtime
+        except OSError:
+            pass
+    return found
 
 
 def unmark_bot_games(account: str, game_id: str = "*") -> None:
@@ -333,16 +383,39 @@ class Bot:
         self.lock = threading.Lock()
         self.me = ""
 
-    def finished(self, game_id: str) -> None:
+    def finished(self, game_id: str, over: bool = True) -> None:
+        """Fin du fil de la partie. Sans fin confirmée (flux coupé, erreur), une partie contre un bot
+        garde sa place et la pause de sécurité : elle continue peut-être, et `gameStart` la reprendra."""
         now = time.monotonic()
         with self.lock:
             self.games.pop(game_id, None)
+            if not over:
+                return
             start = self.bot_games.pop(game_id, None)
             if start is not None:
                 self.bot_free_at = now + BOT_PAUSE * (now - start)
             else:  # un humain : il a le temps d'enchaîner avant qu'un bot prenne la place
                 self.bot_free_at = max(self.bot_free_at, now + HUMAN_GRACE)
         unmark_bot_games(self.me, game_id)
+
+    def resume_bot_games(self) -> None:
+        """Au démarrage : nos marqueurs de parties encore en cours sur Lichess (le service a redémarré
+        en pleine partie) sont gardés et suivis ; les autres parties sont finies."""
+        marks = bot_game_marks(self.me)
+        if not marks:
+            return
+        try:
+            playing = {g.get("gameId") for g in self.api.get("/api/account/playing").get("nowPlaying", [])}
+        except (OSError, ValueError) as exc:  # dans le doute, on garde tout (oublié au bout d'une heure)
+            log("parties en cours inconnues :", exc)
+            playing = set(marks)
+        now = time.monotonic()
+        for game_id, age in marks.items():
+            if game_id in playing:
+                self.bot_games[game_id] = now - age
+                self.bot_free_at = max(self.bot_free_at, now + BOT_GAME_STALE)
+            else:
+                unmark_bot_games(self.me, game_id)
 
     def decline_reason(self, challenge: dict) -> str | None:
         if DRAIN_PATH.exists():
@@ -364,7 +437,7 @@ class Bot:
             last = self.bot_opponents.get(challenge.get("challenger", {}).get("id", ""))
             if now < self.bot_free_at or (last is not None and now - last < BOT_SAME_OPPONENT):
                 return "later"
-            if bot_game_running():
+            if bot_game_running():  # contrôle rapide ; la réservation atomique est dans handle_challenge
                 return "later"
         with self.lock:
             if len(self.games) >= self.max_games:
@@ -381,14 +454,23 @@ class Bot:
             log("défi de", who, "refusé :", reason, what)
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": reason})
             return
-        log("défi de", who, "accepté", what)
-        if not self.api.post(f"/api/challenge/{c['id']}/accept"):  # False : Lichess a refusé, ou réseau
+        rationed = self.rationed(c)
+        if rationed and not reserve_bot_game(self.me, c["id"]):  # un autre compte vient de la prendre
+            log("défi de", who, "refusé : later (un autre compte joue contre un bot)", what)
+            self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": "later"})
             return
-        if self.rationed(c):
-            now = time.monotonic()
-            self.bot_games[c["id"]] = self.bot_opponents[c.get("challenger", {}).get("id", "")] = now
-            self.bot_free_at = now + BOT_GAME_STALE  # au cas où la fin de partie ne serait jamais vue
-            mark_bot_game(self.me, c["id"])  # la partie porte l'identifiant du défi
+        log("défi de", who, "accepté", what)
+        ok = False
+        try:
+            ok = self.api.post(f"/api/challenge/{c['id']}/accept")  # False : Lichess a refusé, ou réseau
+        finally:
+            if rationed and not ok:
+                unmark_bot_games(self.me, c["id"])  # place rendue
+        if not ok or not rationed:
+            return
+        now = time.monotonic()
+        self.bot_games[c["id"]] = self.bot_opponents[c.get("challenger", {}).get("id", "")] = now
+        self.bot_free_at = now + BOT_GAME_STALE  # au cas où la fin de partie ne serait jamais vue
 
     def rationed(self, challenge: dict) -> bool:
         """Un défi d'un autre bot, soumis aux limites (sauf `--accept-bots`)."""
@@ -408,7 +490,7 @@ class Bot:
             raise SystemExit(f"Le compte {account['username']} n'est pas un compte BOT "
                              "(voir `fun-fish lichess-bot --upgrade`).")
         log(f"connecté en tant que {account['username']} — {self.personality}, {self.max_games} parties à la fois")
-        unmark_bot_games(self.me)  # marqueurs laissés par un arrêt brutal : ces parties-là sont finies
+        self.resume_bot_games()  # marqueurs laissés par un arrêt : parties encore en cours, ou finies
         while True:
             try:
                 for event in self.api.stream("/api/stream/event"):

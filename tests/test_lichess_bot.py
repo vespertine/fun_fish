@@ -43,8 +43,8 @@ class FakeBot:
         self.personality, self.params = "stockfish", {"depth": 4}
         self.done = []
 
-    def finished(self, game_id):
-        self.done.append(game_id)
+    def finished(self, game_id, over):
+        self.done.append(game_id if over else (game_id, "fin non confirmée"))
 
 
 def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
@@ -391,3 +391,91 @@ def test_a_lost_game_end_still_pauses_the_bots(monkeypatch):
     assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) == "later"
     now[0] += 1800
     assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) is None
+
+
+def two_accounts(monkeypatch):
+    fun, _ = rationed_bot(monkeypatch)
+    crazy, now = rationed_bot(monkeypatch)  # la même horloge pour les deux (le dernier monkeypatch)
+    fun.me, crazy.me = "funfishbot", "crazyfishbot"
+    return fun, crazy, now
+
+
+def test_two_accounts_cannot_both_take_the_bot_place_while_accepting(monkeypatch, bot_games_dir):
+    import threading
+    fun, crazy, _ = two_accounts(monkeypatch)
+    inside, release = threading.Event(), threading.Event()
+    post = fun.api.post
+
+    def slow_accept(path, data=None):  # Lichess répond lentement à l'acceptation de fun
+        if path.endswith("/accept"):
+            inside.set()
+            release.wait(5)
+        return post(path, data)
+    fun.api.post = slow_accept
+    worker = threading.Thread(target=fun.handle_challenge, args=(challenge("blitz", 180, 2, who="a", id="g1"),))
+    worker.start()
+    assert inside.wait(5)
+    crazy.decline_reason = lambda c: None  # son contrôle rapide est passé juste avant la réservation de fun
+    crazy.handle_challenge(challenge("blitz", 180, 2, who="b", id="g2"))  # pendant l'acceptation de fun
+    release.set()
+    worker.join(5)
+    assert crazy.api.calls == ["/api/challenge/g2/decline"]
+    assert [m.name for m in bot_games_dir.glob("*--*")] == ["funfishbot--g1"]
+
+
+def test_a_failed_accept_frees_the_bot_place(monkeypatch, bot_games_dir):
+    fun, crazy, _ = two_accounts(monkeypatch)
+    fun.api.fail_accept = True
+    fun.handle_challenge(challenge("blitz", 180, 2, who="a", id="g1"))
+    assert list(bot_games_dir.glob("*--*")) == []
+    assert accepted(crazy, challenge("blitz", 180, 2, who="b", id="g2"))
+
+
+def test_a_cut_game_stream_keeps_the_bot_place(monkeypatch, bot_games_dir):
+    from fun_fish import analysis
+    fun, crazy, _ = two_accounts(monkeypatch)
+    assert accepted(fun, challenge("blitz", 180, 2, who="a", id="g1"))
+
+    class NoEngine:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+    monkeypatch.setattr(analysis, "Analyser", NoEngine)
+
+    def cut(path):
+        raise OSError("flux coupé")
+        yield
+    fun.api.stream = cut
+    lichess_bot.BotGame(fun, "g1").run()  # le vrai fil de partie : erreur réseau, fin non confirmée
+    assert "g1" not in fun.games and "g1" in fun.bot_games
+    assert (bot_games_dir / "funfishbot--g1").exists()
+    assert crazy.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"  # sa pause de sécurité aussi
+
+
+def test_a_restart_keeps_the_place_of_a_game_still_running(monkeypatch, bot_games_dir):
+    fun, crazy, now = two_accounts(monkeypatch)
+    assert accepted(crazy, challenge("blitz", 180, 2, who="a", id="g7"))
+    assert accepted(crazy, challenge("blitz", 180, 2, title=None, who="h", id="g8"))
+    restarted, _ = rationed_bot(monkeypatch)  # le service redémarre, la partie g7 continue sur Lichess
+
+    def get(path):
+        if path == "/api/account/playing":
+            return {"nowPlaying": [{"gameId": "g7"}]}
+        return {"id": "crazyfishbot", "username": "CrazyFishBot", "title": "BOT"}
+    restarted.api.get = get
+    restarted.api.stream = lambda path: (_ for _ in ()).throw(SystemExit)
+    with pytest.raises(SystemExit):
+        restarted.run()
+    assert (bot_games_dir / "crazyfishbot--g7").exists()
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    now[0] += 600
+    restarted.finished("g7")  # la partie reprise finit : c'était bien un bot, pause de 3 × sa durée
+    assert not (bot_games_dir / "crazyfishbot--g7").exists()
+    assert restarted.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) is None
