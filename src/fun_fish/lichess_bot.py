@@ -30,7 +30,7 @@ MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
 # Défis d'autres bots : une partie toutes les 40 minutes au plus, et seulement des parties courtes,
 # pour que le bot reste libre pour les humains (il ne joue qu'une partie à la fois). Bullet et blitz
-# rapides jusqu'à 3+2 et 5+0 ; à partir de 5+3, et en rapide, c'est « tooSlow ».
+# jusqu'à 5+2 (380 s) ; à partir de 5+3 (420 s), et en rapide, c'est « tooSlow ».
 BOT_MAX_ESTIMATE = 400  # s, même estimation que MAX_ESTIMATE
 BOT_INTERVAL = 2400  # s entre deux défis de bots acceptés
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer

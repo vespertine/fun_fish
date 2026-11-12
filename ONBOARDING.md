@@ -99,7 +99,7 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   [DuBot](https://lichess.org/@/DuBot) (`dubot`).
 - **Les défis acceptés :** à partir de 2+1 et jusqu'à environ 15 minutes estimées (`decline_reason`).
   Les autres bots sont rationnés, pour laisser la place aux humains : une partie toutes les 40 minutes
-  (`BOT_INTERVAL`), seulement jusqu'à 3+2 ou 5+0 (`BOT_MAX_ESTIMATE`). Le journal note la cadence de chaque défi, accepté ou refusé.
+  (`BOT_INTERVAL`), seulement jusqu'à 5+2 (`BOT_MAX_ESTIMATE`). Le journal note la cadence de chaque défi, accepté ou refusé.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans
