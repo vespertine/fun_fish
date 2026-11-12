@@ -55,7 +55,7 @@ MATCH_RANGE = 250  # points de classement
 MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
-OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot"}
+OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot"}
 MATCH_DEFAULT = 2000  # classement de référence d'un compte qui n'a encore joué aucune partie
 
 
