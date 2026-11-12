@@ -1,3 +1,6 @@
+import os
+import time
+
 import chess
 import pytest
 
@@ -43,8 +46,8 @@ class FakeBot:
         self.personality, self.params = "stockfish", {"depth": 4}
         self.done = []
 
-    def finished(self, game_id):
-        self.done.append(game_id)
+    def finished(self, game_id, over):
+        self.done.append(game_id if over else (game_id, "fin non confirmée"))
 
 
 def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
@@ -75,7 +78,8 @@ def test_decline_reasons():
         bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
         assert bot.decline_reason(bullet) == reason, (limit, inc)
     assert bot.decline_reason({**ok, "variant": {"key": "chess960"}}) == "standard"
-    assert bot.decline_reason({**ok, "speed": "classical", "challenger": {"title": "BOT"}}) == "noBot"  # hors quota
+    slow = {"type": "clock", "limit": 600, "increment": 5}  # 10+5 : pour un humain, oui
+    assert bot.decline_reason({**ok, "timeControl": slow, "challenger": {"title": "BOT"}}) == "tooSlow"
 
 
 class Api:
@@ -89,39 +93,102 @@ class Api:
         return not (self.fail_accept and path.endswith("/accept"))
 
 
-def rationed_bot(monkeypatch, **kw):
-    now = [10_000.0]
+@pytest.fixture(autouse=True)
+def bot_games_dir(tmp_path, monkeypatch):
+    """Jamais le vrai dossier partagé des parties contre des bots."""
+    monkeypatch.setattr(lichess_bot, "BOT_GAMES_DIR", tmp_path / "bot_games")
+    return tmp_path / "bot_games"
+
+
+def rationed_bot(monkeypatch, now=None, **kw):
+    """Un bot et son horloge simulée ; `now` : partager celle d'un autre bot (plusieurs comptes)."""
+    now = now or [10_000.0]
     monkeypatch.setattr(lichess_bot.time, "monotonic", lambda: now[0])
     bot = lichess_bot.Bot("t", "sf", "stockfish", {}, **kw)
     bot.api = Api()
     return bot, now
 
 
-def challenge(speed, limit, inc, title="BOT"):
-    return {"id": "c", "variant": {"key": "standard"}, "speed": speed, "challenger": {"title": title, "name": "r"},
+def challenge(speed, limit, inc, title="BOT", who="r", id="c"):
+    return {"id": id, "variant": {"key": "standard"}, "speed": speed,
+            "challenger": {"title": title, "name": who, "id": who.lower()},
             "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
 
 
 def accepted(bot, c):
     bot.api.calls.clear()
     bot.handle_challenge(c)
-    return bot.api.calls == ["/api/challenge/c/accept"]
+    return bot.api.calls == [f"/api/challenge/{c['id']}/accept"]
 
 
 def test_bot_challenges_are_rationed(monkeypatch):
     bot, now = rationed_bot(monkeypatch)
-    blitz, bullet, rapid = challenge("blitz", 180, 2), challenge("bullet", 120, 1), challenge("rapid", 600, 0)
     assert bot.decline_reason(challenge("bullet", 60, 0)) == "tooFast"
-    assert accepted(bot, blitz)  # le premier de l'heure
-    assert not accepted(bot, bullet)  # bullet et blitz partagent leur quota
-    assert accepted(bot, rapid) and not accepted(bot, rapid)  # le rapide a le sien
-    assert accepted(bot, challenge("blitz", 180, 2, title=None))  # les humains, toujours
-    now[0] += 3600
-    assert accepted(bot, bullet) and not accepted(bot, rapid)
-    now[0] += 3600
-    assert accepted(bot, rapid)
+    assert bot.decline_reason(challenge("rapid", 600, 5)) == "tooSlow"  # au-delà de 10+0 : pas contre les bots
+    assert bot.decline_reason(challenge("rapid", 600, 0)) is None  # 10+0, oui
+    assert accepted(bot, challenge("blitz", 180, 2, who="a", id="g1"))
+    assert not accepted(bot, challenge("bullet", 120, 1, who="b"))  # en pleine partie contre un bot
+    assert accepted(bot, challenge("rapid", 600, 0, title=None))  # les humains, toujours
+    now[0] += 300
+    bot.finished("g1")  # 5 minutes de partie : 15 minutes de pause
+    now[0] += 899
+    assert not accepted(bot, challenge("bullet", 120, 1, who="b"))
+    now[0] += 1
+    assert accepted(bot, challenge("bullet", 120, 1, who="b", id="g2"))
+    now[0] += 20
+    bot.finished("g2")  # partie annulée : une minute de pause
+    now[0] += 60
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="c")) is None
     free, _ = rationed_bot(monkeypatch, accept_bots=True)
-    assert accepted(free, blitz) and accepted(free, blitz)
+    blitz = challenge("blitz", 180, 2)
+    assert accepted(free, blitz) and accepted(free, blitz) and accepted(free, challenge("rapid", 900, 0))
+
+
+def test_a_human_can_chain_games_before_any_bot(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    assert accepted(bot, challenge("blitz", 180, 2, title=None, who="h", id="h1"))
+    now[0] += 600
+    bot.finished("h1")
+    now[0] += 119
+    assert bot.decline_reason(challenge("blitz", 180, 2)) == "later"  # le temps pour l'humain d'enchaîner
+    assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="h")) is None
+    now[0] += 1
+    assert bot.decline_reason(challenge("blitz", 180, 2)) is None
+
+
+def test_one_bot_does_not_take_all_the_bot_games(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    assert accepted(bot, challenge("bullet", 120, 1, who="Glouton", id="g1"))
+    bot.finished("g1")
+    now[0] += 3600
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="Glouton")) == "later"
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="Autre")) is None
+    now[0] += 3600
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="Glouton")) is None  # deux heures plus tard
+
+
+def test_never_two_bot_games_at_once_across_our_accounts(monkeypatch, bot_games_dir):
+    import os
+    fun, now = rationed_bot(monkeypatch)
+    crazy, _ = rationed_bot(monkeypatch, now=now)
+    fun.me, crazy.me = "funfishbot", "crazyfishbot"
+    blitz = challenge("blitz", 180, 2)
+    assert accepted(fun, blitz)
+    assert crazy.decline_reason(blitz) == "later"  # l'autre compte joue déjà contre un bot
+    assert accepted(crazy, challenge("blitz", 180, 2, title=None))  # les humains, toujours
+    fun.finished("c")
+    assert accepted(crazy, blitz)
+    crazy.api.get = lambda path: {"id": "crazyfishbot", "username": "CrazyFishBot", "title": "BOT"}
+    crazy.api.stream = lambda path: (_ for _ in ()).throw(SystemExit)
+    with pytest.raises(SystemExit):
+        crazy.run()  # redémarrage après un arrêt brutal : ses marqueurs sont effacés
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="autre")) is None
+    blitz = challenge("blitz", 180, 2, who="autre")
+    mark = bot_games_dir / "autre--x"
+    mark.touch()
+    assert fun.decline_reason(blitz) == "later"
+    os.utime(mark, (0, 0))  # marqueur oublié depuis longtemps : ignoré
+    assert fun.decline_reason(blitz) is None
 
 
 def test_quota_spent_only_when_lichess_confirms(monkeypatch):
@@ -315,6 +382,119 @@ def test_quota_kept_when_the_real_client_fails_to_accept(monkeypatch, failure):
     monkeypatch.setattr(bot.api, "_request", request)
     blitz = challenge("blitz", 180, 2)
     bot.handle_challenge(blitz)
-    assert bot.bot_accepted == {}  # rien de consommé
+    assert bot.bot_games == {}  # rien de consommé
     bot.handle_challenge(blitz)
-    assert "vif" in bot.bot_accepted
+    assert "c" in bot.bot_games
+
+
+def test_a_lost_game_end_still_pauses_the_bots(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    monkeypatch.setattr(lichess_bot, "bot_game_running", lambda: False)  # marqueur impossible à écrire
+    assert accepted(bot, challenge("bullet", 120, 1, who="a", id="g1"))
+    now[0] += 1800  # fin de partie jamais vue (flux coupé) : on ne repart pas pour autant
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) == "later"
+    now[0] += 1800
+    assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) is None
+
+
+def two_accounts(monkeypatch):
+    fun, now = rationed_bot(monkeypatch)
+    crazy, _ = rationed_bot(monkeypatch, now=now)
+    fun.me, crazy.me = "funfishbot", "crazyfishbot"
+    return fun, crazy, now
+
+
+def test_two_accounts_cannot_both_take_the_bot_place_while_accepting(monkeypatch, bot_games_dir):
+    import threading
+    fun, crazy, _ = two_accounts(monkeypatch)
+    inside, release = threading.Event(), threading.Event()
+    post = fun.api.post
+
+    def slow_accept(path, data=None):  # Lichess répond lentement à l'acceptation de fun
+        if path.endswith("/accept"):
+            inside.set()
+            release.wait(5)
+        return post(path, data)
+    fun.api.post = slow_accept
+    worker = threading.Thread(target=fun.handle_challenge, args=(challenge("blitz", 180, 2, who="a", id="g1"),))
+    worker.start()
+    assert inside.wait(5)
+    crazy.decline_reason = lambda c: None  # son contrôle rapide est passé juste avant la réservation de fun
+    crazy.handle_challenge(challenge("blitz", 180, 2, who="b", id="g2"))  # pendant l'acceptation de fun
+    release.set()
+    worker.join(5)
+    assert crazy.api.calls == ["/api/challenge/g2/decline"]
+    assert [m.name for m in bot_games_dir.glob("*--*")] == ["funfishbot--g1"]
+
+
+def test_a_failed_accept_frees_the_bot_place(monkeypatch, bot_games_dir):
+    fun, crazy, _ = two_accounts(monkeypatch)
+    fun.api.fail_accept = True
+    fun.handle_challenge(challenge("blitz", 180, 2, who="a", id="g1"))
+    assert list(bot_games_dir.glob("*--*")) == []
+    assert accepted(crazy, challenge("blitz", 180, 2, who="b", id="g2"))
+
+
+def test_a_cut_game_stream_keeps_the_bot_place(monkeypatch, bot_games_dir):
+    from fun_fish import analysis
+    fun, crazy, _ = two_accounts(monkeypatch)
+    assert accepted(fun, challenge("blitz", 180, 2, who="a", id="g1"))
+
+    class NoEngine:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+    monkeypatch.setattr(analysis, "Analyser", NoEngine)
+
+    def cut(path):
+        raise OSError("flux coupé")
+        yield
+    fun.api.stream = cut
+    lichess_bot.BotGame(fun, "g1").run()  # le vrai fil de partie : erreur réseau, fin non confirmée
+    assert "g1" not in fun.games and "g1" in fun.bot_games
+    assert (bot_games_dir / "funfishbot--g1").exists()
+    assert crazy.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"  # sa pause de sécurité aussi
+
+
+def test_a_restart_keeps_the_place_of_a_game_still_running(monkeypatch, bot_games_dir):
+    fun, crazy, now = two_accounts(monkeypatch)
+    assert accepted(crazy, challenge("blitz", 180, 2, who="a", id="g7"))
+    assert accepted(crazy, challenge("blitz", 180, 2, title=None, who="h", id="g8"))
+    restarted, _ = rationed_bot(monkeypatch, now=now)  # le service redémarre, la partie g7 continue
+    mark = bot_games_dir / "crazyfishbot--g7"
+    os.utime(mark, (time.time() - 120, time.time() - 120))  # acceptée il y a deux minutes
+
+    def get(path):
+        if path == "/api/account/playing":
+            return {"nowPlaying": [{"gameId": "g7"}]}
+        return {"id": "crazyfishbot", "username": "CrazyFishBot", "title": "BOT"}
+    restarted.api.get = get
+    restarted.api.stream = lambda path: (_ for _ in ()).throw(SystemExit)
+    with pytest.raises(SystemExit):
+        restarted.run()
+    assert (bot_games_dir / "crazyfishbot--g7").exists()
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    now[0] += 480
+    restarted.finished("g7")  # fin après dix minutes de jeu : c'était bien un bot, 30 minutes de pause
+    assert not mark.exists()
+    assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) is None
+    now[0] += 1795  # marge de quelques secondes pour l'âge du marqueur, mesuré à l'horloge réelle
+    assert restarted.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    now[0] += 10
+    assert restarted.decline_reason(challenge("blitz", 180, 2, who="b")) is None
+
+
+def test_a_busy_lock_never_lets_a_bot_in_without_its_reservation(monkeypatch, bot_games_dir):
+    fun, crazy, _ = two_accounts(monkeypatch)
+    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: None)
+    bot_games_dir.mkdir()
+    (bot_games_dir / "verrou").touch()  # laissé par un processus arrêté il y a un instant
+    assert not accepted(fun, challenge("blitz", 180, 2, who="a", id="g1"))
+    assert fun.api.calls == ["/api/challenge/g1/decline"] and fun.bot_games == {}
+    assert not accepted(crazy, challenge("blitz", 180, 2, who="b", id="g2"))
