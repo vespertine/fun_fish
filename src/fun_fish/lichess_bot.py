@@ -127,15 +127,16 @@ class Lichess:
         return False
 
     def create(self, path: str, data: dict) -> dict | None:
-        """POST qui renvoie un objet (création d'un défi) ; None en cas d'échec, sans reprise."""
+        """POST qui renvoie un objet (création d'un défi), sans reprise. None : refus net de Lichess.
+        OSError : issue inconnue (réseau, réponse illisible), le défi existe peut-être."""
         try:
             with self._request("POST", path, data) as r:
                 return json.load(r)
         except urllib.error.HTTPError as exc:
             log("refusé par Lichess", path, exc.code, exc.read()[:200])
-        except (OSError, ValueError) as exc:
-            log("erreur réseau", path, exc)
-        return None
+            return None
+        except ValueError as exc:
+            raise OSError(f"réponse illisible : {exc}") from exc
 
     def lines(self, path: str) -> list[dict]:
         """Une réponse ndjson courte et complète (liste de bots en ligne)."""
@@ -431,12 +432,15 @@ class Bot:
         self.bot_free_at = 0.0
         self.bot_games: dict[str, float] = {}
         self.bot_opponents: dict[str, float] = {}
-        # Recherche d'adversaires : défi lancé en attente (id, heure, adversaire) ; bots qui ont refusé ;
-        # depuis quand le compte est libre.
+        # Recherche d'adversaires : défi lancé en attente (id, heure, adversaire ; id "" tant que Lichess
+        # ne l'a pas donné, ou si sa réponse s'est perdue) ; refus et annulations reçus pendant ce temps ;
+        # bots qui ont refusé ; depuis quand le compte est libre.
         self.matchmaking = matchmaking
         self.outgoing: tuple[str, float, str] | None = None
+        self.early_drops: dict[str, bool] = {}
         self.declined: dict[str, float] = {}
         self.idle_since = time.monotonic()
+        self.accepting: dict[str, float] = {}  # défis acceptés dont la partie n'a pas encore commencé
         self.games: dict[str, BotGame] = {}
         self.lock = threading.Lock()
         self.me = ""
@@ -499,9 +503,15 @@ class Bot:
             if bot_game_running():  # contrôle rapide ; la réservation atomique est dans handle_challenge
                 return "later"
         with self.lock:
-            if len(self.games) >= self.max_games:
+            if len(self.games) + len(self.accepting_now()) >= self.max_games:
                 return "later"
         return None
+
+    def accepting_now(self) -> dict[str, float]:
+        """Acceptations envoyées depuis moins d'une minute, dont `gameStart` n'est pas arrivé (sous verrou)."""
+        now = time.monotonic()
+        self.accepting = {k: t for k, t in self.accepting.items() if now - t < 60}
+        return self.accepting
 
     def handle_challenge(self, c: dict) -> None:
         """Accepte ou refuse un défi. Le quota des bots n'est compté qu'une fois l'acceptation confirmée
@@ -518,17 +528,27 @@ class Bot:
             log("défi de", who, "refusé : later (un autre compte joue contre un bot)", what)
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": "later"})
             return
-        if not rationed and not self.cancel_outgoing():  # notre défi lancé vient peut-être d'être accepté
+        cancelled = rationed or self.cancel_outgoing()  # pour un humain : notre défi lancé lui cède la place
+        with self.lock:  # même verrou que la recherche : jamais un défi lancé et une acceptation ensemble
+            free = cancelled and self.outgoing is None
+            if free:
+                self.accepting[c["id"]] = time.monotonic()
+        if not free:
             log("défi de", who, "refusé : later (notre défi à un bot est en cours)", what)
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": "later"})
+            if rationed:
+                unmark_bot_games(self.me, c["id"])
             return
         log("défi de", who, "accepté", what)
         ok = False
         try:
             ok = self.api.post(f"/api/challenge/{c['id']}/accept")  # False : Lichess a refusé, ou réseau
         finally:
-            if rationed and not ok:
-                unmark_bot_games(self.me, c["id"])  # place rendue
+            if not ok:
+                with self.lock:
+                    self.accepting.pop(c["id"], None)
+                if rationed:
+                    unmark_bot_games(self.me, c["id"])  # place rendue
         if not ok or not rationed:
             return
         now = time.monotonic()
@@ -536,7 +556,8 @@ class Bot:
         self.bot_free_at = now + BOT_GAME_STALE  # au cas où la fin de partie ne serait jamais vue
 
     def cancel_outgoing(self) -> bool:
-        """Annule notre défi lancé (place laissée à un humain). False : impossible, il a peut-être été accepté."""
+        """Annule notre défi lancé (place laissée à un humain). False : impossible (en cours de création,
+        ou déjà accepté)."""
         with self.lock:
             pending = self.outgoing
         if pending is None:
@@ -548,24 +569,34 @@ class Bot:
         return True
 
     def drop_outgoing(self, challenge_id: str, declined: bool = False) -> None:
+        """Notre défi est refusé, annulé ou expiré : la place est rendue. Reçu avant que Lichess ait
+        donné l'identifiant de notre défi, l'événement est gardé pour `seek`."""
         with self.lock:
+            if self.outgoing is not None and self.outgoing[0] == "" and challenge_id:
+                self.early_drops[challenge_id] = declined
+                return
             if self.outgoing is None or self.outgoing[0] != challenge_id:
                 return
             opponent, self.outgoing = self.outgoing[2], None
             if declined:
                 self.declined[opponent] = time.monotonic()
-        unmark_bot_games(self.me, challenge_id)
+        unmark_bot_games(self.me, challenge_id or "sortant")
+
+    def ready_to_seek(self, now: float) -> bool:
+        """Compte libre depuis assez longtemps, sans défi en cours ni pause (sous verrou)."""
+        return (not self.games and not self.accepting_now() and self.outgoing is None
+                and not DRAIN_PATH.exists() and now >= self.bot_free_at and now - self.idle_since >= MATCH_IDLE)
 
     def seek(self) -> str | None:
         """Recherche d'adversaires : lance un défi si le compte est libre depuis longtemps. Renvoie son id."""
         now = time.monotonic()
         with self.lock:
-            pending, busy = self.outgoing, bool(self.games)
-        if pending and now - pending[1] > MATCH_WAIT:  # resté sans réponse
+            pending = self.outgoing
+        if pending and now - pending[1] > MATCH_WAIT:  # resté sans réponse (ou réponse perdue)
             self.drop_outgoing(pending[0])
-            pending = None
-        if pending or busy or DRAIN_PATH.exists() or now < self.bot_free_at or now - self.idle_since < MATCH_IDLE:
-            return None
+        with self.lock:
+            if not self.ready_to_seek(now):
+                return None
         perfs = self.api.get("/api/account").get("perfs", {})
         speed = max(MATCH_CLOCKS, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()))
         rating = reference_rating(perfs, speed)
@@ -583,30 +614,42 @@ class Bot:
             log(f"recherche d'adversaire ({speed}, {rating}) : aucun bot disponible")
             return None
         opponent = random.choice(candidates)
+        now = time.monotonic()
+        with self.lock:  # l'état a pu changer pendant les lectures (humain accepté, vidange) : on revérifie
+            if not self.ready_to_seek(now):
+                return None
+            self.outgoing, self.early_drops = ("", now, opponent), {}  # dès lors, humains et bots attendent
         if not reserve_bot_game(self.me, "sortant", spacing=MATCH_SPACING):
-            return None
-        limit, increment = random.choice(MATCH_CLOCKS[speed])
-        with self.lock:  # en cours de création : un humain qui arrive attendra (`cancel_outgoing`)
-            self.outgoing = ("", now, opponent)
-        created = self.api.create(f"/api/challenge/{opponent}", {
-            "rated": "true", "clock.limit": limit, "clock.increment": increment, "color": "random",
-            "variant": "standard"})
-        if not created or not created.get("id"):
             with self.lock:
                 self.outgoing = None
-                self.declined[opponent] = now  # compte qui refuse les défis, ou limite atteinte : on passe
-            unmark_bot_games(self.me, "sortant")
             return None
-        game_id = created["id"]
-        rename_bot_game(self.me, "sortant", game_id)
+        limit, increment = random.choice(MATCH_CLOCKS[speed])
+        try:
+            created = self.api.create(f"/api/challenge/{opponent}", {
+                "rated": "true", "clock.limit": limit, "clock.increment": increment, "color": "random",
+                "variant": "standard"})
+        except OSError as exc:  # le défi existe peut-être : place gardée jusqu'à MATCH_WAIT (`game_started`)
+            log(f"défi à {opponent} : issue inconnue ({exc})")
+            with self.lock:
+                self.bot_opponents[opponent] = now
+            return None
+        game_id = (created or {}).get("id")
         with self.lock:
-            self.bot_opponents[opponent] = now
-            if game_id in self.games:  # accepté si vite que la partie a commencé avant cette ligne
+            if self.outgoing is None or self.outgoing[0] != "":  # déjà commencé (`game_started`)
+                self.bot_opponents[opponent] = now
+                return game_id
+            if not game_id:  # refus net de Lichess (compte fermé aux défis, limite atteinte) : on passe
                 self.outgoing = None
-                self.bot_games[game_id] = now
-                self.bot_free_at = now + BOT_GAME_STALE
-            else:
-                self.outgoing = (game_id, now, opponent)
+                self.declined[opponent] = now
+                unmark_bot_games(self.me, "sortant")
+                return None
+            self.bot_opponents[opponent] = now
+            rename_bot_game(self.me, "sortant", game_id)
+            self.outgoing = (game_id, now, opponent)
+            early = self.early_drops.pop(game_id, None)
+        if early is not None:  # refusé ou annulé avant même la réponse de Lichess
+            self.drop_outgoing(game_id, declined=early)
+            return None
         log(f"défi lancé à {opponent} ({limit // 60}+{increment} {speed}, notre classement {rating})")
         return game_id
 
@@ -619,8 +662,12 @@ class Bot:
                 log("recherche d'adversaire :", repr(exc))
 
     def game_started(self, game_id: str) -> None:
+        """`gameStart`. Pendant la création de notre défi (identifiant pas encore connu, ou réponse perdue),
+        humains et bots sont refusés : une partie qui commence alors est forcément la nôtre."""
         with self.lock:
-            if self.outgoing is not None and self.outgoing[0] == game_id:  # notre défi a été accepté
+            if self.outgoing is not None and self.outgoing[0] in (game_id, ""):  # notre défi a été accepté
+                if self.outgoing[0] == "":
+                    rename_bot_game(self.me, "sortant", game_id)
                 self.outgoing = None
                 now = time.monotonic()
                 self.bot_games[game_id] = now
@@ -636,6 +683,7 @@ class Bot:
             if game_id in self.games:
                 return
             thread = self.games[game_id] = BotGame(self, game_id)
+            self.accepting.pop(game_id, None)
             self.idle_since = time.monotonic()
         thread.start()
 
