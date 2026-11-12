@@ -338,9 +338,9 @@ def reserve_bot_game(account: str, game_id: str) -> bool:
                 return False
             (BOT_GAMES_DIR / f"{account}--{game_id}").touch()
             return True
-    except OSError as exc:  # dossier inutilisable : la pause de ce compte limite encore les bots
+    except OSError as exc:  # verrou occupé trop longtemps, dossier inutilisable : dans le doute, pas de bot
         log("réservation de partie contre un bot impossible :", exc)
-        return True
+        return False
 
 
 def bot_game_marks(account: str) -> dict[str, float]:

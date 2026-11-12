@@ -1,3 +1,6 @@
+import os
+import time
+
 import chess
 import pytest
 
@@ -97,8 +100,9 @@ def bot_games_dir(tmp_path, monkeypatch):
     return tmp_path / "bot_games"
 
 
-def rationed_bot(monkeypatch, **kw):
-    now = [10_000.0]
+def rationed_bot(monkeypatch, now=None, **kw):
+    """Un bot et son horloge simulée ; `now` : partager celle d'un autre bot (plusieurs comptes)."""
+    now = now or [10_000.0]
     monkeypatch.setattr(lichess_bot.time, "monotonic", lambda: now[0])
     bot = lichess_bot.Bot("t", "sf", "stockfish", {}, **kw)
     bot.api = Api()
@@ -165,8 +169,8 @@ def test_one_bot_does_not_take_all_the_bot_games(monkeypatch):
 
 def test_never_two_bot_games_at_once_across_our_accounts(monkeypatch, bot_games_dir):
     import os
-    fun, _ = rationed_bot(monkeypatch)
-    crazy, now = rationed_bot(monkeypatch)  # la même horloge pour les deux (le dernier monkeypatch)
+    fun, now = rationed_bot(monkeypatch)
+    crazy, _ = rationed_bot(monkeypatch, now=now)
     fun.me, crazy.me = "funfishbot", "crazyfishbot"
     blitz = challenge("blitz", 180, 2)
     assert accepted(fun, blitz)
@@ -394,8 +398,8 @@ def test_a_lost_game_end_still_pauses_the_bots(monkeypatch):
 
 
 def two_accounts(monkeypatch):
-    fun, _ = rationed_bot(monkeypatch)
-    crazy, now = rationed_bot(monkeypatch)  # la même horloge pour les deux (le dernier monkeypatch)
+    fun, now = rationed_bot(monkeypatch)
+    crazy, _ = rationed_bot(monkeypatch, now=now)
     fun.me, crazy.me = "funfishbot", "crazyfishbot"
     return fun, crazy, now
 
@@ -462,7 +466,9 @@ def test_a_restart_keeps_the_place_of_a_game_still_running(monkeypatch, bot_game
     fun, crazy, now = two_accounts(monkeypatch)
     assert accepted(crazy, challenge("blitz", 180, 2, who="a", id="g7"))
     assert accepted(crazy, challenge("blitz", 180, 2, title=None, who="h", id="g8"))
-    restarted, _ = rationed_bot(monkeypatch)  # le service redémarre, la partie g7 continue sur Lichess
+    restarted, _ = rationed_bot(monkeypatch, now=now)  # le service redémarre, la partie g7 continue
+    mark = bot_games_dir / "crazyfishbot--g7"
+    os.utime(mark, (time.time() - 120, time.time() - 120))  # acceptée il y a deux minutes
 
     def get(path):
         if path == "/api/account/playing":
@@ -474,8 +480,21 @@ def test_a_restart_keeps_the_place_of_a_game_still_running(monkeypatch, bot_game
         restarted.run()
     assert (bot_games_dir / "crazyfishbot--g7").exists()
     assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
-    now[0] += 600
-    restarted.finished("g7")  # la partie reprise finit : c'était bien un bot, pause de 3 × sa durée
-    assert not (bot_games_dir / "crazyfishbot--g7").exists()
-    assert restarted.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    now[0] += 480
+    restarted.finished("g7")  # fin après dix minutes de jeu : c'était bien un bot, 30 minutes de pause
+    assert not mark.exists()
     assert fun.decline_reason(challenge("blitz", 180, 2, who="b")) is None
+    now[0] += 1795  # marge de quelques secondes pour l'âge du marqueur, mesuré à l'horloge réelle
+    assert restarted.decline_reason(challenge("blitz", 180, 2, who="b")) == "later"
+    now[0] += 10
+    assert restarted.decline_reason(challenge("blitz", 180, 2, who="b")) is None
+
+
+def test_a_busy_lock_never_lets_a_bot_in_without_its_reservation(monkeypatch, bot_games_dir):
+    fun, crazy, _ = two_accounts(monkeypatch)
+    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: None)
+    bot_games_dir.mkdir()
+    (bot_games_dir / "verrou").touch()  # laissé par un processus arrêté il y a un instant
+    assert not accepted(fun, challenge("blitz", 180, 2, who="a", id="g1"))
+    assert fun.api.calls == ["/api/challenge/g1/decline"] and fun.bot_games == {}
+    assert not accepted(crazy, challenge("blitz", 180, 2, who="b", id="g2"))
