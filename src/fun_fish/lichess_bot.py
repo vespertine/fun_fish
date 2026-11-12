@@ -315,9 +315,23 @@ class Bot:
         with self.lock:
             if len(self.games) >= self.max_games:
                 return "later"
-        if group is not None:
-            self.bot_accepted[group] = time.monotonic()
         return None
+
+    def handle_challenge(self, c: dict) -> None:
+        """Accepte ou refuse un défi. Le quota des bots n'est compté qu'une fois l'acceptation confirmée
+        par Lichess : un échec (défi annulé entre-temps, réseau) ne bloque pas les bots suivants."""
+        reason = self.decline_reason(c)
+        who = c.get("challenger", {}).get("name", "?")
+        what = describe(c)
+        if reason:
+            log("défi de", who, "refusé :", reason, what)
+            self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": reason})
+            return
+        log("défi de", who, "accepté", what)
+        self.api.post(f"/api/challenge/{c['id']}/accept")
+        group = BOT_GROUPS.get(c.get("speed", ""))
+        if c.get("challenger", {}).get("title") == "BOT" and not self.accept_bots and group is not None:
+            self.bot_accepted[group] = time.monotonic()
 
     def start_game(self, game_id: str) -> None:
         with self.lock:
@@ -341,15 +355,7 @@ class Bot:
                         c = event["challenge"]
                         if c.get("challenger", {}).get("id") == self.me:
                             continue
-                        reason = self.decline_reason(c)
-                        who = c.get("challenger", {}).get("name", "?")
-                        what = describe(c)
-                        if reason:
-                            log("défi de", who, "refusé :", reason, what)
-                            self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": reason})
-                        else:
-                            log("défi de", who, "accepté", what)
-                            self.api.post(f"/api/challenge/{c['id']}/accept")
+                        self.handle_challenge(c)
                     elif kind == "gameStart":
                         self.start_game(event["game"]["gameId"] if "gameId" in event["game"] else event["game"]["id"])
             except (OSError, ValueError) as exc:

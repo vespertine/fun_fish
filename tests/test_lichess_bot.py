@@ -78,36 +78,67 @@ def test_decline_reasons():
     assert bot.decline_reason({**ok, "speed": "classical", "challenger": {"title": "BOT"}}) == "noBot"  # hors quota
 
 
-def test_bot_challenges_are_rationed(monkeypatch):
+class Api:
+    def __init__(self, fail_accept=False):
+        self.fail_accept, self.calls = fail_accept, []
+
+    def post(self, path, data=None):
+        self.calls.append(path)
+        if self.fail_accept and path.endswith("/accept"):
+            raise OSError("défi déjà annulé")
+
+
+def rationed_bot(monkeypatch, **kw):
     now = [10_000.0]
     monkeypatch.setattr(lichess_bot.time, "monotonic", lambda: now[0])
-    bot = lichess_bot.Bot("t", "sf", "stockfish", {})
-    robot = {"title": "BOT", "name": "r"}
-    blitz = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": robot,
-             "timeControl": {"type": "clock", "limit": 180, "increment": 2}}
-    bullet = {**blitz, "speed": "bullet", "timeControl": {"type": "clock", "limit": 120, "increment": 1}}
-    rapid = {**blitz, "speed": "rapid", "timeControl": {"type": "clock", "limit": 600, "increment": 0}}
-    assert bot.decline_reason({**bullet, "timeControl": {"type": "clock", "limit": 60, "increment": 0}}) == "tooFast"
-    assert bot.decline_reason(blitz) is None  # le premier de l'heure
-    assert bot.decline_reason(bullet) == "later"  # bullet et blitz partagent leur quota
-    assert bot.decline_reason(rapid) is None  # le rapide a le sien
-    assert bot.decline_reason(rapid) == "later"
-    assert bot.decline_reason({**blitz, "challenger": {"name": "h"}}) is None  # les humains, toujours
+    bot = lichess_bot.Bot("t", "sf", "stockfish", {}, **kw)
+    bot.api = Api()
+    return bot, now
+
+
+def challenge(speed, limit, inc, title="BOT"):
+    return {"id": "c", "variant": {"key": "standard"}, "speed": speed, "challenger": {"title": title, "name": "r"},
+            "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
+
+
+def accepted(bot, c):
+    bot.api.calls.clear()
+    bot.handle_challenge(c)
+    return bot.api.calls == ["/api/challenge/c/accept"]
+
+
+def test_bot_challenges_are_rationed(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    blitz, bullet, rapid = challenge("blitz", 180, 2), challenge("bullet", 120, 1), challenge("rapid", 600, 0)
+    assert bot.decline_reason(challenge("bullet", 60, 0)) == "tooFast"
+    assert accepted(bot, blitz)  # le premier de l'heure
+    assert not accepted(bot, bullet)  # bullet et blitz partagent leur quota
+    assert accepted(bot, rapid) and not accepted(bot, rapid)  # le rapide a le sien
+    assert accepted(bot, challenge("blitz", 180, 2, title=None))  # les humains, toujours
     now[0] += 3600
-    assert bot.decline_reason(bullet) is None and bot.decline_reason(rapid) == "later"
+    assert accepted(bot, bullet) and not accepted(bot, rapid)
     now[0] += 3600
-    assert bot.decline_reason(rapid) is None
-    assert lichess_bot.Bot("t", "sf", "stockfish", {}, accept_bots=True).decline_reason(blitz) is None
+    assert accepted(bot, rapid)
+    free, _ = rationed_bot(monkeypatch, accept_bots=True)
+    assert accepted(free, blitz) and accepted(free, blitz)
+
+
+def test_quota_spent_only_when_lichess_confirms(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    blitz = challenge("blitz", 180, 2)
+    bot.api.fail_accept = True
+    with pytest.raises(OSError):
+        bot.handle_challenge(blitz)
+    bot.api.fail_accept = False
+    assert accepted(bot, blitz)  # l'échec n'a rien consommé
 
 
 def test_busy_bot_does_not_spend_the_bot_quota(monkeypatch):
-    bot = lichess_bot.Bot("t", "sf", "stockfish", {}, max_games=1)
+    bot, _ = rationed_bot(monkeypatch, max_games=1)
     bot.games["x"] = object()
-    blitz = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"title": "BOT", "name": "r"},
-             "timeControl": {"type": "clock", "limit": 180, "increment": 2}}
-    assert bot.decline_reason(blitz) == "later"
+    assert bot.decline_reason(challenge("blitz", 180, 2)) == "later"
     bot.games.clear()
-    assert bot.decline_reason(blitz) is None
+    assert accepted(bot, challenge("blitz", 180, 2))
 
 
 def test_describe_challenge_pace():
