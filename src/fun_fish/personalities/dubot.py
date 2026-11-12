@@ -15,7 +15,6 @@ from __future__ import annotations
 from fun_fish import position_style
 from fun_fish.personalities.funfish import FunFish2
 
-EXTRA = {"w_pos": 4.0, "pos_from": 0}
 HELP = {"w_pos": "Positions : poids du goût (+ attaque, − solide)",
         "pos_from": "Positions : à partir de ce demi-coup"}
 
@@ -25,9 +24,10 @@ class DuBot(FunFish2):
     name = "DuBot"
     description = "Fun Fish 2 qui recherche les positions des joueurs d'attaque, quitte à y laisser des pions."
     OVERRIDES = {"w_repertoire": 0}
+    EXTRA = {"w_pos": 4.0, "pos_from": 0}
 
     def __init__(self, **kwargs):
-        extra = {k: kwargs.pop(k, v) for k, v in EXTRA.items()}
+        extra = {k: kwargs.pop(k, v) for k, v in self.EXTRA.items()}
         super().__init__(**{**self.OVERRIDES, **kwargs})
         for k, v in extra.items():
             setattr(self, k, v)
@@ -41,7 +41,7 @@ class DuBot(FunFish2):
     def param_specs(cls) -> list[dict]:
         specs = [{**s, "default": cls.OVERRIDES.get(s["name"], s["default"])} for s in super().param_specs()]
         return specs + [{"name": k, "default": v, "type": "int" if isinstance(v, int) else "float", "help": HELP[k]}
-                        for k, v in EXTRA.items()]
+                        for k, v in cls.EXTRA.items()]
 
     def more_bonus(self, board, sound, best, bonus, style) -> None:
         super().more_bonus(board, sound, best, bonus, style)
@@ -59,6 +59,7 @@ class DuBot(FunFish2):
         for line, v in zip(sound, values):
             extra = self.w_pos * (float(v) - mean)
             bonus[line.move] = bonus.get(line.move, 0.0) + extra
-            if extra >= 0.5:
-                style.reasons[line.move] = f"une position de joueur d'attaque ({float(v) - mean:+.2f})"
+            if extra >= 0.5:  # le goût le pousse vers ce coup : attaque pour DuBot, solide pour CapaBot
+                side = "d'attaque" if float(v) > mean else "solide"
+                style.reasons[line.move] = f"une position de joueur {side} ({float(v) - mean:+.2f})"
 
