@@ -9,7 +9,7 @@ User=funfish
 WorkingDirectory=/srv/fun_fish/current
 # Réglages du bot : éditer /etc/default/fun-fish-bot (FUN_FISH_BOT_ARGS="--max-games 2 -s luxury_cap=200")
 EnvironmentFile=-/etc/default/fun-fish-bot
-ExecStart=/bin/sh -c 'exec /srv/fun_fish/current/.venv/bin/fun-fish lichess-bot $FUN_FISH_BOT_ARGS'
+ExecStart=/bin/sh -c 'exec /srv/fun_fish/current/.venv/bin/fun-fish lichess-bot --matchmaking $FUN_FISH_BOT_ARGS'
 Restart=always
 RestartSec=30
 Environment=PYTHONUNBUFFERED=1
