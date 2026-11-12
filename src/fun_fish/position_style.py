@@ -3,7 +3,7 @@
 Un classifieur linéaire lit la représentation interne de Maia-2 (sortie de `last_ln`, la tranche d'Elo
 la plus haute pour les deux camps) de la position juste après un coup, vue du camp au trait. Il a été
 appris sur environ 64 000 positions de parties lentes (après le 8e coup, évaluation dans ±6 pions) :
-16 joueurs d'attaque (Tal, Nezhmetdinov, Shirov, Polgar, Velimirović…) contre 14 joueurs solides
+15 joueurs d'attaque (Tal, Nezhmetdinov, Shirov, Polgar, Velimirović…) contre 14 joueurs solides
 (Karpov, Petrosian, Andersson, Capablanca, Flohr…). Sur des joueurs jamais vus pendant l'apprentissage,
 il range du bon côté 86 % d'entre eux (moyenne de leurs positions). Une position seule ne dit pas grand
 chose (60 % du bon côté) : c'est un goût, qui pèse coup après coup sur toute une partie.
