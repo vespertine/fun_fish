@@ -141,6 +141,33 @@ def test_a_slow_chat_does_not_hold_the_place(tmp_path, monkeypatch):
     assert json.load(gzip.open(path))["chat"] == api.chat
 
 
+def test_low_clock_search_goes_deeper_with_few_pieces():
+    assert lichess_bot.low_clock_depth(chess.Board()) == 6
+    assert lichess_bot.low_clock_depth(chess.Board("8/8/5K2/8/5k1p/Q6P/8/8 w - - 0 112")) == 12  # rR9ELzeJ
+
+
+@pytest.mark.parametrize("fen, moves", [
+    ("8/8/5K2/8/5k1p/Q6P/8/8 w - - 0 112", 15),  # rR9ELzeJ : à profondeur 6, mat en 27 coups
+    ("8/8/8/3k4/8/8/8/R3K3 w - - 0 1", 40),  # tour contre roi : à profondeur 6, nulle (règle des 50 coups)
+])
+def test_low_clock_mates_in_simple_endings(fen, moves):
+    """Partie rR9ELzeJ (13/11/2026) : sous 5 s, le recours doit mater, pas tourner autour du roi."""
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish.analysis import Analyser
+    board = chess.Board(fen)
+    with Analyser(stockfish_path, threads=1, hash_mb=16) as analyser:
+        for _ in range(moves):  # une répétition compte comme un échec : sur Lichess, l'adversaire la réclame
+            if board.is_game_over(claim_draw=True):
+                break
+            board.push(analyser.analyse(board, multipv=1, depth=lichess_bot.low_clock_depth(board))[0].move)
+            if not board.is_game_over(claim_draw=True):
+                board.push(analyser.analyse(board, multipv=1, depth=12)[0].move)
+    assert board.is_checkmate()
+
+
 def test_decline_reasons():
     bot = lichess_bot.Bot("t", "sf", "stockfish", {})
     ok = {"variant": {"key": "standard"}, "speed": "blitz", "challenger": {"name": "h"},
