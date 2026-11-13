@@ -1012,3 +1012,35 @@ def test_a_confirmed_acceptance_still_holds_the_place_for_a_second_human(monkeyp
     assert accepted(bot, challenge("blitz", 180, 2, title=None, who="h", id="h1"))  # gameStart en retard
     now[0] += 61  # avant toute vérification auprès de Lichess
     assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="h2")) == "later"
+
+
+@pytest.mark.parametrize("clock, calm", [({"initial": 180000, "increment": 0}, False), ({"initial": 120000, "increment": 1000}, True),
+                                         ({"initial": 300000, "increment": 0}, True), (None, True)])
+def test_deeper_endgame_traps_only_when_the_clock_allows(tmp_path, monkeypatch, clock, calm):
+    """3+0 : des coups de finale plus lents ont frôlé la chute (2 s restantes) ; avec incrément ou 5 min, on calcule plus loin."""
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish import personalities
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    agents, create = [], personalities.create
+
+    def recorded(*args, **kwargs):
+        agent = create(*args, **kwargs)
+        agent.endgame_attack_depth = 10
+        agents.append(agent)
+        return agent
+    monkeypatch.setattr(personalities, "create", recorded)
+
+    class ClockApi(FakeApi):
+        def stream(self, path):
+            events = super().stream(path)
+            first = next(events)
+            if clock:
+                first["clock"] = clock
+            yield first
+            yield from events
+    lichess_bot.BotGame(FakeBot(ClockApi(), stockfish_path), "abc").run()
+    assert [a.endgame_attack_depth for a in agents] == [10 if calm else 0]
+    assert lichess_bot.calm_clock(clock) is calm

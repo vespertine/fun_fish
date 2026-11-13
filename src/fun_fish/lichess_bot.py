@@ -79,6 +79,7 @@ def reference_rating(perfs: dict, speed: str) -> int:
 PROVISIONAL_RD = 110  # au-delà, Lichess affiche le classement comme provisoire (« ? »)
 CHAT_LATE = 120  # s : on relit le chat de la partie après sa fin, pour les messages d'adieu
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
+CALM_CLOCK_MS = 300_000  # sans incrément, en dessous de 5 min de base, pas de pièges calculés plus loin en finale
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
 # DRAW_STREAK coups de suite dans cet état, à partir du coup DRAW_FROM ; acceptée si la position l'est
@@ -268,6 +269,8 @@ class BotGame(threading.Thread):
                     return
                 ours = chess.WHITE if event["white"].get("id") == self.bot.me else chess.BLACK
                 agent = personalities.create(self.bot.personality, rng=random.Random(), **self.bot.params)
+                if not calm_clock(event.get("clock")) and hasattr(agent, "endgame_attack_depth"):
+                    agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
                 game = Game(agent, human_color=not ours)
                 opponent = event["black" if ours == chess.WHITE else "white"]
                 log(self.id, "contre", opponent.get("name", "?"), opponent.get("rating", "?"),
@@ -479,6 +482,11 @@ def unmark_bot_games(account: str, game_id: str = "*") -> None:
             mark.unlink(missing_ok=True)
     except OSError:
         pass
+
+
+def calm_clock(clock: dict | None) -> bool:
+    """La cadence laisse-t-elle le temps de calculer plus loin en finale ? (incrément, ou 5 min de base)"""
+    return not clock or clock.get("increment", 0) > 0 or clock.get("initial", 0) >= CALM_CLOCK_MS
 
 
 class Bot:
