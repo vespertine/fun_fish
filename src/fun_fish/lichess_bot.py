@@ -82,7 +82,7 @@ QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Profondeur de ce recours : 6, sauf quand il reste peu de pièces (rois compris), où chercher à 12 ne coûte
 # presque rien et mène au mat. Partie rR9ELzeJ (13/11/2026) : dame et pion contre roi, 25 coups sans mater
-# à profondeur 6, et une perte au temps en bullet. Six finales simples : à profondeur 6, une tour contre roi
+# à profondeur 6 ; en 3+0, gagnée seulement parce que l'adversaire est tombé. Six finales simples : à profondeur 6, une tour contre roi
 # finit nulle (50 coups) et les dames matent en 9 à 27 coups ; à 12, toutes matent, en 8 à 24 coups.
 LOW_CLOCK_DEPTH, LOW_CLOCK_FEW, LOW_CLOCK_FEW_DEPTH = 6, 6, 12
 
