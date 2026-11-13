@@ -541,6 +541,15 @@ def seeker(monkeypatch, online, now=None, me="funfishbot", **kw):
     return bot, now
 
 
+def test_rated_challenges_from_bots_are_declined_casual_ones_accepted(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    rated = {**challenge("bullet", 120, 1), "rated": True}
+    assert bot.decline_reason(rated) == "casual"
+    assert bot.decline_reason({**rated, "rated": False}) is None
+    human = {**challenge("bullet", 120, 1, title=None, who="h"), "rated": True}
+    assert bot.decline_reason(human) is None  # les humains jouent classé
+
+
 def test_seeks_a_bot_only_after_ten_idle_minutes(monkeypatch, bot_games_dir):
     bot, now = seeker(monkeypatch, [online_bot("rival")])
     now[0] += 599
@@ -549,7 +558,7 @@ def test_seeks_a_bot_only_after_ten_idle_minutes(monkeypatch, bot_games_dir):
     game_id = bot.seek()
     assert game_id == "m1" and bot.outgoing[0] == "m1"
     opponent, data = bot.api.created[0]
-    assert opponent == "rival" and data["rated"] == "true"
+    assert opponent == "rival" and data["rated"] == "false"  # amical : voir BOT_RATED
     assert (data["clock.limit"], data["clock.increment"]) == (120, 1)  # le bullet, au classement le plus incertain
     assert (bot_games_dir / "funfishbot--m1").exists()  # la place commune est prise
 

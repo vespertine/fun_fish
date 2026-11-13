@@ -57,6 +57,10 @@ MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
 OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot"}
+# Les parties contre des bots sont amicales, dans les deux sens (défis lancés, défis reçus).
+# L'échelle des bots sur Lichess n'a rien à voir avec celle des humains (des moteurs classés 1850 jouent
+# à 96 % de précision) : un classement fait contre eux tromperait les humains qui nous choisissent.
+BOT_RATED = False
 MATCH_DEFAULT = 2000  # classement de référence d'un compte qui n'a encore joué aucune partie
 
 
@@ -505,6 +509,8 @@ class Bot:
             return "tooSlow"
         if clock.get("limit", 0) < MIN_LIMIT or (clock.get("limit", 0) < 180 and clock.get("increment", 0) < 1):
             return "tooFast"
+        if challenger.get("title") == "BOT" and challenge.get("rated") and not BOT_RATED:
+            return "casual"
         if self.rationed(challenge):
             if clock.get("limit", 0) + 40 * clock.get("increment", 0) > BOT_MAX_ESTIMATE:
                 return "tooSlow"
@@ -691,7 +697,7 @@ class Bot:
         limit, increment = random.choice(MATCH_CLOCKS[speed])
         try:
             created = self.api.create(f"/api/challenge/{opponent}", {
-                "rated": "true", "clock.limit": limit, "clock.increment": increment, "color": "random",
+                "rated": str(BOT_RATED).lower(), "clock.limit": limit, "clock.increment": increment, "color": "random",
                 "variant": "standard"})
         except OSError as exc:  # le défi existe peut-être : place gardée jusqu'à MATCH_WAIT (`game_started`)
             log(f"défi à {opponent} : issue inconnue ({exc})")
