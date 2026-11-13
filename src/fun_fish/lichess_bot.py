@@ -77,6 +77,7 @@ def reference_rating(perfs: dict, speed: str) -> int:
     played = [v for k, v in perfs.items() if k in ("bullet", "blitz", "rapid", "classical") and v.get("games", 0)]
     return value(min(played, key=lambda v: v.get("rd", 500))) if played else MATCH_DEFAULT
 PROVISIONAL_RD = 110  # au-delà, Lichess affiche le classement comme provisoire (« ? »)
+CHAT_LATE = 120  # s : on relit le chat de la partie après sa fin, pour les messages d'adieu
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
@@ -275,6 +276,8 @@ class BotGame(threading.Thread):
             elif event.get("type") == "gameState":
                 state = event
             else:
+                if event.get("type") == "chatLine" and event.get("username", "").lower() != self.bot.me:
+                    log(self.id, "chat de", event.get("username", "?"), ":", event.get("text", ""))
                 continue
             if game is None:
                 continue
@@ -326,9 +329,55 @@ class BotGame(threading.Thread):
         export["anomalies"] = getattr(game.personality, "anomalies", [])
         export["lichess"] = {"id": self.id, "url": f"{LICHESS}/{self.id}", "status": state.get("status"),
                              "winner": state.get("winner")}
-        with gzip.open(GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz", "wt", encoding="utf-8") as f:
-            json.dump(export, f, ensure_ascii=False)
+        export["chat"] = None  # lu à part : une lecture lente ne doit pas retarder la libération de la place
+        path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
+        write_export(path, export)
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
+        self.chat_lock = threading.Lock()  # la lecture immédiate et la relecture tardive n'écrivent pas ensemble
+        self.chat_now = threading.Thread(target=self.late_chat, args=(path, export, False), daemon=True)
+        self.chat_now.start()
+        later = threading.Timer(CHAT_LATE, self.late_chat, (path, export))  # le « gg » vient souvent après
+        later.daemon = True
+        later.start()
+
+    def chat(self) -> list | None:
+        """Le chat de la partie (les retours des joueurs), relu chez Lichess ; None s'il est injoignable."""
+        try:
+            return self.bot.api.get(f"/api/bot/game/{self.id}/chat")
+        except (OSError, ValueError) as exc:
+            log(self.id, "chat illisible :", exc)
+            return None
+
+    def late_chat(self, path, export: dict, announce: bool = True) -> None:
+        """Relit le chat (hors du fil de la partie) et complète l'export s'il a grandi. `announce` : mettre au
+        journal les nouveaux messages de l'adversaire (ceux de la partie y sont déjà, notés en direct)."""
+        try:
+            self._late_chat(path, export, announce)
+        except Exception as exc:  # fil d'arrière-plan : une erreur ici ne doit rien casser d'autre
+            log(self.id, "chat non enregistré :", repr(exc))
+
+    def _late_chat(self, path, export: dict, announce: bool) -> None:
+        chat = self.chat()
+        with self.chat_lock:
+            if chat is None or chat == export.get("chat"):
+                return
+            write_export(path, {**export, "chat": chat})  # en cas d'échec, l'export et son chat restent tels quels
+            new, export["chat"] = chat[len(export.get("chat") or []):], chat
+        for line in new if announce else ():
+            if line.get("user", "").lower() != self.bot.me:
+                log(self.id, "chat de", line.get("user", "?"), "(après la partie) :", line.get("text", ""))
+
+
+def write_export(path, export: dict) -> None:
+    """Écrit l'export d'une partie d'un coup : fichier voisin, puis remplacement. Une écriture qui échoue
+    (disque plein…) laisse l'ancienne version intacte."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with gzip.open(tmp, "wt", encoding="utf-8") as f:
+            json.dump(export, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def blocked_players() -> set[str]:

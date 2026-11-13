@@ -14,6 +14,11 @@ class FakeApi:
 
     def __init__(self):
         self.posts = []
+        self.chat = [{"user": "bot", "text": "Bonjour"}, {"user": "x", "text": "salut !"}]
+
+    def get(self, path):
+        assert path == "/api/bot/game/abc/chat"
+        return list(self.chat)
 
     def post(self, path, data=None, quick=False):
         self.posts.append(path)
@@ -24,6 +29,7 @@ class FakeApi:
                "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
         first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1]
         reply = _reply(first)
+        yield {"type": "chatLine", "username": "x", "text": "salut !", "room": "player"}
         yield {"type": "gameState", "moves": f"{first} {reply}", "status": "started", "wtime": 59000, "btime": 59000}
         yield {"type": "gameState", "moves": f"{first} {reply}", "status": "resign", "winner": "white"}
 
@@ -63,6 +69,76 @@ def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
     assert bot.done == ["abc"]
     assert sum("/move/" in p for p in api.posts) == 2
     assert len(list(tmp_path.glob("*abc.json.gz"))) == 1
+
+
+def test_the_game_chat_is_kept_with_the_export(tmp_path, monkeypatch, capsys):
+    """Les retours des joueurs : dans le journal pendant la partie, dans l'export à la fin et après."""
+    import gzip, json
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "CHAT_LATE", 3600)  # la relecture tardive est appelée à la main
+    api = FakeApi()
+    game = lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc")
+    game.run()
+    game.chat_now.join(5)
+    assert capsys.readouterr().out.count("salut !") == 1  # noté en direct, pas une seconde fois à la relecture
+    path = next(tmp_path.glob("*abc.json.gz"))
+    export = json.load(gzip.open(path))
+    assert export["chat"] == api.chat
+    api.chat.append({"user": "x", "text": "gg, bot sympa"})
+    game.late_chat(path, export)
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"
+    assert "chat de x (après la partie) : gg, bot sympa" in capsys.readouterr().out
+
+    def offline(path):
+        raise OSError("réseau coupé")
+    api.get = offline
+    game.late_chat(path, export)  # injoignable : l'export reste tel quel
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"
+
+    def disk_full(obj, f, **kw):  # Codex, PR #32 : écriture interrompue au milieu
+        f.write('{"format": ')
+        raise OSError(28, "No space left on device")
+    api.get = lambda p: list(api.chat)
+    api.chat.append({"user": "x", "text": "merci !"})
+    monkeypatch.setattr(lichess_bot.json, "dump", disk_full)
+    game.late_chat(path, export)
+    monkeypatch.undo()
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"  # l'ancienne version, intacte
+    assert list(tmp_path.glob("*.tmp")) == []
+    game.late_chat(path, export)  # écritures rétablies : la relecture suivante répare
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "merci !"
+
+
+def test_a_slow_chat_does_not_hold_the_place(tmp_path, monkeypatch):
+    """Codex, PR #32 : le chat est lu hors du fil de la partie ; la place est libérée et l'export écrit
+    sans attendre Lichess."""
+    import gzip, json, threading
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "CHAT_LATE", 3600)
+    api, release = FakeApi(), threading.Event()
+    answer = api.get
+
+    def slow(path):
+        release.wait(10)
+        return answer(path)
+    api.get = slow
+    bot = FakeBot(api, stockfish_path)
+    game = lichess_bot.BotGame(bot, "abc")
+    game.run()
+    assert bot.done == ["abc"]  # place libérée pendant que Lichess fait attendre
+    path = next(tmp_path.glob("*abc.json.gz"))
+    assert json.load(gzip.open(path))["chat"] is None
+    release.set()
+    game.chat_now.join(5)
+    assert json.load(gzip.open(path))["chat"] == api.chat
 
 
 def test_decline_reasons():
