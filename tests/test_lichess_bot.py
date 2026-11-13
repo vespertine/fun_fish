@@ -1134,3 +1134,29 @@ def test_a_failed_abort_is_tried_again(tmp_path, monkeypatch):
     api = FlakyAbortApi()
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
     assert [p for p in api.posts if "abort" in p] == ["/api/bot/game/abc/abort (échec)"] * 2 + ["/api/bot/game/abc/abort"]
+
+
+def test_a_retry_never_starts_a_countdown_twice(monkeypatch):
+    """Revue Codex (#37) : un état de fin qui arrive pendant un nouvel essai ne relance pas le compte à rebours."""
+    started = []
+
+    class Countdown:
+        def __init__(self, delay, action):
+            self.daemon, self.ident = False, None  # ident reste vide : seul `armed` protège
+
+        def start(self):
+            assert self not in started, "threads can only be started once"
+            started.append(self)
+
+        def cancel(self):
+            pass
+
+    class RefusingApi:
+        def post(self, path, data=None, quick=False):
+            return False
+    monkeypatch.setattr(lichess_bot.threading, "Timer", Countdown)
+    game = lichess_bot.BotGame(type("B", (), {"api": RefusingApi()})(), "abc")
+    game.wait_first_move()
+    game.no_start()  # annulation refusée : un nouvel essai est programmé
+    game.wait_first_move()  # le fil de partie traite ensuite un état de fin
+    assert len(started) == 2 and started[1] is game.watchdog

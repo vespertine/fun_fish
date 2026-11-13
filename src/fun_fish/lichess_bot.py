@@ -255,6 +255,7 @@ class BotGame(threading.Thread):
         self.over = False  # fin confirmée par Lichess (et non flux coupé ou erreur)
         self.started = threading.Event()  # l'adversaire a joué au moins un coup
         self.ended = threading.Event()  # fil de partie terminé : plus aucune annulation
+        self.armed = False  # compte à rebours lancé (par le fil de partie seul ; les nouveaux essais n'y touchent pas)
         self.watchdog = threading.Timer(NO_START, self.no_start)  # partie fJqf4pDw : 1 h bloquée après 1.e4
         self.watchdog.daemon = True
 
@@ -274,7 +275,8 @@ class BotGame(threading.Thread):
 
     def wait_first_move(self) -> None:
         """Lance le compte à rebours dès que c'est à l'adversaire de jouer son premier coup (une seule fois)."""
-        if self.watchdog.ident is None:
+        if not self.armed:
+            self.armed = True
             self.watchdog.start()
 
     def no_start(self) -> None:
@@ -283,9 +285,10 @@ class BotGame(threading.Thread):
             return
         log(self.id, f"pas de premier coup de l'adversaire en {NO_START} s : partie annulée")
         if not self.bot.api.post(f"/api/bot/game/{self.id}/abort", quick=True) and not self.ended.is_set():
-            self.watchdog = threading.Timer(NO_START_RETRY, self.no_start)  # sinon la place resterait prise
-            self.watchdog.daemon = True
-            self.watchdog.start()
+            retry = threading.Timer(NO_START_RETRY, self.no_start)  # sinon la place resterait prise
+            retry.daemon = True
+            retry.start()
+            self.watchdog = retry  # visible seulement une fois lancé (revue Codex : double démarrage)
 
     def play(self, analyser, Game) -> None:
         from fun_fish import personalities
