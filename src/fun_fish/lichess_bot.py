@@ -61,11 +61,17 @@ MATCH_DEFAULT = 2000  # classement de référence d'un compte qui n'a encore jou
 
 def reference_rating(perfs: dict, speed: str) -> int:
     """Notre classement pour choisir un adversaire. Une cadence jamais jouée s'affiche à 3000 (rd 500) :
-    on prend alors le classement le plus sûr (rd le plus bas) des cadences déjà jouées."""
+    on prend alors le classement le plus sûr (rd le plus bas) des cadences déjà jouées. Un classement
+    provisoire compte au plus MATCH_DEFAULT : cinq victoires contre un seul joueur faible suffisent à
+    le porter à 3000, et le bot irait défier les meilleurs moteurs."""
+    def value(v):
+        provisional = v.get("prov") or v.get("rd", 500) > PROVISIONAL_RD
+        return min(v["rating"], MATCH_DEFAULT) if provisional else v["rating"]
     if perfs.get(speed, {}).get("games", 0):
-        return perfs[speed]["rating"]
+        return value(perfs[speed])
     played = [v for k, v in perfs.items() if k in ("bullet", "blitz", "rapid", "classical") and v.get("games", 0)]
-    return min(played, key=lambda v: v.get("rd", 500))["rating"] if played else MATCH_DEFAULT
+    return value(min(played, key=lambda v: v.get("rd", 500))) if played else MATCH_DEFAULT
+PROVISIONAL_RD = 110  # au-delà, Lichess affiche le classement comme provisoire (« ? »)
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
