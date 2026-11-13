@@ -64,6 +64,9 @@ Le cœur est dans `Attacker._choose_move` (`personalities/attacker.py`) :
    - Puis les 5 meilleurs, selon le score de l'agent, sont **approfondis** sur 3 coups adverses.
    - Les motifs mesurés sont le mat, le gain, le piège et l'étroitesse. Le plus fort mène, moins
      le prix du coup face à une défense parfaite.
+   - En **finale** (au plus 6 pièces hors pions et rois), Stockfish y regarde à profondeur 10 au
+     lieu de 6 (`endgame_attack_depth`) : moins de « pièges » qui gâchent une finale. Pas en
+     dessous de 5 min sans incrément, où ces coups plus lents ont frôlé la perte au temps.
 6. **Tirage** softmax à la température 0,3, puis le **garde-fou** (`verified`). Le coup choisi
    est revérifié seul : si son évaluation était fausse, il est remplacé et l'anomalie est notée.
 

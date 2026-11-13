@@ -36,7 +36,7 @@ import chess
 
 from fun_fish.analysis import Analyser, Line
 from fun_fish.opponent import MaiaModel, OpponentModel, make_model
-from fun_fish.personalities.base import (CONVERT_HELP, Candidate, Decision, Personality, Soundness, converting_note, defending, forcing,
+from fun_fish.personalities.base import (CONVERT_HELP, Candidate, Decision, Personality, Soundness, converting_note, defending, endgame, forcing,
                                          format_score,
                                          pick, regret, softmax)
 from fun_fish.repertoire import REPERTOIRES, Planner
@@ -109,6 +109,7 @@ class Attacker(Personality):
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
         "panache": "Panache : gagnant, il cherche la manière plutôt que le matériel (0 = jamais ; 1 = en conversion complète, le gain ne compte plus et le style double)",
+        "endgame_attack_depth": "Finale (au plus 6 pièces hors pions et rois), pendule non pressée : profondeur des pièges et attaques, si plus grande (0 = attack_depth)",
         "effort": "Pressé par la pendule : 0 = réflexion complète ; 1 à 5 = arbre d'attaque de plus en plus court (voir EFFORT)",
         "luxury_keep": "Luxe du gagnant : avance (cp) qu'il tient à garder en conversion",
         "luxury_cap": "Luxe du gagnant : avance (cp) qu'il s'autorise à lâcher pour un coup de style (0 = jamais)",
@@ -149,7 +150,7 @@ class Attacker(Personality):
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
                  convert_elo: int = 0, w_repeat: float = 0.0, luxury_keep: int = 450, luxury_cap: int = 0,
-                 effort: int = 0, panache: float = 0.0, mate_sure: int = 0, w_pretty: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
+                 effort: int = 0, panache: float = 0.0, endgame_attack_depth: int = 0, mate_sure: int = 0, w_pretty: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
         self.tolerance = tolerance
@@ -189,6 +190,7 @@ class Attacker(Personality):
         self._mate_now = mate_within
         self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
         self.effort = effort
+        self.endgame_attack_depth = endgame_attack_depth
         self.panache = panache
         self.mate_sure, self.w_pretty = mate_sure, w_pretty
         self._degree = 0.0  # degré de conversion du coup en cours (0 : pas gagnant, 1 : conversion complète)
@@ -451,6 +453,12 @@ class Attacker(Personality):
         for name, cap in caps.items():
             if name in saved:
                 setattr(self, name, min(saved[name], cap))
+        # En finale, un piège se réfute souvent plus loin que `attack_depth` (300 finales de Carlsen,
+        # Capablanca et Karpov : 40 % d'erreurs ≥ 1 pion en moins à profondeur 10). Seulement quand la
+        # pendule laisse le temps : le calcul y coûte environ deux fois plus.
+        if self.effort == 0 and self.endgame_attack_depth > self.attack_depth and endgame(board):
+            saved.setdefault("attack_depth", self.attack_depth)
+            self.attack_depth = self.endgame_attack_depth
         try:
             return self._choose_move(board, analyser)
         finally:

@@ -32,7 +32,7 @@ class FunFish(Buccaneer):
 # échecs sans suite peu « fun », répertoire propre plus souvent tiré.
 FROZEN_2 = {**FROZEN, "mate_sure": 3, "w_pretty": 1.0, "w_center": 0.0, "w_creative": 1.2, "cheap_check": 0.3, "repertoire_rate": 0.35, "creative_slots": 2,
             "w_develop": 0.9, "opening_temperature": 0.8, "opening_plies": 6,
-            "vision_from": 10, "opening_vision_min": 0.0}
+            "vision_from": 10, "opening_vision_min": 0.0, "endgame_attack_depth": 10}
 
 
 class FunFish2(FunFish):

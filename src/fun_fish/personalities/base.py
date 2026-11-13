@@ -116,6 +116,10 @@ def regret(best: "Line", line: "Line") -> int:
 ENDGAME_PIECES = 6  # pièces (hors pions et rois) : en deçà, c'est une finale
 
 
+def endgame(board: chess.Board) -> bool:
+    return chess.popcount(board.occupied & ~board.pawns & ~board.kings) <= ENDGAME_PIECES
+
+
 @dataclass
 class Soundness:
     """Premier étage commun : les coups qui perdent au plus `tolerance` cp si l'adversaire répond juste.
@@ -211,7 +215,7 @@ class Soundness:
             self.truth = root[0]
         tolerance, degree = self.tolerance, self.degree(root[0])
         extra = round(degree * self.convert_depth)
-        if chess.popcount(board.occupied & ~board.pawns & ~board.kings) <= ENDGAME_PIECES:
+        if endgame(board):
             extra = self.convert_depth  # finale : vérifier plus loin coûte peu, et les pions passés vont vite
         if extra > 0:
             root = analyser.analyse(board, multipv=multipv if visible is None else min(len(visible), multipv),
