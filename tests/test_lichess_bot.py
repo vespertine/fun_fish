@@ -83,7 +83,8 @@ def test_the_game_chat_is_kept_with_the_export(tmp_path, monkeypatch, capsys):
     api = FakeApi()
     game = lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc")
     game.run()
-    assert "chat de x : salut !" in capsys.readouterr().out
+    game.chat_now.join(5)
+    assert capsys.readouterr().out.count("salut !") == 1  # noté en direct, pas une seconde fois à la relecture
     path = next(tmp_path.glob("*abc.json.gz"))
     export = json.load(gzip.open(path))
     assert export["chat"] == api.chat
@@ -97,6 +98,34 @@ def test_the_game_chat_is_kept_with_the_export(tmp_path, monkeypatch, capsys):
     api.get = offline
     game.late_chat(path, export)  # injoignable : l'export reste tel quel
     assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"
+
+
+def test_a_slow_chat_does_not_hold_the_place(tmp_path, monkeypatch):
+    """Codex, PR #32 : le chat est lu hors du fil de la partie ; la place est libérée et l'export écrit
+    sans attendre Lichess."""
+    import gzip, json, threading
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "CHAT_LATE", 3600)
+    api, release = FakeApi(), threading.Event()
+    answer = api.get
+
+    def slow(path):
+        release.wait(10)
+        return answer(path)
+    api.get = slow
+    bot = FakeBot(api, stockfish_path)
+    game = lichess_bot.BotGame(bot, "abc")
+    game.run()
+    assert bot.done == ["abc"]  # place libérée pendant que Lichess fait attendre
+    path = next(tmp_path.glob("*abc.json.gz"))
+    assert json.load(gzip.open(path))["chat"] is None
+    release.set()
+    game.chat_now.join(5)
+    assert json.load(gzip.open(path))["chat"] == api.chat
 
 
 def test_decline_reasons():

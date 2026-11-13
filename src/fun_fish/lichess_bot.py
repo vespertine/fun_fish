@@ -329,11 +329,13 @@ class BotGame(threading.Thread):
         export["anomalies"] = getattr(game.personality, "anomalies", [])
         export["lichess"] = {"id": self.id, "url": f"{LICHESS}/{self.id}", "status": state.get("status"),
                              "winner": state.get("winner")}
-        export["chat"] = self.chat()
+        export["chat"] = None  # lu à part : une lecture lente ne doit pas retarder la libération de la place
         path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
         with gzip.open(path, "wt", encoding="utf-8") as f:
             json.dump(export, f, ensure_ascii=False)
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
+        self.chat_now = threading.Thread(target=self.late_chat, args=(path, export, False), daemon=True)
+        self.chat_now.start()
         later = threading.Timer(CHAT_LATE, self.late_chat, (path, export))  # le « gg » vient souvent après
         later.daemon = True
         later.start()
@@ -346,12 +348,19 @@ class BotGame(threading.Thread):
             log(self.id, "chat illisible :", exc)
             return None
 
-    def late_chat(self, path, export: dict) -> None:
-        """Relit le chat après la partie et complète l'export s'il a grandi."""
+    def late_chat(self, path, export: dict, announce: bool = True) -> None:
+        """Relit le chat (hors du fil de la partie) et complète l'export s'il a grandi. `announce` : mettre au
+        journal les nouveaux messages de l'adversaire (ceux de la partie y sont déjà, notés en direct)."""
+        try:
+            self._late_chat(path, export, announce)
+        except Exception as exc:  # fil d'arrière-plan : une erreur ici ne doit rien casser d'autre
+            log(self.id, "chat non enregistré :", repr(exc))
+
+    def _late_chat(self, path, export: dict, announce: bool) -> None:
         chat = self.chat()
         if chat is None or chat == export.get("chat"):
             return
-        for line in chat[len(export.get("chat") or []):]:
+        for line in chat[len(export.get("chat") or []):] if announce else ():
             if line.get("user", "").lower() != self.bot.me:
                 log(self.id, "chat de", line.get("user", "?"), "(après la partie) :", line.get("text", ""))
         export["chat"] = chat
