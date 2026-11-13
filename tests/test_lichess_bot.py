@@ -866,11 +866,46 @@ def test_the_watch_thread_reconciles_even_without_matchmaking(monkeypatch):
     calls = []
     monkeypatch.setattr(bot, "reconcile_accepting", lambda: calls.append("vérifié"))
     monkeypatch.setattr(bot, "seek", lambda: calls.append("recherche"))
-    ticks = iter([None, None])
-    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: next(ticks))
+    ticks, waits = iter([None, None]), []
+    monkeypatch.setattr(lichess_bot.time, "sleep", lambda s: waits.append(s) or next(ticks))
     with pytest.raises(StopIteration):
         bot.watch_forever()
     assert calls == ["vérifié", "vérifié"]
+
+
+def test_our_accounts_take_turns_for_the_shared_slot(monkeypatch):
+    """Intervalle tiré au hasard : pas toujours le même compte en premier sur le créneau commun."""
+    bot, _ = rationed_bot(monkeypatch)
+    monkeypatch.setattr(bot, "reconcile_accepting", lambda: None)
+    waits = []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        if len(waits) == 50:
+            raise StopIteration
+    monkeypatch.setattr(lichess_bot.time, "sleep", sleep)
+    with pytest.raises(StopIteration):
+        bot.watch_forever()
+    assert all(30 <= w <= 90 for w in waits) and max(waits) - min(waits) > 20
+
+
+def test_the_echo_of_our_own_declines_is_not_logged(monkeypatch, capsys):
+    bot, _ = rationed_bot(monkeypatch)
+    bot.me = "crazyfishbot"
+
+    def events(path):
+        yield {"type": "challengeDeclined", "challenge": {"id": "x", "challenger": {"id": "devilfishbot"},
+                                                          "destUser": {"name": "CrazyFishBot"}, "declineReasonKey": "toofast"}}
+        yield {"type": "challengeDeclined", "challenge": {"id": "y", "challenger": {"id": "crazyfishbot"},
+                                                          "destUser": {"name": "Rival"}, "declineReasonKey": "nobot"}}
+        raise SystemExit
+    bot.api.get = lambda path: {"id": "crazyfishbot", "username": "CrazyFishBot", "title": "BOT"}
+    bot.api.stream = events
+    monkeypatch.setattr(lichess_bot.threading, "Thread", lambda **kw: type("T", (), {"start": lambda self: None})())
+    with pytest.raises(SystemExit):
+        bot.run()
+    out = capsys.readouterr().out
+    assert "refusé par Rival : nobot" in out and "refusé par CrazyFishBot" not in out
 
 
 def test_a_confirmed_acceptance_still_holds_the_place_for_a_second_human(monkeypatch):
