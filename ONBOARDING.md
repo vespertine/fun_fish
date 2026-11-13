@@ -117,7 +117,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans
-  `~/.local/share/fun_fish/bot_games/`, avec les anomalies du garde-fou.
+  `~/.local/share/fun_fish/bot_games/`, avec les anomalies du garde-fou et le chat de la partie (relu
+  deux minutes après la fin, pour les messages d'adieu). Pendant la partie, les messages de l'adversaire
+  vont aussi au journal (« chat de … »).
 - **Un seul bot par compte :** ne jamais lancer `fun-fish lichess-bot` sur sa machine pendant que
   le service tourne.
 

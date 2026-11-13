@@ -14,6 +14,11 @@ class FakeApi:
 
     def __init__(self):
         self.posts = []
+        self.chat = [{"user": "bot", "text": "Bonjour"}, {"user": "x", "text": "salut !"}]
+
+    def get(self, path):
+        assert path == "/api/bot/game/abc/chat"
+        return list(self.chat)
 
     def post(self, path, data=None, quick=False):
         self.posts.append(path)
@@ -24,6 +29,7 @@ class FakeApi:
                "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
         first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1]
         reply = _reply(first)
+        yield {"type": "chatLine", "username": "x", "text": "salut !", "room": "player"}
         yield {"type": "gameState", "moves": f"{first} {reply}", "status": "started", "wtime": 59000, "btime": 59000}
         yield {"type": "gameState", "moves": f"{first} {reply}", "status": "resign", "winner": "white"}
 
@@ -63,6 +69,34 @@ def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
     assert bot.done == ["abc"]
     assert sum("/move/" in p for p in api.posts) == 2
     assert len(list(tmp_path.glob("*abc.json.gz"))) == 1
+
+
+def test_the_game_chat_is_kept_with_the_export(tmp_path, monkeypatch, capsys):
+    """Les retours des joueurs : dans le journal pendant la partie, dans l'export à la fin et après."""
+    import gzip, json
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "CHAT_LATE", 3600)  # la relecture tardive est appelée à la main
+    api = FakeApi()
+    game = lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc")
+    game.run()
+    assert "chat de x : salut !" in capsys.readouterr().out
+    path = next(tmp_path.glob("*abc.json.gz"))
+    export = json.load(gzip.open(path))
+    assert export["chat"] == api.chat
+    api.chat.append({"user": "x", "text": "gg, bot sympa"})
+    game.late_chat(path, export)
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"
+    assert "chat de x (après la partie) : gg, bot sympa" in capsys.readouterr().out
+
+    def offline(path):
+        raise OSError("réseau coupé")
+    api.get = offline
+    game.late_chat(path, export)  # injoignable : l'export reste tel quel
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"
 
 
 def test_decline_reasons():

@@ -77,6 +77,7 @@ def reference_rating(perfs: dict, speed: str) -> int:
     played = [v for k, v in perfs.items() if k in ("bullet", "blitz", "rapid", "classical") and v.get("games", 0)]
     return value(min(played, key=lambda v: v.get("rd", 500))) if played else MATCH_DEFAULT
 PROVISIONAL_RD = 110  # au-delà, Lichess affiche le classement comme provisoire (« ? »)
+CHAT_LATE = 120  # s : on relit le chat de la partie après sa fin, pour les messages d'adieu
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 LOW_CLOCK_MS = 5_000  # sous ce temps restant, dernier recours : Stockfish peu profond plutôt que perdre au temps
 # Nulles : seulement les nulles absolues, partie totalement fermée (voir dead_draw). Proposée après
@@ -275,6 +276,8 @@ class BotGame(threading.Thread):
             elif event.get("type") == "gameState":
                 state = event
             else:
+                if event.get("type") == "chatLine" and event.get("username", "").lower() != self.bot.me:
+                    log(self.id, "chat de", event.get("username", "?"), ":", event.get("text", ""))
                 continue
             if game is None:
                 continue
@@ -326,9 +329,34 @@ class BotGame(threading.Thread):
         export["anomalies"] = getattr(game.personality, "anomalies", [])
         export["lichess"] = {"id": self.id, "url": f"{LICHESS}/{self.id}", "status": state.get("status"),
                              "winner": state.get("winner")}
-        with gzip.open(GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz", "wt", encoding="utf-8") as f:
+        export["chat"] = self.chat()
+        path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
+        with gzip.open(path, "wt", encoding="utf-8") as f:
             json.dump(export, f, ensure_ascii=False)
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
+        later = threading.Timer(CHAT_LATE, self.late_chat, (path, export))  # le « gg » vient souvent après
+        later.daemon = True
+        later.start()
+
+    def chat(self) -> list | None:
+        """Le chat de la partie (les retours des joueurs), relu chez Lichess ; None s'il est injoignable."""
+        try:
+            return self.bot.api.get(f"/api/bot/game/{self.id}/chat")
+        except (OSError, ValueError) as exc:
+            log(self.id, "chat illisible :", exc)
+            return None
+
+    def late_chat(self, path, export: dict) -> None:
+        """Relit le chat après la partie et complète l'export s'il a grandi."""
+        chat = self.chat()
+        if chat is None or chat == export.get("chat"):
+            return
+        for line in chat[len(export.get("chat") or []):]:
+            if line.get("user", "").lower() != self.bot.me:
+                log(self.id, "chat de", line.get("user", "?"), "(après la partie) :", line.get("text", ""))
+        export["chat"] = chat
+        with gzip.open(path, "wt", encoding="utf-8") as f:
+            json.dump(export, f, ensure_ascii=False)
 
 
 def blocked_players() -> set[str]:
