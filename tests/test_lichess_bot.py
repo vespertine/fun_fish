@@ -684,12 +684,26 @@ def test_the_event_stream_reports_a_declined_challenge(monkeypatch, bot_games_di
 def test_reference_rating_ignores_the_placeholder_of_unplayed_speeds():
     unplayed = {"rating": 3000, "rd": 500, "games": 0, "prov": True}
     dubot = {"bullet": unplayed, "blitz": unplayed, "classical": unplayed,
-             "rapid": {"rating": 2590, "rd": 227, "games": 19, "prov": True}}
-    assert lichess_bot.reference_rating(dubot, "bullet") == 2590
-    crazy = {**dubot, "blitz": {"rating": 2433, "rd": 163, "games": 5}, "bullet": {"rating": 2403, "rd": 371, "games": 2}}
+             "rapid": {"rating": 1850, "rd": 90, "games": 60}}
+    assert lichess_bot.reference_rating(dubot, "bullet") == 1850
+    crazy = {**dubot, "blitz": {"rating": 2433, "rd": 80, "games": 40}, "bullet": {"rating": 2403, "rd": 60, "games": 90}}
     assert lichess_bot.reference_rating(crazy, "bullet") == 2403  # déjà jouée : son propre classement
+    assert lichess_bot.reference_rating(crazy, "classical") == 2403  # jamais jouée : le plus sûr (rd 60)
     assert lichess_bot.reference_rating({**dubot, "rapid": unplayed}, "blitz") == 2000
-    assert lichess_bot.reference_rating(crazy, "rapid") == 2590
+
+
+def test_a_provisional_rating_counts_at_most_the_default():
+    """CapaBot, nuit du 12 novembre : 5 victoires contre un joueur à 1705 en rapide, classement provisoire
+    à 3005, puis 8 défis perdus contre des moteurs à 2700-3000."""
+    unplayed = {"rating": 3000, "rd": 500, "games": 0, "prov": True}
+    capabot = {"bullet": unplayed, "blitz": unplayed, "classical": unplayed,
+               "rapid": {"rating": 3005, "rd": 250, "games": 5, "prov": True}}
+    assert lichess_bot.reference_rating(capabot, "bullet") == 2000
+    assert lichess_bot.reference_rating(capabot, "rapid") == 2000
+    assert lichess_bot.reference_rating({**capabot, "bullet": {"rating": 2529, "rd": 200, "games": 4}}, "bullet") == 2000
+    beaten = {**capabot, "bullet": {"rating": 1809, "rd": 180, "games": 4, "prov": True}}
+    assert lichess_bot.reference_rating(beaten, "bullet") == 1809  # à la baisse, on le suit
+
 
 
 @pytest.mark.parametrize("meanwhile", ["human_started", "human_accepted", "drain"])
