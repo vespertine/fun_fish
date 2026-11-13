@@ -104,12 +104,13 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   minutes pour qu'il enchaîne ; le même bot au plus toutes les deux heures ; jusqu'à 10+0 ; et jamais
   deux parties contre des bots en même temps, tous nos comptes réunis (marqueurs dans `BOT_GAMES_DIR`).
   Le journal note la cadence de chaque défi, accepté ou refusé.
-- **La recherche d'adversaires (`--matchmaking`, activée dans les trois services) :** un compte libre
+- **La recherche d'adversaires (`--matchmaking`, activée dans les quatre services) :** un compte libre
   depuis 10 minutes défie un bot en ligne de niveau proche (±250), dans la cadence où son classement
   est le plus incertain, pour le stabiliser face à des adversaires variés. Mêmes règles que les défis
   reçus (place commune, pauses, même bot espacé), plus 5 minutes entre deux défis lancés par nos
   comptes réunis ; jamais l'un de nos bots, ni un bot qui a refusé depuis moins d'un jour. Un humain
-  qui arrive passe devant : notre défi en attente est annulé (`seek`, `MATCH_*`).
+  qui arrive passe devant : notre défi en attente est annulé. La recherche s'arrête quand le bullet et
+  le blitz ont un rd d'au plus 75 (classement établi), et reprend si le rd remonte (`seek`, `MATCH_*`).
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans

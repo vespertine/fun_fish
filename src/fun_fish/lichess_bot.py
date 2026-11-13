@@ -56,6 +56,7 @@ MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
 OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot"}
+MATCH_STABLE_RD = 75  # bullet et blitz sous ce rd : classement établi, on ne cherche plus de bots
 MATCH_DEFAULT = 2000  # classement de référence d'un compte qui n'a encore joué aucune partie
 
 
@@ -441,6 +442,7 @@ class Bot:
         self.outgoing: tuple[str, float, str] | None = None
         self.early_drops: dict[str, bool] = {}
         self.declined: dict[str, float] = {}
+        self.rating_stable = False  # dernier état annoncé de la recherche (voir seek)
         self.idle_since = time.monotonic()
         # Défis acceptés dont la partie n'a pas commencé : None tant que le POST d'acceptation est en
         # cours (il peut durer : 429, réseau), puis l'heure de sa réponse.
@@ -657,6 +659,14 @@ class Bot:
                 return None
         perfs = self.api.get("/api/account").get("perfs", {})
         speed = max(MATCH_CLOCKS, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()))
+        # La recherche sert à établir le classement, pas à le faire baisser indéfiniment contre des moteurs :
+        # elle s'arrête quand toutes ses cadences sont sûres, et reprend si le rd remonte (inactivité).
+        stable = perfs.get(speed, {}).get("rd", 500) <= MATCH_STABLE_RD
+        if stable != self.rating_stable:
+            self.rating_stable = stable
+            log("classement établi : plus de recherche d'adversaires" if stable else "recherche d'adversaires active")
+        if stable:
+            return None
         rating = reference_rating(perfs, speed)
 
         def fits(bot: dict) -> bool:

@@ -554,6 +554,19 @@ def test_seeks_a_bot_only_after_ten_idle_minutes(monkeypatch, bot_games_dir):
     assert (bot_games_dir / "funfishbot--m1").exists()  # la place commune est prise
 
 
+def test_seek_stops_once_the_rating_is_established(monkeypatch, bot_games_dir, capsys):
+    """Les bots servent à établir le classement ; une fois bullet et blitz sûrs, plus de recherche."""
+    stable = {"bullet": {"rating": 1800, "rd": 70, "games": 40}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=stable)
+    now[0] += 600
+    assert bot.seek() is None and bot.api.created == []
+    assert bot.seek() is None
+    assert capsys.readouterr().out.count("classement établi") == 1  # annoncé une fois, pas à chaque examen
+    stable["blitz"]["rd"] = 90  # le rd remonte (inactivité) : la recherche reprend, en blitz
+    assert bot.seek() == "m1" and bot.api.created[0][1]["clock.limit"] in (180, 300)
+    assert "recherche d'adversaires active" in capsys.readouterr().out
+
+
 def test_seek_picks_only_suitable_opponents(monkeypatch, tmp_path):
     monkeypatch.setattr(lichess_bot, "BLOCKED_PATH", tmp_path / "blocked")
     (tmp_path / "blocked").write_text("tricheur\n")
