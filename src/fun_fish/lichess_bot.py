@@ -331,9 +331,9 @@ class BotGame(threading.Thread):
                              "winner": state.get("winner")}
         export["chat"] = None  # lu à part : une lecture lente ne doit pas retarder la libération de la place
         path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
-        with gzip.open(path, "wt", encoding="utf-8") as f:
-            json.dump(export, f, ensure_ascii=False)
+        write_export(path, export)
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
+        self.chat_lock = threading.Lock()  # la lecture immédiate et la relecture tardive n'écrivent pas ensemble
         self.chat_now = threading.Thread(target=self.late_chat, args=(path, export, False), daemon=True)
         self.chat_now.start()
         later = threading.Timer(CHAT_LATE, self.late_chat, (path, export))  # le « gg » vient souvent après
@@ -358,14 +358,26 @@ class BotGame(threading.Thread):
 
     def _late_chat(self, path, export: dict, announce: bool) -> None:
         chat = self.chat()
-        if chat is None or chat == export.get("chat"):
-            return
-        for line in chat[len(export.get("chat") or []):] if announce else ():
+        with self.chat_lock:
+            if chat is None or chat == export.get("chat"):
+                return
+            write_export(path, {**export, "chat": chat})  # en cas d'échec, l'export et son chat restent tels quels
+            new, export["chat"] = chat[len(export.get("chat") or []):], chat
+        for line in new if announce else ():
             if line.get("user", "").lower() != self.bot.me:
                 log(self.id, "chat de", line.get("user", "?"), "(après la partie) :", line.get("text", ""))
-        export["chat"] = chat
-        with gzip.open(path, "wt", encoding="utf-8") as f:
+
+
+def write_export(path, export: dict) -> None:
+    """Écrit l'export d'une partie d'un coup : fichier voisin, puis remplacement. Une écriture qui échoue
+    (disque plein…) laisse l'ancienne version intacte."""
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        with gzip.open(tmp, "wt", encoding="utf-8") as f:
             json.dump(export, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def blocked_players() -> set[str]:

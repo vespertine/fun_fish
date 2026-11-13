@@ -99,6 +99,19 @@ def test_the_game_chat_is_kept_with_the_export(tmp_path, monkeypatch, capsys):
     game.late_chat(path, export)  # injoignable : l'export reste tel quel
     assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"
 
+    def disk_full(obj, f, **kw):  # Codex, PR #32 : écriture interrompue au milieu
+        f.write('{"format": ')
+        raise OSError(28, "No space left on device")
+    api.get = lambda p: list(api.chat)
+    api.chat.append({"user": "x", "text": "merci !"})
+    monkeypatch.setattr(lichess_bot.json, "dump", disk_full)
+    game.late_chat(path, export)
+    monkeypatch.undo()
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "gg, bot sympa"  # l'ancienne version, intacte
+    assert list(tmp_path.glob("*.tmp")) == []
+    game.late_chat(path, export)  # écritures rétablies : la relecture suivante répare
+    assert json.load(gzip.open(path))["chat"][-1]["text"] == "merci !"
+
 
 def test_a_slow_chat_does_not_hold_the_place(tmp_path, monkeypatch):
     """Codex, PR #32 : le chat est lu hors du fil de la partie ; la place est libérée et l'export écrit
