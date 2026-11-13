@@ -1071,3 +1071,42 @@ def test_deeper_endgame_traps_only_when_the_clock_allows(tmp_path, monkeypatch, 
     lichess_bot.BotGame(FakeBot(ClockApi(), stockfish_path), "abc").run()
     assert [a.endgame_attack_depth for a in agents] == [10 if calm else 0]
     assert lichess_bot.calm_clock(clock) is calm
+
+
+class SilentApi(FakeApi):
+    """Partie fJqf4pDw : le bot (Blancs) joue 1.e4, l'adversaire ne joue jamais ; Lichess garde la partie ouverte."""
+
+    def stream(self, path):
+        yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"}, "black": {"id": "x", "name": "x"},
+               "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+        first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1]
+        deadline = time.monotonic() + 5
+        while not any(p.endswith("/abort") for p in self.posts):  # flux muet (keep-alive seulement)
+            assert time.monotonic() < deadline, "partie jamais annulée"
+            time.sleep(0.01)
+        yield {"type": "gameState", "moves": first, "status": "aborted"}
+
+
+class SlowApi(FakeApi):
+    """L'adversaire répond 1...e5, puis réfléchit longtemps : une partie commencée, à ne pas annuler."""
+
+    def stream(self, path):
+        for event in super().stream(path):
+            if event.get("status") == "resign":
+                time.sleep(0.6)  # au-delà du délai
+            yield event
+
+
+@pytest.mark.parametrize("api, aborted", [(SilentApi, True), (SlowApi, False)])
+def test_a_game_the_opponent_never_starts_is_aborted(tmp_path, monkeypatch, api, aborted):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "NO_START", 0.3)
+    api = api()
+    bot = FakeBot(api, stockfish_path)
+    lichess_bot.BotGame(bot, "abc").run()
+    assert sum(p.endswith("/abort") for p in api.posts) == (1 if aborted else 0)
+    assert bot.done == ["abc"]

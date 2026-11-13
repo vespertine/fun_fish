@@ -77,6 +77,7 @@ def reference_rating(perfs: dict, speed: str) -> int:
     played = [v for k, v in perfs.items() if k in ("bullet", "blitz", "rapid", "classical") and v.get("games", 0)]
     return value(min(played, key=lambda v: v.get("rd", 500))) if played else MATCH_DEFAULT
 PROVISIONAL_RD = 110  # au-delà, Lichess affiche le classement comme provisoire (« ? »)
+NO_START = 60  # s : sans premier coup de l'adversaire, on annule la partie (Lichess la laisse ouverte)
 CHAT_LATE = 120  # s : on relit le chat de la partie après sa fin, pour les messages d'adieu
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 CALM_CLOCK_MS = 300_000  # sans incrément, en dessous de 5 min de base, pas de pièges calculés plus loin en finale
@@ -251,6 +252,9 @@ class BotGame(threading.Thread):
         super().__init__(daemon=True, name=f"partie-{game_id}")
         self.bot, self.id = bot, game_id
         self.over = False  # fin confirmée par Lichess (et non flux coupé ou erreur)
+        self.started = threading.Event()  # l'adversaire a joué au moins un coup
+        self.watchdog = threading.Timer(NO_START, self.no_start)  # partie fJqf4pDw : 1 h bloquée après 1.e4
+        self.watchdog.daemon = True
 
     def run(self) -> None:
         from fun_fish.analysis import Analyser
@@ -262,7 +266,19 @@ class BotGame(threading.Thread):
         except Exception as exc:  # une partie qui plante ne doit pas arrêter le bot
             log(self.id, "erreur", repr(exc))
         finally:
+            self.watchdog.cancel()
             self.bot.finished(self.id, self.over)
+
+    def wait_first_move(self) -> None:
+        """Lance le compte à rebours dès que c'est à l'adversaire de jouer son premier coup (une seule fois)."""
+        if self.watchdog.ident is None:
+            self.watchdog.start()
+
+    def no_start(self) -> None:
+        """L'adversaire n'a toujours pas joué son premier coup : on annule, et la place se libère."""
+        if not self.started.is_set():
+            log(self.id, f"pas de premier coup de l'adversaire en {NO_START} s : partie annulée")
+            self.bot.api.post(f"/api/bot/game/{self.id}/abort", quick=True)
 
     def play(self, analyser, Game) -> None:
         from fun_fish import personalities
@@ -300,6 +316,10 @@ class BotGame(threading.Thread):
             moves = state.get("moves", "").split()
             for uci in moves[len(game.board.move_stack):]:  # rattrape les coups (reconnexion comprise)
                 game.board.push_uci(uci)
+            if len(moves) >= (2 if ours == chess.WHITE else 1):
+                self.started.set()  # l'adversaire a joué : plus d'annulation automatique
+            elif game.board.turn != ours:
+                self.wait_first_move()
             if state.get("status", "started") != "started":
                 self.over = True
                 self.save(game, state, analyser)
@@ -330,7 +350,9 @@ class BotGame(threading.Thread):
                 suffix = "?offeringDraw=true" if offering else ""
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):
                     game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état
-                elif offering:
+                elif not self.started.is_set():
+                    self.wait_first_move()
+                if offering and game.board.turn != ours:
                     log(self.id, "propose la nulle (position bloquée)")
                     for text in DRAW_OFFER:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
