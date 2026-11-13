@@ -78,6 +78,7 @@ def reference_rating(perfs: dict, speed: str) -> int:
     return value(min(played, key=lambda v: v.get("rd", 500))) if played else MATCH_DEFAULT
 PROVISIONAL_RD = 110  # au-delà, Lichess affiche le classement comme provisoire (« ? »)
 NO_START = 60  # s : sans premier coup de l'adversaire, on annule la partie (Lichess la laisse ouverte)
+NO_START_RETRY = 15  # s : nouvel essai si l'annulation échoue (429, délai dépassé)
 CHAT_LATE = 120  # s : on relit le chat de la partie après sa fin, pour les messages d'adieu
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 CALM_CLOCK_MS = 300_000  # sans incrément, en dessous de 5 min de base, pas de pièges calculés plus loin en finale
@@ -253,6 +254,7 @@ class BotGame(threading.Thread):
         self.bot, self.id = bot, game_id
         self.over = False  # fin confirmée par Lichess (et non flux coupé ou erreur)
         self.started = threading.Event()  # l'adversaire a joué au moins un coup
+        self.ended = threading.Event()  # fil de partie terminé : plus aucune annulation
         self.watchdog = threading.Timer(NO_START, self.no_start)  # partie fJqf4pDw : 1 h bloquée après 1.e4
         self.watchdog.daemon = True
 
@@ -266,6 +268,7 @@ class BotGame(threading.Thread):
         except Exception as exc:  # une partie qui plante ne doit pas arrêter le bot
             log(self.id, "erreur", repr(exc))
         finally:
+            self.ended.set()
             self.watchdog.cancel()
             self.bot.finished(self.id, self.over)
 
@@ -276,9 +279,13 @@ class BotGame(threading.Thread):
 
     def no_start(self) -> None:
         """L'adversaire n'a toujours pas joué son premier coup : on annule, et la place se libère."""
-        if not self.started.is_set():
-            log(self.id, f"pas de premier coup de l'adversaire en {NO_START} s : partie annulée")
-            self.bot.api.post(f"/api/bot/game/{self.id}/abort", quick=True)
+        if self.started.is_set() or self.ended.is_set():
+            return
+        log(self.id, f"pas de premier coup de l'adversaire en {NO_START} s : partie annulée")
+        if not self.bot.api.post(f"/api/bot/game/{self.id}/abort", quick=True) and not self.ended.is_set():
+            self.watchdog = threading.Timer(NO_START_RETRY, self.no_start)  # sinon la place resterait prise
+            self.watchdog.daemon = True
+            self.watchdog.start()
 
     def play(self, analyser, Game) -> None:
         from fun_fish import personalities

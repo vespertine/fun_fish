@@ -1110,3 +1110,27 @@ def test_a_game_the_opponent_never_starts_is_aborted(tmp_path, monkeypatch, api,
     lichess_bot.BotGame(bot, "abc").run()
     assert sum(p.endswith("/abort") for p in api.posts) == (1 if aborted else 0)
     assert bot.done == ["abc"]
+
+
+def test_a_failed_abort_is_tried_again(tmp_path, monkeypatch):
+    """Revue Codex (#37) : un 429 ou un délai dépassé sur l'annulation ne doit pas laisser la partie bloquée."""
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "NO_START", 0.2)
+    monkeypatch.setattr(lichess_bot, "NO_START_RETRY", 0.1)
+
+    class FlakyAbortApi(SilentApi):
+        failures = 2
+
+        def post(self, path, data=None, quick=False):
+            if path.endswith("/abort") and self.failures:
+                self.failures -= 1
+                self.posts.append(path + " (échec)")
+                return False
+            return super().post(path, data, quick)
+    api = FlakyAbortApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert [p for p in api.posts if "abort" in p] == ["/api/bot/game/abc/abort (échec)"] * 2 + ["/api/bot/game/abc/abort"]
