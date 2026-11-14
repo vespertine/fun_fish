@@ -56,7 +56,7 @@ MATCH_RANGE = 250  # points de classement
 MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
-OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot"}
+OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot", "sharpdubot"}
 # Les parties contre des bots sont amicales, dans les deux sens (défis lancés, défis reçus).
 # L'échelle des bots sur Lichess n'a rien à voir avec celle des humains (des moteurs classés 1850 jouent
 # à 96 % de précision) : un classement fait contre eux tromperait les humains qui nous choisissent.
@@ -104,6 +104,8 @@ GREETINGS = {"crazy_fish": ("Salut à vous ! Je suis Crazy Fish : mes cavaliers 
                             "Well met! I am Crazy Fish: my knights roam where fancy leads, and reason follows… sometimes. Have fun!"),
              "dubot": ("Bonjour ! Je suis DuBot : je cherche les positions où ça brûle, quitte à y laisser un pion ou deux.",
                        "Hi! I'm DuBot: I go looking for positions on fire, even if it costs me a pawn or two. Have fun!"),
+             "dubot_v2": ("Bonjour ! Je suis SharpDuBot : j'attaque toujours, mais je garde mes pions pour le coup qui compte.",
+                          "Hi! I'm SharpDuBot: always on the attack, but I save my pawns for the blow that counts. Have fun!"),
              "capabot": ("Bonjour ! Je suis CapaBot : des positions claires, des pièces bien placées, et la patience d'attendre.",
                          "Hi! I'm CapaBot: clear positions, well-placed pieces, and all the patience in the world. Have fun!")}
 

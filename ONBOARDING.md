@@ -97,17 +97,18 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 
 ## Le bot Lichess et le serveur
 
-- **Les comptes :** quatre comptes BOT, un service chacun : [FunFishBot](https://lichess.org/@/FunFishBot)
+- **Les comptes :** cinq comptes BOT, un service chacun : [FunFishBot](https://lichess.org/@/FunFishBot)
   (Fun Fish 2 + théorie), [CrazyFishBot](https://lichess.org/@/CrazyFishBot) (`crazy_fish`),
   [DuBot](https://lichess.org/@/DuBot) (`dubot`, goût des positions d'attaque) et
-  [CapaBot](https://lichess.org/@/CapaBot) (`capabot`, goût des positions solides).
+  [CapaBot](https://lichess.org/@/CapaBot) (`capabot`, goût des positions solides) et
+  [SharpDuBot](https://lichess.org/@/SharpDuBot) (`dubot_v2`, un DuBot plus sûr à l'ouverture).
 - **Les défis acceptés :** à partir de 2+1 et jusqu'à environ 15 minutes estimées (`decline_reason`).
   Les autres bots sont rationnés, pour laisser la place aux humains (voir `BOT_PAUSE`) : après une
   partie contre un bot, une pause de trois fois sa durée ; après une partie contre un humain, deux
   minutes pour qu'il enchaîne ; le même bot au plus toutes les deux heures ; jusqu'à 10+0 ; et jamais
   deux parties contre des bots en même temps, tous nos comptes réunis (marqueurs dans `BOT_GAMES_DIR`).
   Le journal note la cadence de chaque défi, accepté ou refusé.
-- **La recherche d'adversaires (`--matchmaking`, activée dans les quatre services) :** un compte libre
+- **La recherche d'adversaires (`--matchmaking`, activée dans tous les services) :** un compte libre
   depuis 10 minutes défie un bot en ligne de niveau proche (±250), dans la cadence où son classement
   est le plus incertain, pour le stabiliser face à des adversaires variés. Mêmes règles que les défis
   reçus (place commune, pauses, même bot espacé), plus 5 minutes entre deux défis lancés par nos

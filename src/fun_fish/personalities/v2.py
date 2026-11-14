@@ -33,7 +33,7 @@ class _V2(Theory):
 
 class DuBotV2(_V2, DuBot):
     key = "dubot_v2"
-    name = "DuBotV2"
+    name = "SharpDuBot"
     description = "DuBot plus robuste : un peu de théorie des maîtres d'attaque, des pièges pour joueurs plus forts."
     THEORY = {"theory_rate": 0.35, "theory_moves": 6, "theory_book": "attaque", "theory_mix": 0.5}
     OVERRIDES = {**DuBot.OVERRIDES, "opponent_elo": 1500, "tolerance": 200, "opening_tolerance": 100, "convert_from": 200,
