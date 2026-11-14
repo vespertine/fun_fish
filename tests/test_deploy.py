@@ -24,7 +24,8 @@ exec /usr/bin/install "${args[@]}"''',
     "git": r'''dir="${@: -1}"; mkdir -p "$dir/deploy" && echo "unit $STUB_TAG" > "$dir/deploy/fun-fish-bot.service" \
 && echo "crazy $STUB_TAG" > "$dir/deploy/fun-fish-crazy.service" \
 && echo "dubot $STUB_TAG" > "$dir/deploy/fun-fish-dubot.service" \
-&& echo "capabot $STUB_TAG" > "$dir/deploy/fun-fish-capabot.service"''',
+&& echo "capabot $STUB_TAG" > "$dir/deploy/fun-fish-capabot.service" \
+&& echo "sharpdubot $STUB_TAG" > "$dir/deploy/fun-fish-sharpdubot.service"''',
     # python3 -m venv DIR : un faux interpréteur, et des lanceurs (pip, puis fun-fish écrit par pip) dont
     # le shebang fige le chemin ABSOLU de l'interpréteur à la création, comme les vrais : un virtualenv
     # déplacé après coup ne démarre plus.
@@ -171,7 +172,7 @@ def test_second_bot_without_token_is_installed_but_not_started(server):
     assert "fun-fish-crazy" not in log and "pas encore de jeton" in result.stdout
 
 
-@pytest.mark.parametrize("bot", ["dubot", "capabot"])
+@pytest.mark.parametrize("bot", ["dubot", "capabot", "sharpdubot"])
 def test_style_bots_are_installed_and_only_started_with_their_token(server, bot):
     run, base, unit, config = server
     result, log = run()

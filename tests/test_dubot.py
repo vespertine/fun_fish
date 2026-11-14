@@ -54,7 +54,7 @@ def test_capabot_is_dubot_the_other_way_round(monkeypatch):
     assert chess.Move.from_uci("e2e4") not in style.reasons
 
 
-@pytest.mark.parametrize("key", ["dubot", "capabot"])
+@pytest.mark.parametrize("key", ["dubot", "capabot", "capabot_v2", "dubot_v2"])
 def test_lichess_bot_greets_as_itself(key):
     from fun_fish import lichess_bot
     assert all(personalities.PERSONALITIES[key].name in text for text in lichess_bot.GREETINGS[key])
