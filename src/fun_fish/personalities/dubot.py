@@ -1,8 +1,11 @@
 """DuBot : Fun Fish 2 attiré par les positions des joueurs d'attaque (voir `fun_fish.position_style`).
 
 Parmi les coups sains de Fun Fish 2 (pièges, arbre d'attaque et goûts compris), chacun reçoit
-`w_pos` × (logit « attaque » de la position d'arrivée − moyenne des candidats). Libre en ouverture :
-ni théorie ni répertoire, c'est le goût des positions qui choisit (il a retrouvé seul le gambit écossais).
+`w_pos` × (logit « attaque » de la position d'arrivée − moyenne des candidats). En ouverture, c'est
+surtout le goût des positions qui choisit (il a retrouvé seul le gambit écossais) ; pour varier ses
+parties (deux ou trois choix dominants par coup sur Lichess, faciles à « pêcher »), un peu de théorie
+(35 % des parties : arbre des maîtres d'attaque ou lignes de Fun Fish) et plus de hasard sur ses trois
+premiers coups (`opening_temperature` 1,6 au lieu de 0,8).
 
 Réglage `w_pos` 4 : le trait est forcé. Mesures de novembre 2026 (40 parties par série) : 99 % contre
 Maia 2000, mais 16 % contre Fun Fish 2 et 19 % contre Crazy Fish, qui ne tombent pas dans ses pièges ;
@@ -14,16 +17,18 @@ from __future__ import annotations
 
 from fun_fish import position_style
 from fun_fish.personalities.funfish import FunFish2
+from fun_fish.theory import Theory
 
 HELP = {"w_pos": "Positions : poids du goût (+ attaque, − solide)",
         "pos_from": "Positions : à partir de ce demi-coup"}
 
 
-class DuBot(FunFish2):
+class DuBot(Theory, FunFish2):
     key = "dubot"
     name = "DuBot"
     description = "Fun Fish 2 qui recherche les positions des joueurs d'attaque, quitte à y laisser des pions."
-    OVERRIDES = {"w_repertoire": 0}
+    OVERRIDES = {"w_repertoire": 0, "theory_rate": 0.35, "theory_moves": 6, "theory_book": "attaque", "theory_mix": 0.5,
+                 "opening_temperature": 1.6}
     EXTRA = {"w_pos": 4.0, "pos_from": 0}
 
     def __init__(self, **kwargs):

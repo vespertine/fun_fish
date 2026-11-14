@@ -120,3 +120,18 @@ def test_lichess_bot_stops_before_any_game_without_its_model(monkeypatch):
     args = cli.build_parser().parse_args(["lichess-bot", "-p", "dubot", "--token-file", "x"])
     with pytest.raises(SystemExit, match="modèle de style indisponible"):
         args.func(args)
+
+
+def test_dubot_varies_its_openings_and_capabot_v1_does_not_change():
+    dubot, capa = personalities.create("dubot"), personalities.create("capabot")
+    assert (dubot.theory_rate, dubot.theory_book, dubot.opening_temperature) == (0.35, "attaque", 1.6)
+    assert (capa.theory_rate, capa.opening_temperature) == (0, 0.8)
+    assert personalities.create("dubot_v2").opening_temperature == 0.8  # SharpDuBot ne change pas
+
+
+def test_capabot_v1_draws_nothing_for_theory():
+    import random
+    rng = random.Random(7)
+    capa = personalities.create("capabot", rng=rng)
+    state = rng.getstate()
+    assert capa.theory_move(chess.Board()) is None and rng.getstate() == state
