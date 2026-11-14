@@ -43,7 +43,7 @@ class DuBotV2(_V2, DuBot):
 
 class CapaBotV2(_V2, CapaBot):
     key = "capabot_v2"
-    name = "CapaBotV2"
+    name = "CapaBot"  # le compte Lichess CapaBot joue cette version depuis la 0.4.8
     description = "CapaBot plus exigeant : l'ouverture des maîtres positionnels, des pièges pour joueurs forts."
     THEORY = {"theory_rate": 0.35, "theory_moves": 6, "theory_book": "solide", "theory_mix": 1.0}
     OVERRIDES = {**CapaBot.OVERRIDES, "opponent_elo": 2000, "tolerance": 150, "opening_tolerance": 100, "convert_elo": 2000}

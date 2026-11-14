@@ -38,7 +38,7 @@ sudo systemctl enable --now fun-fish-bot   # activé : il revient après un red�
 `crazyfish_bot_token` et le service `fun-fish-crazy` (`sudo systemctl enable --now fun-fish-crazy`) (réglages en plus dans
 `/etc/default/fun-fish-crazy`).
 
-**Troisième et quatrième bots (DuBot, personnalité `dubot` ; CapaBot, `capabot`) :** fichiers `dubot_token` et
+**Troisième et quatrième bots (DuBot, personnalité `dubot` ; CapaBot, `capabot_v2` depuis la 0.4.8) :** fichiers `dubot_token` et
 `capabot_token`, services `fun-fish-dubot` et `fun-fish-capabot`. **Cinquième bot (SharpDuBot, `dubot_v2`) :**
 `sharpdubot_token`, service `fun-fish-sharpdubot`.
 Il lui faut en plus le modèle du goût des positions (`rapid_style.onnx`, 77 Mo, release

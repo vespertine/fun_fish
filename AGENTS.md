@@ -63,7 +63,7 @@ limités, ou un connecteur.
 
 - **Un seul bot par compte Lichess :** FunFishBot (systemd `fun-fish-bot`), CrazyFishBot
   (`fun-fish-crazy`, personnalité `crazy_fish`), DuBot (`fun-fish-dubot`), CapaBot
-  (`fun-fish-capabot`) et SharpDuBot (`fun-fish-sharpdubot`, personnalité `dubot_v2`) tournent sur le serveur, donc ne pas lancer
+  (`fun-fish-capabot`, personnalité `capabot_v2`) et SharpDuBot (`fun-fish-sharpdubot`, personnalité `dubot_v2`) tournent sur le serveur, donc ne pas lancer
   `fun-fish lichess-bot` en local, sauf accord explicite et après avoir arrêté le service.
 - **Accès :** `ssh -i ~/.ssh/vespertine -o IdentitiesOnly=yes $(cat ~/.config/fun_fish/server)`. L'adresse
   n'est pas versionnée (dépôt public). Lecture des
