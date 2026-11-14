@@ -253,7 +253,7 @@ class Theory:
         return own + super().param_specs()
 
     def theory_move(self, board: chess.Board) -> tuple[chess.Move, str] | None:
-        if board.root() != chess.Board():
+        if self.theory_rate <= 0 or board.root() != chess.Board():  # sans théorie : aucun tirage, le hasard reste intact
             return None
         played = tuple(board.move_stack)
         n = len(played)

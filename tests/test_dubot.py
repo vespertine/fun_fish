@@ -127,3 +127,11 @@ def test_dubot_varies_its_openings_and_capabot_v1_does_not_change():
     assert (dubot.theory_rate, dubot.theory_book, dubot.opening_temperature) == (0.35, "attaque", 1.6)
     assert (capa.theory_rate, capa.opening_temperature) == (0, 0.8)
     assert personalities.create("dubot_v2").opening_temperature == 0.8  # SharpDuBot ne change pas
+
+
+def test_capabot_v1_draws_nothing_for_theory():
+    import random
+    rng = random.Random(7)
+    capa = personalities.create("capabot", rng=rng)
+    state = rng.getstate()
+    assert capa.theory_move(chess.Board()) is None and rng.getstate() == state
