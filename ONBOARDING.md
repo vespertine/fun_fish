@@ -34,9 +34,9 @@ grossier. Sans `uv`, `make install`, puis `make test`, fonctionnent aussi.
 | `book.py` | Livre d'ouverture humain (base Lichess). Il remplace Maia sur les 10 premiers demi-coups. |
 | `opponent.py` | L'adversaire *imaginé* : Maia à `opponent_elo`, ou l'instinct naïf (`naive.py`). |
 | `personalities/` | Les joueurs. La chaîne principale est `attacker` (cogneur) → `romantic` → `corsair` → `buccaneer` (flibustier) → `funfish.py` (réglages figés). |
-| `position_style.py` | Le goût des positions : un classifieur (sur la représentation de Maia-2) qui reconnaît les positions des joueurs d'attaque et des joueurs solides. Utilisé par DuBot (`personalities/dubot.py`). |
+| `position_style.py` | Le goût des positions : un classifieur (sur la représentation de Maia-2) qui reconnaît les positions des joueurs d'attaque et des joueurs solides. Utilisé par DuBot (`personalities/dubot.py`). Leurs variantes plus robustes, DuBotV2 et CapaBotV2 (`personalities/v2.py`), imaginent un adversaire plus fort, tolèrent moins de pertes et jouent un peu de théorie de leurs maîtres ; en local : `fun-fish play --debug`. |
 | `style.py`, `fun.py` | Les goûts : développement, roi, sacrifices… (`style`) et l'« allure » des coups sans Stockfish (`fun`). |
-| `theory.py` | La surcouche « théorie » : quelques coups classiques en début de partie, avec des lignes et des poids écrits à la main. |
+| `theory.py` | La surcouche « théorie » : quelques coups classiques en début de partie, avec des lignes et des poids écrits à la main, ou tirés d'un arbre des maîtres-modèles (`data/books/`, construit par `scripts/model_books.py`). |
 | `pace.py` | La gestion du temps à la pendule : elle choisit le niveau d'`effort`. |
 | `game.py`, `server.py`, `static/` | Une partie, l'API web (FastAPI) et l'échiquier (chessground). |
 | `lichess_bot.py` | La passerelle avec l'API bot de Lichess (bibliothèque standard uniquement). |
