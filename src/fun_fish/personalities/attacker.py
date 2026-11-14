@@ -109,7 +109,7 @@ class Attacker(Personality):
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
         "panache": "Panache : gagnant, il cherche la manière plutôt que le matériel (0 = jamais ; 1 = en conversion complète, le gain ne compte plus et le style double)",
-        "opening_tolerance": "Ouverture (avant opening_plies) : perte admise en cp, si plus petite que tolerance (0 = tolerance)",
+        "opening_tolerance": "Ouverture (avant opening_plies) : perte admise en cp, plafonne aussi les coups fun et créatifs (0 = inactif)",
         "endgame_attack_depth": "Finale (au plus 6 pièces hors pions et rois), pendule non pressée : profondeur des pièges et attaques, si plus grande (0 = attack_depth)",
         "effort": "Pressé par la pendule : 0 = réflexion complète ; 1 à 5 = arbre d'attaque de plus en plus court (voir EFFORT)",
         "luxury_keep": "Luxe du gagnant : avance (cp) qu'il tient à garder en conversion",
@@ -462,7 +462,7 @@ class Attacker(Personality):
             saved.setdefault("attack_depth", self.attack_depth)
             self.attack_depth = self.endgame_attack_depth
         # Ouverture : les gambits douteux (Englund, Duras) coûtaient à DuBot la plupart de ses défaites contre les bots
-        if 0 < self.opening_tolerance < self.tolerance and board.ply() < self.opening_plies:
+        if self.opening_tolerance > 0 and board.ply() < self.opening_plies:
             for name in ("tolerance", "fun_budget", "creative_max"):  # coups fun et créatifs compris
                 if getattr(self, name, 0) > self.opening_tolerance:
                     saved.setdefault(name, getattr(self, name))

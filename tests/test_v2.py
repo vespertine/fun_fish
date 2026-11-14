@@ -31,6 +31,11 @@ def test_opening_tolerance_caps_fun_moves_too_then_restores(monkeypatch):
     assert seen == [(100, 100, 100), (200, 270, 120)]
     assert (bot.tolerance, bot.fun_budget, bot.creative_max) == (200, 270, 120)
 
+    seen.clear()  # même avec une tolérance déjà basse, les coups fun restent plafonnés
+    bot = personalities.create("dubot_v2", theory_rate=0, tolerance=100)
+    bot.choose_move(chess.Board(), None)
+    assert seen == [(100, 100, 100)]
+
 
 def test_the_model_book_only_holds_what_the_masters_played():
     board = chess.Board()
