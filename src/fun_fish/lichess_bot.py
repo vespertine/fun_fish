@@ -106,6 +106,8 @@ GREETINGS = {"crazy_fish": ("Salut à vous ! Je suis Crazy Fish : mes cavaliers 
                        "Hi! I'm DuBot: I go looking for positions on fire, even if it costs me a pawn or two. Have fun!"),
              "dubot_v2": ("Bonjour ! Je suis SharpDuBot : j'attaque toujours, mais je garde mes pions pour le coup qui compte.",
                           "Hi! I'm SharpDuBot: always on the attack, but I save my pawns for the blow that counts. Have fun!"),
+             "capabot":    ("Bonjour ! Je suis CapaBot V1 : des positions claires, des pièces bien placées, et la patience d'attendre.",
+                            "Hi! I'm CapaBot V1: clear positions, well-placed pieces, and all the patience in the world. Have fun!"),
              "capabot_v2": ("Bonjour ! Je suis CapaBot : des positions claires, des pièces bien placées, et la patience d'attendre.",
                             "Hi! I'm CapaBot: clear positions, well-placed pieces, and all the patience in the world. Have fun!")}
 
