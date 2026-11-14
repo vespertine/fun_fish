@@ -99,6 +99,13 @@ def test_api_settings_apply_and_retry(fake_analyser):
     assert client.post("/api/retry", json={}).status_code == 409
 
 
+def test_api_accepts_a_text_setting(fake_analyser):
+    client = TestClient(create_app(fake_analyser, debug=True))
+    state = client.post("/api/personality", json={"personality": "dubot_v2",
+                                                  "params": {"theory_book": "solide", "theory_mix": 1}}).json()
+    assert state["personality"]["params"]["theory_book"] == "solide"
+
+
 def test_create_casts_params_to_declared_types():
     p = personalities.create("hustler", tolerance=149.6, naivety="15")
     assert p.tolerance == 150 and isinstance(p.tolerance, int) and p.naivety == 15.0
