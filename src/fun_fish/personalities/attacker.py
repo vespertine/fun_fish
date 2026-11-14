@@ -109,6 +109,7 @@ class Attacker(Personality):
         "w_plan": "Plan : bonus pour poursuivre le scénario d'attaque prévu au coup précédent",
         "w_human": "Vision : goût pour les coups naturels, par unité de log-probabilité Maia (les coups forcés en sont exemptés)",
         "panache": "Panache : gagnant, il cherche la manière plutôt que le matériel (0 = jamais ; 1 = en conversion complète, le gain ne compte plus et le style double)",
+        "opening_tolerance": "Ouverture (avant opening_plies) : perte admise en cp, si plus petite que tolerance (0 = tolerance)",
         "endgame_attack_depth": "Finale (au plus 6 pièces hors pions et rois), pendule non pressée : profondeur des pièges et attaques, si plus grande (0 = attack_depth)",
         "effort": "Pressé par la pendule : 0 = réflexion complète ; 1 à 5 = arbre d'attaque de plus en plus court (voir EFFORT)",
         "luxury_keep": "Luxe du gagnant : avance (cp) qu'il tient à garder en conversion",
@@ -150,7 +151,7 @@ class Attacker(Personality):
                  impatience: float = 0.0, impatience_half: int = 20, w_plan: float = 0.0,
                  opening_temperature: float = 0.0, opening_plies: int = 6,
                  convert_elo: int = 0, w_repeat: float = 0.0, luxury_keep: int = 450, luxury_cap: int = 0,
-                 effort: int = 0, panache: float = 0.0, endgame_attack_depth: int = 0, mate_sure: int = 0, w_pretty: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
+                 effort: int = 0, panache: float = 0.0, endgame_attack_depth: int = 0, opening_tolerance: int = 0, mate_sure: int = 0, w_pretty: float = 0.0, instinct: float = 0.7, caution: float = 0.5, naivety: float = 60.0, **kwargs):
         super().__init__(**kwargs)
         self.opponent_elo = opponent_elo
         self.tolerance = tolerance
@@ -191,6 +192,7 @@ class Attacker(Personality):
         self.luxury_keep, self.luxury_cap = luxury_keep, luxury_cap
         self.effort = effort
         self.endgame_attack_depth = endgame_attack_depth
+        self.opening_tolerance = opening_tolerance
         self.panache = panache
         self.mate_sure, self.w_pretty = mate_sure, w_pretty
         self._degree = 0.0  # degré de conversion du coup en cours (0 : pas gagnant, 1 : conversion complète)
@@ -459,6 +461,12 @@ class Attacker(Personality):
         if self.effort == 0 and self.endgame_attack_depth > self.attack_depth and endgame(board):
             saved.setdefault("attack_depth", self.attack_depth)
             self.attack_depth = self.endgame_attack_depth
+        # Ouverture : les gambits douteux (Englund, Duras) coûtaient à DuBot la plupart de ses défaites contre les bots
+        if 0 < self.opening_tolerance < self.tolerance and board.ply() < self.opening_plies:
+            for name in ("tolerance", "fun_budget", "creative_max"):  # coups fun et créatifs compris
+                if getattr(self, name, 0) > self.opening_tolerance:
+                    saved.setdefault(name, getattr(self, name))
+                    setattr(self, name, self.opening_tolerance)
         try:
             return self._choose_move(board, analyser)
         finally:
