@@ -374,11 +374,14 @@ function renderParams(key, values) {
     const value = values?.[spec.name] ?? spec.default;
     const changed = value !== spec.default;
     row.innerHTML = `<span class="param-name${changed ? ' changed' : ''}">${spec.name}</span>`
-      + `<input type="number" step="${spec.type === 'int' ? 1 : 'any'}" data-name="${spec.name}"`
+      + (spec.type === 'str'
+        ? `<input type="text" data-name="${spec.name}" data-type="str"`
+        : `<input type="number" step="${spec.type === 'int' ? 1 : 'any'}" data-name="${spec.name}"`)
       + ` data-default="${spec.default}" value="${value}">`
       + `<span class="param-help">${spec.help}</span>`;
     row.querySelector('input').addEventListener('input', (e) => {
-      row.querySelector('.param-name').classList.toggle('changed', Number(e.target.value) !== spec.default);
+      const v = spec.type === 'str' ? e.target.value : Number(e.target.value);
+      row.querySelector('.param-name').classList.toggle('changed', v !== spec.default);
     });
     box.appendChild(row);
   }
@@ -388,7 +391,8 @@ function renderParams(key, values) {
 function readParams() {
   const params = {};
   for (const input of document.querySelectorAll('#params input')) {
-    if (input.value !== '') params[input.dataset.name] = Number(input.value);
+    if (input.dataset.type === 'str') params[input.dataset.name] = input.value;  // vide = pas d'arbre
+    else if (input.value !== '') params[input.dataset.name] = Number(input.value);
   }
   return params;
 }

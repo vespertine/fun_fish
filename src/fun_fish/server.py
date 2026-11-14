@@ -24,15 +24,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 class NewGameIn(BaseModel):
     personality: str = personalities.DEFAULT_PERSONALITY
     color: Literal["white", "black", "random"] = "white"
-    params: dict[str, float] = {}
+    params: dict[str, float | str] = {}  # str : nom d'un arbre d'ouverture (theory_book)
 
 
 class PersonalityIn(BaseModel):
     personality: str
-    params: dict[str, float] = {}
+    params: dict[str, float | str] = {}  # str : nom d'un arbre d'ouverture (theory_book)
 
 
-def _personality(key: str, params: dict[str, float]):
+def _personality(key: str, params: dict[str, float | str]):
     try:
         return personalities.create(key, **params)
     except ValueError as exc:
@@ -57,7 +57,7 @@ def create_app(analyser: Analyser, *, on_startup: Callable[[], None] | None = No
     first = personalities.DEFAULT_PERSONALITY if debug else personalities.PUBLIC_PERSONALITIES[0]
     session = {"game": Game(personalities.create(first))}
 
-    def chosen(key: str, params: dict[str, float]):
+    def chosen(key: str, params: dict[str, float | str]):
         if debug:
             return _personality(key, params)
         if key not in personalities.PUBLIC_PERSONALITIES:

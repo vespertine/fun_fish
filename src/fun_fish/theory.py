@@ -198,25 +198,58 @@ def strong_moves(board: chess.Board) -> dict[chess.Move, int]:
     return _dominant(board, counts)
 
 
+BOOKS_DIR = Path(__file__).parent / "data" / "books"
+BOOK_MIN = 3  # parties du maître-modèle dans la position, au moins, pour suivre son arbre
+_books: dict[str, dict] = {}
+
+
+def model_book(name: str) -> dict:
+    """Arbre d'ouvertures d'un groupe de maîtres-modèles (scripts/model_books.py) : epd -> coup uci -> parties."""
+    if name not in _books:
+        path = BOOKS_DIR / f"{name}.json.gz"
+        _books[name] = {}
+        if path.exists():
+            with gzip.open(path, "rt") as f:
+                _books[name] = json.load(f)["positions"]
+    return _books[name]
+
+
+def book_move(board: chess.Board, name: str, rng) -> chess.Move | None:
+    """Un coup des maîtres-modèles dans cette position, tiré selon leur fréquence (None hors de l'arbre)."""
+    counts = model_book(name).get(board.epd(), {})
+    legal = {m.uci(): m for m in board.legal_moves}
+    counts = {u: n for u, n in counts.items() if u in legal}
+    if sum(counts.values()) < BOOK_MIN:
+        return None
+    return legal[rng.choices(list(counts), weights=list(counts.values()))[0]]
+
+
 THEORY_HELP = {
     "theory_rate": "part des parties où il commence par quelques coups de théorie classique (0 : jamais)",
     "theory_moves": "au plus combien de ses coups suivent la théorie (tiré au sort de 1 à ce nombre à chaque partie)",
+    "theory_book": "arbre des maîtres-modèles (data/books : attaque, solide ; vide : aucun)",
+    "theory_mix": "dans les parties avec théorie, part où il suit l'arbre des maîtres-modèles plutôt que les lignes classiques",
 }
 
 
 class Theory:
     """À mettre en tête des bases d'une personnalité : elle joue d'abord quelques coups classiques."""
 
-    def __init__(self, theory_rate: float = 0.25, theory_moves: int = 4, **kwargs):
+    def __init__(self, theory_rate: float = 0.25, theory_moves: int = 4, theory_book: str = "", theory_mix: float = 0.0,
+                 **kwargs):
         super().__init__(**kwargs)
         self.theory_rate, self.theory_moves = theory_rate, theory_moves
+        self.theory_book, self.theory_mix = theory_book, theory_mix
+        self._from_book = False
         self._theory_left = 0
         self._theory_line: Opening | None = None
 
     @classmethod
     def param_specs(cls) -> list[dict]:
         own = [{"name": "theory_rate", "default": 0.25, "type": "float", "help": THEORY_HELP["theory_rate"]},
-               {"name": "theory_moves", "default": 4, "type": "int", "help": THEORY_HELP["theory_moves"]}]
+               {"name": "theory_moves", "default": 4, "type": "int", "help": THEORY_HELP["theory_moves"]},
+               {"name": "theory_book", "default": "", "type": "str", "help": THEORY_HELP["theory_book"]},
+               {"name": "theory_mix", "default": 0.0, "type": "float", "help": THEORY_HELP["theory_mix"]}]
         return own + super().param_specs()
 
     def theory_move(self, board: chess.Board) -> tuple[chess.Move, str] | None:
@@ -228,8 +261,16 @@ class Theory:
             self._theory_line = None
             active = self.rng.random() < self.theory_rate
             self._theory_left = self.rng.randint(1, max(1, self.theory_moves)) if active else 0
+            self._from_book = active and bool(self.theory_book) and self.rng.random() < self.theory_mix
         if self._theory_left <= 0:
             return None
+        if self._from_book:  # l'arbre des maîtres-modèles, tant qu'on y reste
+            move = book_move(board, self.theory_book, self.rng)
+            if move is None:
+                self._theory_left = 0
+                return None
+            self._theory_left -= 1
+            return move, "ouverture des maîtres-modèles"
 
         def fits(o: Opening) -> bool:
             return len(o.moves) > n and o.moves[:n] == played

@@ -17,8 +17,9 @@ from fun_fish.personalities.funfish import CrazyFish, FunFish, FunFish2, FunFish
 from fun_fish.personalities.hustler import Hustler
 from fun_fish.personalities.reference import Casual, PureStockfish
 from fun_fish.personalities.romantic import Romantic
+from fun_fish.personalities.v2 import CapaBotV2, DuBotV2
 
-PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, FunFish, FunFish2, FunFishTheory, FunFish2Theory, CrazyFish, DuBot, CapaBot, Ancien, Duo, Casual, PureStockfish)}
+PERSONALITIES: dict[str, type[Personality]] = {cls.key: cls for cls in (Blitz, Hustler, Attacker, Romantic, Corsair, Buccaneer, FunFish, FunFish2, FunFishTheory, FunFish2Theory, CrazyFish, DuBot, CapaBot, DuBotV2, CapaBotV2, Ancien, Duo, Casual, PureStockfish)}
 DEFAULT_PERSONALITY = Blitz.key
 # celles du mode jeu (sans leurs réglages), la première par défaut : celle du bot Lichess d'abord
 PUBLIC_PERSONALITIES = (FunFish2Theory.key, FunFish2.key, FunFish.key, CrazyFish.key)
@@ -35,7 +36,8 @@ def create(key: str, rng: random.Random | None = None, **params) -> Personality:
     if unknown:
         raise ValueError(f"Réglage inconnu pour {key} : {', '.join(sorted(unknown))}")
     try:
-        params = {k: int(round(float(v))) if types[k] == "int" else float(v) for k, v in params.items()}
+        params = {k: str(v) if types[k] == "str" else int(round(float(v))) if types[k] == "int" else float(v)
+                  for k, v in params.items()}
     except (TypeError, ValueError):
         raise ValueError(f"Valeur non numérique dans les réglages de {key}") from None
     try:
