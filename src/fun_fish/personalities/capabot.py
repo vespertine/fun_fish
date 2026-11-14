@@ -14,6 +14,6 @@ from fun_fish.personalities.dubot import DuBot
 class CapaBot(DuBot):
     key = "capabot"
     name = "CapaBot V1"
-    description = "Fun Fish 2 qui recherche les positions des joueurs solides : clair, patient, sans prise de risque."
+    description = "Fun Fish 2 qui recherche les positions des joueurs solides : clair, patient, avec de temps en temps un coup à la Fun Fish."
     OVERRIDES = {"w_repertoire": 0, "theory_rate": 0}  # la V1 telle qu'elle a joué sur Lichess
     EXTRA = {"w_pos": -4.0, "pos_from": 0}
