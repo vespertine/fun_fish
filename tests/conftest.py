@@ -47,3 +47,13 @@ def stockfish_analyser():
         pytest.skip("Stockfish absent (lancer `fun-fish stockfish` pour le télécharger)")
     with Analyser(path, threads=1, hash_mb=16) as analyser:
         yield analyser
+
+
+@pytest.fixture(autouse=True)
+def opponents_db(tmp_path, monkeypatch):
+    """Aucun test n'écrit dans la vraie mémoire des adversaires."""
+    from fun_fish import opponents
+
+    path = tmp_path / "opponents.db"
+    monkeypatch.setattr(opponents, "DB_PATH", path)
+    return path

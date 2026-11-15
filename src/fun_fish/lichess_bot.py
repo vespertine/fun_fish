@@ -13,6 +13,7 @@ import gzip
 import json
 import os
 import random
+import sqlite3
 import threading
 import time
 import urllib.error
@@ -21,6 +22,8 @@ import urllib.request
 from pathlib import Path
 
 import chess
+
+from fun_fish import opponents
 
 LICHESS = "https://lichess.org"
 TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
@@ -110,6 +113,11 @@ GREETINGS = {"crazy_fish": ("Salut à vous ! Je suis Crazy Fish : mes cavaliers 
                             "Hi! I'm CapaBot V1: clear positions, well-placed pieces, and all the patience in the world. Have fun!"),
              "capabot_v2": ("Bonjour ! Je suis CapaBot : des positions claires, des pièces bien placées… et, de temps en temps, une surprise.",
                             "Hi! I'm CapaBot: clear positions, well-placed pieces… and the occasional surprise. Have fun!")}
+
+
+def is_program(player: dict) -> bool:
+    """Un compte BOT ou l'IA de Lichess (pas d'accueil personnalisé, abandon plus tôt)."""
+    return player.get("title") == "BOT" or "aiLevel" in player
 
 
 def log(*parts) -> None:
@@ -339,7 +347,9 @@ class BotGame(threading.Thread):
                     agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
                 game = Game(agent, human_color=not ours)
                 opponent = event["black" if ours == chess.WHITE else "white"]
-                resigns = ResignSense(opponent.get("title") == "BOT" or "aiLevel" in opponent)
+                self.facts = {"opponent": opponent, "speed": event.get("speed"), "rated": event.get("rated"),
+                              "color": "white" if ours == chess.WHITE else "black"}
+                resigns = ResignSense(is_program(opponent))
                 log(self.id, "contre", opponent.get("name", "?"), opponent.get("rating", "?"),
                     "avec les", "Blancs" if ours == chess.WHITE else "Noirs")
                 state = event["state"]
@@ -352,7 +362,7 @@ class BotGame(threading.Thread):
             if game is None:
                 continue
             if not greeted:
-                for text in GREETINGS.get(self.bot.personality, GREETING):
+                for text in self.greeting():
                     api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text})
                 greeted = True
             moves = state.get("moves", "").split()
@@ -410,15 +420,47 @@ class BotGame(threading.Thread):
                     for text in DRAW_OFFER:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
 
+    def greeting(self) -> tuple[str, str]:
+        """L'accueil : celui de la personnalité, ou, pour un humain déjà rencontré par ce compte, des retrouvailles
+        avec le compteur (`opponents.welcome`). La base illisible ne coûte que l'accueil personnalisé."""
+        opponent = getattr(self, "facts", {}).get("opponent", {})
+        if opponent.get("id") and not is_program(opponent):
+            try:
+                past = opponents.history(self.bot.me, opponent["id"])
+                again = opponents.welcome(past)
+            except (sqlite3.Error, OSError) as exc:
+                log(self.id, "mémoire des adversaires illisible :", repr(exc))
+                again = None
+            if again:
+                log(self.id, f"accueil d'un habitué ({past.games} parties)")
+                return again
+        return GREETINGS.get(self.bot.personality, GREETING)
+
+    def remember(self, export: dict) -> None:
+        """Note la partie dans la mémoire des adversaires ; un échec ne coûte que cette ligne."""
+        facts, info = getattr(self, "facts", None), export["lichess"]
+        if not facts:
+            return
+        try:
+            name, title, program, rating = opponents.player(facts["opponent"])
+            their, mine = opponents.losses(export["moves"], facts["color"])
+            opponents.record(opponents.GameRecord(
+                self.id, self.bot.me, name, title, program, rating, facts["speed"], facts["rated"], facts["color"],
+                opponents.result_for(facts["color"], info["status"], info["winner"]), info["status"],
+                len(export["moves"]), time.time(), their, mine))
+        except (sqlite3.Error, OSError) as exc:
+            log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
+
     def save(self, game, state: dict, analyser) -> None:
         GAMES_DIR.mkdir(parents=True, exist_ok=True)
         export = game.debug_export(engine=analyser.engine_name)
         export["anomalies"] = getattr(game.personality, "anomalies", [])
         export["lichess"] = {"id": self.id, "url": f"{LICHESS}/{self.id}", "status": state.get("status"),
-                             "winner": state.get("winner")}
+                             "winner": state.get("winner"), **getattr(self, "facts", {})}
         export["chat"] = None  # lu à part : une lecture lente ne doit pas retarder la libération de la place
         path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
         write_export(path, export)
+        self.remember(export)
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
         self.chat_lock = threading.Lock()  # la lecture immédiate et la relecture tardive n'écrivent pas ensemble
         self.chat_now = threading.Thread(target=self.late_chat, args=(path, export, False), daemon=True)
