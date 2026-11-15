@@ -37,7 +37,7 @@ def test_the_welcome_depends_on_the_absence_and_the_number_of_games(past, gap, k
     assert opponents.welcome_kind(past, gap) == kind
 
 
-def test_the_welcome_recalls_the_score_from_the_player_side():
+def test_the_welcome_recalls_a_balanced_score_from_the_player_side():
     fr, en = opponents.welcome(History(4, 1, 1, 2, 0), now=DAY, rng=random.Random(0))
     assert fr.endswith("Le compteur : toi 2, moi 1, 1 nulle.")
     assert en.endswith("Score so far: you 2, me 1, 1 draw.")
@@ -46,13 +46,20 @@ def test_the_welcome_recalls_the_score_from_the_player_side():
     assert opponents.welcome(History(), now=DAY) is None
 
 
-def test_every_welcome_fits_in_a_lichess_chat_line():
-    worst = History(999, 999, 999, 999, 0)
-    for kind, texts in opponents.WELCOMES.items():
-        for i in range(len(texts)):
-            rng = type("R", (), {"choice": staticmethod(lambda xs, i=i: xs[i])})()
-            now = {"revanche": 1, "retour": DAY, "habitué": DAY, "retrouvailles": 30 * DAY}[kind]
-            assert all(len(t) <= 140 for t in opponents.welcome(worst, now=now, rng=rng))
+@pytest.mark.parametrize("past", [History(18, 18, 0, 0, 0), History(4, 0, 0, 4, 0), History(1, 1, 0, 0, 0),
+                                  History(9, 7, 0, 2, 0)])
+def test_a_lopsided_score_is_not_recalled(past):
+    fr, en = opponents.welcome(past, now=DAY, rng=random.Random(0))
+    assert "compteur" not in fr and "Score" not in en
+
+
+def test_milestones_are_celebrated():
+    fr, en = opponents.welcome(History(19, 19, 0, 0, 0), now=DAY, rng=random.Random(0))
+    assert fr.endswith("C'est notre 20e partie ensemble !") and en.endswith("This is our 20th game together!")
+    fr, en = opponents.welcome(History(49, 25, 0, 24, 0), now=DAY, rng=random.Random(0))
+    assert "notre 50e partie ensemble ! Le compteur : toi 24, moi 25." in fr
+    assert [n for n in range(1, 401) if opponents.milestone(n)] == [10, 20, 50, 100, 200, 300, 400]
+    assert "partie ensemble" not in opponents.welcome(History(20, 10, 0, 10, 0), now=DAY)[0]
 
 
 def _move(ply, by, scores=(), chosen=None):

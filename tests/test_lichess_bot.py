@@ -103,7 +103,7 @@ def test_a_returning_human_is_welcomed_back_and_every_game_is_remembered(tmp_pat
     api = ChatApi()
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()  # même id : la ligne est remplacée
     assert api.said[0].endswith("Le compteur : toi 0, moi 1, 1 nulle.")  # la partie d'il y a 1 jour, celle d'avant
-    assert api.said[1].endswith("Score so far: you 0, me 1, 1 draw.")
+    assert api.said[1].endswith("Score so far: you 0, me 1, 1 draw.")  # 1,5 point sur 2 : encore équilibré
 
 
 def test_an_unreadable_memory_only_costs_the_personal_welcome(tmp_path, monkeypatch, capsys):

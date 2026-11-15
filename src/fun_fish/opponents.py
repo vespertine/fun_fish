@@ -161,16 +161,35 @@ def welcome_kind(past: History, now: float) -> str | None:
     return "habitué" if past.games >= REGULAR else "retour"
 
 
+BALANCED = 0.25  # part des points du camp le moins heureux : en dessous, le compteur se tait (0-18 ne se rappelle pas)
+
+
+def milestone(games: int) -> bool:
+    """La partie qui commence est-elle un cap à fêter (10e, 20e, 50e, puis toutes les centaines) ?"""
+    return games in (10, 20, 50) or (games >= 100 and games % 100 == 0)
+
+
+def balanced(past: History) -> bool:
+    ours = past.wins + past.draws / 2
+    return min(ours, past.games - ours) >= BALANCED * past.games
+
+
 def welcome(past: History, now: float | None = None, rng: random.Random | None = None) -> tuple[str, str] | None:
-    """L'accueil (français, anglais) d'un humain déjà rencontré, avec le compteur ; None pour un inconnu."""
+    """L'accueil (français, anglais) d'un humain déjà rencontré ; None pour un inconnu. Le compteur s'y ajoute
+    s'il est assez équilibré, et le numéro de la partie si c'est un cap."""
     kind = welcome_kind(past, time.time() if now is None else now)
     if kind is None:
         return None
     fr, en = (rng or random).choice(WELCOMES[kind])
-    draws_fr = f", {past.draws} nulle{'s' if past.draws > 1 else ''}" if past.draws else ""
-    draws_en = f", {past.draws} draw{'s' if past.draws > 1 else ''}" if past.draws else ""
-    return (f"{fr} Le compteur : toi {past.losses}, moi {past.wins}{draws_fr}.",
-            f"{en} Score so far: you {past.losses}, me {past.wins}{draws_en}.")
+    n = past.games + 1
+    if milestone(n):
+        fr, en = f"{fr} C'est notre {n}e partie ensemble !", f"{en} This is our {n}th game together!"
+    if balanced(past):
+        draws_fr = f", {past.draws} nulle{'s' if past.draws > 1 else ''}" if past.draws else ""
+        draws_en = f", {past.draws} draw{'s' if past.draws > 1 else ''}" if past.draws else ""
+        fr, en = (f"{fr} Le compteur : toi {past.losses}, moi {past.wins}{draws_fr}.",
+                  f"{en} Score so far: you {past.losses}, me {past.wins}{draws_en}.")
+    return fr, en
 
 
 # Import de l'historique : les parties publiques de nos comptes, complétées par nos exports de debug.
