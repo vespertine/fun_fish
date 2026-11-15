@@ -118,6 +118,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   un défi classé d'un bot est refusé (« casual »). L'échelle des bots sur Lichess est sans rapport avec
   celle des humains (des moteurs classés 1850 jouent à 96 % de précision) : notre classement ne doit
   venir que des parties contre des humains.
+- **L'abandon (`ResignSense`) :** quand la position est perdue sans espoir (éval du meilleur candidat), le bot
+  abandonne avec un mot : à −10 pions trois coups de suite contre un bot, à −15 pions six coups de suite contre
+  un humain, jamais quand l'adversaire a moins de 30 s.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans

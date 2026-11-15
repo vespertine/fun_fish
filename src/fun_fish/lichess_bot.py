@@ -236,6 +236,32 @@ def dead_draw(board: chess.Board, analyser) -> bool:
     return bool(lines) and abs(lines[0].score) <= DRAW_SCORE
 
 
+# Abandon : position perdue sans espoir à chacun de nos derniers coups, selon l'éval du meilleur candidat
+# de la personnalité (filtre de sécurité, profondeur 6 en général). Plus vite contre un bot (il ne rate
+# pas un gain de 10 pions) que contre un humain, qui peut encore se tromper ; jamais quand l'adversaire risque de perdre au temps. Mesuré sur 425 parties
+# du serveur, avec cette même éval : -10 pions trois coups de suite aurait abandonné 127 des 145
+# défaites, et deux parties non perdues, toutes deux contre des bots qui jouent exprès des coups perdants.
+RESIGN_BOT = (1000, 3)  # (perte en cp, coups de suite)
+RESIGN_HUMAN = (1500, 6)
+RESIGN_THEIR_CLOCK = 30_000  # ms : en dessous, l'adversaire peut encore perdre au temps
+RESIGN_TEXT = ("Bien joué ! J'abandonne.", "Well played! I resign.")
+
+
+class ResignSense:
+    """Quand abandonner : la position est perdue à chacun de nos `streak` derniers coups."""
+
+    def __init__(self, against_bot: bool):
+        self.loss, self.needed = RESIGN_BOT if against_bot else RESIGN_HUMAN
+        self.streak = 0
+
+    def resign(self, score: int | None, their_clock: int) -> bool:
+        """À notre tour, `score` de notre point de vue (None : pas d'analyse, le compte reste)."""
+        if score is None:
+            return False  # jamais sans éval actuelle : l'adversaire a pu gaffer depuis
+        self.streak = self.streak + 1 if score <= -self.loss else 0
+        return self.streak >= self.needed and their_clock >= RESIGN_THEIR_CLOCK
+
+
 class DrawSense:
     """Quand proposer ou accepter la nulle (une seule proposition par tranche de 20 coups)."""
 
@@ -301,6 +327,7 @@ class BotGame(threading.Thread):
 
         api, game, ours, greeted, pace = self.bot.api, None, None, False, Pace()
         draws, answered = DrawSense(), None  # answered : nombre de coups au moment de la dernière offre traitée
+        resigns = None
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
@@ -312,6 +339,7 @@ class BotGame(threading.Thread):
                     agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
                 game = Game(agent, human_color=not ours)
                 opponent = event["black" if ours == chess.WHITE else "white"]
+                resigns = ResignSense(opponent.get("title") == "BOT" or "aiLevel" in opponent)
                 log(self.id, "contre", opponent.get("name", "?"), opponent.get("rating", "?"),
                     "avec les", "Blancs" if ours == chess.WHITE else "Noirs")
                 state = event["state"]
@@ -349,6 +377,7 @@ class BotGame(threading.Thread):
             if game.board.turn == ours and not game.over:
                 offering = clock >= 2 * LOW_CLOCK_MS and draws.offer(game.board, dead_draw(game.board, analyser))
                 increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
+                score = None  # notre éval, celle du choix du coup : aucune analyse en plus (elle changerait les coups)
                 if clock < LOW_CLOCK_MS:
                     move = analyser.analyse(game.board, multipv=1, depth=low_clock_depth(game.board))[0].move
                     game.board.push(move)
@@ -358,8 +387,18 @@ class BotGame(threading.Thread):
                     if hasattr(agent, "effort"):
                         agent.effort = effort
                     start = time.monotonic()
-                    move = game.play_engine(analyser).move
+                    decision = game.play_engine(analyser)
+                    move = decision.move
                     pace.observe(time.monotonic() - start, effort)
+                    score = max((c.score for c in decision.candidates), default=None)
+                their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
+                if resigns.resign(score, their):
+                    log(self.id, "abandonne (position perdue depuis", resigns.streak, "coups)")
+                    for text in RESIGN_TEXT:
+                        api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
+                    if api.post(f"/api/bot/game/{self.id}/resign", quick=True):
+                        game.retry()  # le coup prévu n'est pas joué : ni dans l'échiquier, ni dans l'export
+                        continue  # la fin arrive par le flux ; sinon, on joue le coup prévu
                 # la proposition de nulle voyage avec le coup (une seule requête) ; le message suit, sans le retarder
                 suffix = "?offeringDraw=true" if offering else ""
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):

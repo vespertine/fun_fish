@@ -1,3 +1,5 @@
+import gzip
+import json
 import os
 import time
 
@@ -1160,3 +1162,64 @@ def test_a_retry_never_starts_a_countdown_twice(monkeypatch):
     game.no_start()  # annulation refusée : un nouvel essai est programmé
     game.wait_first_move()  # le fil de partie traite ensuite un état de fin
     assert len(started) == 2 and started[1] is game.watchdog
+
+
+def test_resigns_only_after_a_streak_of_hopeless_positions():
+    bot = lichess_bot.ResignSense(against_bot=True)
+    assert not bot.resign(-1200, 60_000) and not bot.resign(-1200, 60_000)
+    assert bot.resign(None, 60_000) is False  # pas d'analyse : le compte ne bouge pas
+    assert bot.resign(-1200, 60_000)  # 3e coup perdu de suite
+    assert bot.resign(None, 60_000) is False  # même après une série : jamais sans éval actuelle
+    bot = lichess_bot.ResignSense(against_bot=True)
+    assert not any(bot.resign(s, 60_000) for s in (-1200, -1200, -300, -1200, -1200))  # un sursaut remet à zéro
+    assert not bot.resign(-1200, 10_000)  # l'adversaire peut encore perdre au temps
+    human = lichess_bot.ResignSense(against_bot=False)
+    assert not any(human.resign(-1200, 60_000) for _ in range(10))  # un humain peut encore se tromper
+    assert [human.resign(-99990, 60_000) for _ in range(6)][-1]
+
+
+class LostApi(FakeApi):
+    """Les Blancs (le bot) ont perdu leur dame : 1.e4 e5 2.Qh5 Nc6 3.Qxf7+ Kxf7, contre un bot."""
+
+    def stream(self, path):
+        moves = "e2e4 e7e5 d1h5 b8c6 h5f7 e8f7"
+        yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"},
+               "black": {"id": "x", "name": "x", "title": "BOT"},
+               "state": {"moves": moves, "status": "started", "wtime": 60000, "btime": 60000}}
+        yield {"type": "gameState", "moves": moves, "status": "resign", "winner": "black"}
+
+
+def test_resigns_a_lost_game_with_a_word(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "RESIGN_BOT", (500, 1))
+    api = LostApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert "/api/bot/game/abc/resign" in api.posts and not any("/move/" in p for p in api.posts)
+    export = json.loads(gzip.decompress(next(tmp_path.glob("*.json.gz")).read_bytes()))
+    assert len(export["moves"]) == 6  # le coup prévu, non joué, n'apparaît pas
+    assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.RESIGN_TEXT)  # accueil + adieu
+
+
+class LostRefusedApi(LostApi):
+    """Lichess refuse l'abandon (429…) : un seul essai court, puis le coup prévu."""
+
+    def post(self, path, data=None, quick=False):
+        self.posts.append((path, quick))
+        return not path.endswith("/resign")
+
+
+def test_a_refused_resignation_plays_the_move_without_waiting(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "RESIGN_BOT", (500, 1))
+    api = LostRefusedApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert ("/api/bot/game/abc/resign", True) in api.posts
+    assert any("/move/" in path for path, _ in api.posts)
