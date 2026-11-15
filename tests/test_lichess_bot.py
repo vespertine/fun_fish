@@ -697,6 +697,31 @@ def seeker(monkeypatch, online, now=None, me="funfishbot", **kw):
     return bot, now
 
 
+def test_stockfish_like_bots_are_rarely_picked(monkeypatch):
+    from fun_fish import opponents
+    for i in range(4):
+        opponents.record(opponents.GameRecord(f"s{i}", "dubot", "machine", "BOT", True, 2000, "blitz", False,
+                                              "white", "loss", "mate", 60, time.time() - 3600, 15.0, 15.0))
+    bot, _ = seeker(monkeypatch, [])
+    picks = [bot.pick(["machine", "nouveau"]) for _ in range(400)]
+    assert 10 <= picks.count("machine") <= 70  # poids 0,1 contre 1 : ~9 %
+
+
+def test_the_seek_draws_its_opponent_through_the_weighted_pick(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("a"), online_bot("b")])
+    seen = []
+    monkeypatch.setattr(bot, "pick", lambda names: seen.append(names) or "b")
+    now[0] += 600
+    assert bot.seek() == "m1" and seen == [["a", "b"]] and bot.api.created[0][0] == "b"
+
+
+def test_an_unreadable_memory_falls_back_to_a_uniform_pick(monkeypatch, tmp_path):
+    from fun_fish import opponents
+    monkeypatch.setattr(opponents, "DB_PATH", tmp_path)  # un dossier : base impossible à ouvrir
+    bot, _ = seeker(monkeypatch, [])
+    assert {bot.pick(["a", "b"]) for _ in range(50)} == {"a", "b"}
+
+
 def test_rated_challenges_from_bots_are_declined_casual_ones_accepted(monkeypatch):
     bot, _ = rationed_bot(monkeypatch)
     rated = {**challenge("bullet", 120, 1), "rated": True}

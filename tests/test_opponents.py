@@ -151,3 +151,44 @@ def test_several_bots_can_open_a_new_base_at_once(tmp_path):
             pool.map(_record_many, [(path, w) for w in range(5)])
             with opponents.connect(path) as con:
                 assert con.execute("SELECT count(*) FROM games").fetchone()[0] == 25
+
+
+def bot_game(game_id, opponent, result, days_ago, loss, now=1000 * DAY):
+    return rec(game_id, result, now - days_ago * DAY, opponent=opponent, bot=True, title="BOT", their_loss=loss)
+
+
+def test_bot_profiles_sort_out_stockfish_like_bots_from_interesting_ones():
+    now = 1000 * DAY
+    games = [("sf", "loss", 15), ("sf", "loss", 16), ("sf", "draw", 14), ("sf", "loss", None),
+             ("rival", "win", 30), ("rival", "loss", 35), ("rival", "draw", 28),
+             ("proie", "win", 80), ("proie", "win", 90), ("proie", "win", 70),
+             ("costaud", "loss", 35), ("costaud", "loss", 40), ("costaud", "loss", 30),
+             ("inconnu", "loss", 10), ("inconnu", "loss", 10)]
+    for i, (name, result, loss) in enumerate(games):
+        opponents.record(bot_game(f"g{i}", name, result, 1, loss))
+    opponents.record(rec("h", "loss", now, opponent="humain", their_loss=5))  # un humain n'a pas de profil
+    profiles = opponents.bot_profiles(now)
+    assert {n: p.kind for n, p in profiles.items()} == {
+        "sf": "stockfish", "rival": "disputé", "proie": "dominé", "costaud": "coriace", "inconnu": "nouveau"}
+    assert profiles["sf"].their_loss == pytest.approx(15.0) and profiles["sf"].score == pytest.approx(0.5 / 4)
+    assert profiles["sf"].interest < 1 < profiles["rival"].interest and profiles["proie"].interest == 1
+
+
+def test_an_updated_bot_sheds_its_old_profile():
+    """Lissage exponentiel : trois défaites d'il y a 4 mois pèsent moins que trois parties disputées récentes."""
+    now = 1000 * DAY
+    for i in range(3):
+        opponents.record(bot_game(f"old{i}", "maj", "loss", 120, 15))
+    assert opponents.bot_profiles(now - 119 * DAY)["maj"].kind == "stockfish"
+    for i, result in enumerate(["win", "draw", "loss"]):
+        opponents.record(bot_game(f"new{i}", "maj", result, 2, 40))
+    maj = opponents.bot_profiles(now)["maj"]
+    assert maj.kind == "disputé" and maj.games == pytest.approx(3 * 0.5 ** (2 / 30) + 3 * 0.5 ** 4)
+
+
+def test_one_old_measure_is_not_enough_to_call_a_bot_stockfish():
+    now = 1000 * DAY
+    opponents.record(bot_game("old", "x", "loss", 365, 15))
+    for i in range(3):
+        opponents.record(bot_game(f"new{i}", "x", "loss", 1, None))  # importées sans export : pas de mesure
+    assert opponents.bot_profiles(now)["x"].kind == "coriace"

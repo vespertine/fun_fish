@@ -348,10 +348,14 @@ def cmd_opponents(args: argparse.Namespace) -> None:
         accounts = args.account or sorted(lichess_bot.OUR_BOTS)
         print(opponents.import_history(accounts, lichess_bot.GAMES_DIR), "parties enregistrées")
         return
-    print(f"{'adversaire':<24} {'titre':<5} {'parties':>7} {'score':>6} {'perte adv.':>10} {'la nôtre':>8} {'coups':>6}")
-    for name, title, n, score, their, mine, plies, measured in opponents.report(bots=args.action == "bots"):
+    bots = args.action == "bots"
+    profiles = opponents.bot_profiles() if bots else {}
+    print(f"{'adversaire':<24} {'titre':<5} {'parties':>7} {'score':>6} {'perte adv.':>10} {'la nôtre':>8} {'coups':>6}"
+          + ("  profil (lissé)" if bots else ""))
+    for name, title, n, score, their, mine, plies, measured in opponents.report(bots=bots):
         cell = lambda v: "—" if v is None else v  # noqa: E731
         print(f"{name:<24} {title or '':<5} {n:>7} {cell(score):>5}% {cell(their):>10} {cell(mine):>8} {cell(plies):>6}"
+              + (f"  {profiles[name].kind} ×{profiles[name].interest:g}" if name in profiles else "")
               + (f"  ({measured} mesurées)" if measured < n else ""))
 
 

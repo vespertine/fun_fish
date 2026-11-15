@@ -839,6 +839,19 @@ class Bot:
         return (not self.games and not self.accepting_now() and self.outgoing is None
                 and not DRAIN_PATH.exists() and now >= self.bot_free_at and now - self.idle_since >= MATCH_IDLE)
 
+    def pick(self, candidates: list[str]) -> str:
+        """Tirage d'un adversaire, pondéré par l'intérêt de nos parties passées (`opponents.Profile`) : un bot
+        qui joue comme Stockfish revient rarement. Sans mémoire lisible, tirage uniforme."""
+        try:
+            profiles = opponents.bot_profiles()
+        except (sqlite3.Error, OSError) as exc:
+            log("mémoire des adversaires illisible, tirage uniforme :", repr(exc))
+            profiles = {}
+        profile = {name: profiles.get(name, opponents.Profile()) for name in candidates}
+        opponent = random.choices(candidates, [profile[name].interest for name in candidates])[0]
+        log(f"adversaire tiré : {opponent} ({profile[opponent].kind}, parmi {len(candidates)})")
+        return opponent
+
     def seek(self) -> str | None:
         """Recherche d'adversaires : lance un défi si le compte est libre depuis longtemps. Renvoie son id."""
         now = time.monotonic()
@@ -867,7 +880,7 @@ class Bot:
         if not candidates:
             log(f"recherche d'adversaire ({speed}, {rating}) : aucun bot disponible")
             return None
-        opponent = random.choice(candidates)
+        opponent = self.pick(candidates)
         now = time.monotonic()
         with self.lock:  # l'état a pu changer pendant les lectures (humain accepté, vidange) : on revérifie
             if not self.ready_to_seek(now):

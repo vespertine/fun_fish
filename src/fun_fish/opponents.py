@@ -270,6 +270,59 @@ def import_history(accounts, games_dir: Path, fetch=lichess_games, path: Path | 
     return count
 
 
+# Choix des bots à défier : le profil de chaque bot, tous nos comptes réunis, lissé dans le temps (une
+# partie pèse moitié moins tous les HALF_LIFE) pour suivre un bot mis à jour. Un bot qui joue comme
+# Stockfish (perte quasi nulle, et nous perdons) est presque écarté ; les parties disputées sont
+# préférées ; un bot que l'on domine garde sa place (il fait des parties, et plaît peut-être aux humains).
+HALF_LIFE = 30 * 86400  # s
+EVIDENCE = 2.5  # parties pondérées avant de juger un bot : environ trois parties récentes
+STOCKFISH_LOSS = 20.0  # cp par coup : à peu près le bruit de nos évals, celui d'un jeu parfait
+STOCKFISH_SCORE = 0.3  # notre score au plus
+DISPUTED = (0.25, 0.75)  # notre score
+INTEREST = {"stockfish": 0.1, "disputé": 1.5, "dominé": 1.0, "coriace": 1.0, "nouveau": 1.0}
+
+
+@dataclass
+class Profile:
+    games: float = 0.0  # pondérées par l'ancienneté
+    score: float | None = None  # le nôtre, de 0 à 1
+    their_loss: float | None = None
+    measured: float = 0.0  # poids des parties dont la perte est mesurée (un import sans export n'en a pas)
+
+    @property
+    def kind(self) -> str:
+        if self.games < EVIDENCE or self.score is None:
+            return "nouveau"
+        if (self.their_loss is not None and self.measured >= EVIDENCE  # pas sur une seule mesure ancienne
+                and self.their_loss <= STOCKFISH_LOSS and self.score <= STOCKFISH_SCORE):
+            return "stockfish"
+        if DISPUTED[0] <= self.score <= DISPUTED[1]:
+            return "disputé"
+        return "dominé" if self.score > DISPUTED[1] else "coriace"
+
+    @property
+    def interest(self) -> float:
+        return INTEREST[self.kind]
+
+
+def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str, Profile]:
+    now = time.time() if now is None else now
+    with connect(path) as con:
+        rows = con.execute("SELECT opponent, result, their_loss, ended_at FROM games "
+                           "WHERE bot = 1 AND result != 'aborted'").fetchall()
+    sums: dict[str, list[float]] = {}  # poids, points, poids mesuré, perte pondérée
+    for opponent, result, loss, ended_at in rows:
+        w = 0.5 ** (max(0.0, now - ended_at) / HALF_LIFE)
+        acc = sums.setdefault(opponent, [0.0, 0.0, 0.0, 0.0])
+        acc[0] += w
+        acc[1] += w * {"win": 1.0, "draw": 0.5}.get(result, 0.0)
+        if loss is not None:
+            acc[2] += w
+            acc[3] += w * loss
+    return {name: Profile(w, points / w, loss / measured if measured else None, measured)
+            for name, (w, points, measured, loss) in sums.items() if w > 0}
+
+
 def report(path: Path | None = None, bots: bool = True, limit: int = 40) -> list[tuple]:
     """Bilan par adversaire, tous nos comptes réunis : parties, score, perte moyenne, longueur."""
     with connect(path) as con:
