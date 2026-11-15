@@ -236,6 +236,32 @@ def dead_draw(board: chess.Board, analyser) -> bool:
     return bool(lines) and abs(lines[0].score) <= DRAW_SCORE
 
 
+# Abandon : position perdue sans espoir, à Stockfish profondeur RESIGN_DEPTH, à chacun de nos coups depuis
+# un certain nombre de coups. Plus vite contre un bot (il ne rate pas un gain de 10 pions) que contre un humain,
+# qui peut encore se tromper ; jamais quand l'adversaire risque de perdre au temps. Mesuré sur 425 parties
+# du serveur (éval du filtre à profondeur 6) : -10 pions trois coups de suite aurait abandonné 127 des 145
+# défaites, et deux parties non perdues, toutes deux contre des bots qui jouent exprès des coups perdants.
+RESIGN_DEPTH = 12
+RESIGN_BOT = (1000, 3)  # (perte en cp, coups de suite)
+RESIGN_HUMAN = (1500, 6)
+RESIGN_THEIR_CLOCK = 30_000  # ms : en dessous, l'adversaire peut encore perdre au temps
+RESIGN_TEXT = ("Bien joué ! J'abandonne.", "Well played! I resign.")
+
+
+class ResignSense:
+    """Quand abandonner : la position est perdue à chacun de nos `streak` derniers coups."""
+
+    def __init__(self, against_bot: bool):
+        self.loss, self.needed = RESIGN_BOT if against_bot else RESIGN_HUMAN
+        self.streak = 0
+
+    def resign(self, score: int | None, their_clock: int) -> bool:
+        """À notre tour, `score` de notre point de vue (None : pas d'analyse, le compte reste)."""
+        if score is not None:
+            self.streak = self.streak + 1 if score <= -self.loss else 0
+        return self.streak >= self.needed and their_clock >= RESIGN_THEIR_CLOCK
+
+
 class DrawSense:
     """Quand proposer ou accepter la nulle (une seule proposition par tranche de 20 coups)."""
 
@@ -301,6 +327,7 @@ class BotGame(threading.Thread):
 
         api, game, ours, greeted, pace = self.bot.api, None, None, False, Pace()
         draws, answered = DrawSense(), None  # answered : nombre de coups au moment de la dernière offre traitée
+        resigns = None
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
@@ -312,6 +339,7 @@ class BotGame(threading.Thread):
                     agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
                 game = Game(agent, human_color=not ours)
                 opponent = event["black" if ours == chess.WHITE else "white"]
+                resigns = ResignSense(opponent.get("title") == "BOT" or "aiLevel" in opponent)
                 log(self.id, "contre", opponent.get("name", "?"), opponent.get("rating", "?"),
                     "avec les", "Blancs" if ours == chess.WHITE else "Noirs")
                 state = event["state"]
@@ -347,6 +375,15 @@ class BotGame(threading.Thread):
                 if accept and api.post(f"/api/bot/game/{self.id}/draw/yes", quick=True):
                     continue
             if game.board.turn == ours and not game.over:
+                if clock >= 2 * LOW_CLOCK_MS and not game.board.is_game_over():
+                    lines = analyser.analyse(game.board, multipv=1, depth=RESIGN_DEPTH)
+                    their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
+                    if resigns.resign(lines[0].score if lines else None, their):
+                        log(self.id, "abandonne (position perdue depuis", resigns.streak, "coups)")
+                        for text in RESIGN_TEXT:
+                            api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
+                        if api.post(f"/api/bot/game/{self.id}/resign"):
+                            continue  # la fin arrive par le flux
                 offering = clock >= 2 * LOW_CLOCK_MS and draws.offer(game.board, dead_draw(game.board, analyser))
                 increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
                 if clock < LOW_CLOCK_MS:
