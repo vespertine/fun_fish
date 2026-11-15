@@ -1197,3 +1197,24 @@ def test_resigns_a_lost_game_with_a_word(tmp_path, monkeypatch):
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
     assert "/api/bot/game/abc/resign" in api.posts and not any("/move/" in p for p in api.posts)
     assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.RESIGN_TEXT)  # accueil + adieu
+
+
+class LostRefusedApi(LostApi):
+    """Lichess refuse l'abandon (429…) : un seul essai court, puis le coup prévu."""
+
+    def post(self, path, data=None, quick=False):
+        self.posts.append((path, quick))
+        return not path.endswith("/resign")
+
+
+def test_a_refused_resignation_plays_the_move_without_waiting(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "RESIGN_BOT", (500, 1))
+    api = LostRefusedApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert ("/api/bot/game/abc/resign", True) in api.posts
+    assert any("/move/" in path for path, _ in api.posts)

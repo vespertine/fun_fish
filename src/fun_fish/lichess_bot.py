@@ -236,12 +236,11 @@ def dead_draw(board: chess.Board, analyser) -> bool:
     return bool(lines) and abs(lines[0].score) <= DRAW_SCORE
 
 
-# Abandon : position perdue sans espoir, à Stockfish profondeur RESIGN_DEPTH, à chacun de nos coups depuis
-# un certain nombre de coups. Plus vite contre un bot (il ne rate pas un gain de 10 pions) que contre un humain,
-# qui peut encore se tromper ; jamais quand l'adversaire risque de perdre au temps. Mesuré sur 425 parties
-# du serveur (éval du filtre à profondeur 6) : -10 pions trois coups de suite aurait abandonné 127 des 145
+# Abandon : position perdue sans espoir à chacun de nos derniers coups, selon l'éval du meilleur candidat
+# de la personnalité (filtre de sécurité, profondeur 6 en général). Plus vite contre un bot (il ne rate
+# pas un gain de 10 pions) que contre un humain, qui peut encore se tromper ; jamais quand l'adversaire risque de perdre au temps. Mesuré sur 425 parties
+# du serveur, avec cette même éval : -10 pions trois coups de suite aurait abandonné 127 des 145
 # défaites, et deux parties non perdues, toutes deux contre des bots qui jouent exprès des coups perdants.
-RESIGN_DEPTH = 12
 RESIGN_BOT = (1000, 3)  # (perte en cp, coups de suite)
 RESIGN_HUMAN = (1500, 6)
 RESIGN_THEIR_CLOCK = 30_000  # ms : en dessous, l'adversaire peut encore perdre au temps
@@ -375,17 +374,9 @@ class BotGame(threading.Thread):
                 if accept and api.post(f"/api/bot/game/{self.id}/draw/yes", quick=True):
                     continue
             if game.board.turn == ours and not game.over:
-                if clock >= 2 * LOW_CLOCK_MS and not game.board.is_game_over():
-                    lines = analyser.analyse(game.board, multipv=1, depth=RESIGN_DEPTH)
-                    their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
-                    if resigns.resign(lines[0].score if lines else None, their):
-                        log(self.id, "abandonne (position perdue depuis", resigns.streak, "coups)")
-                        for text in RESIGN_TEXT:
-                            api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
-                        if api.post(f"/api/bot/game/{self.id}/resign"):
-                            continue  # la fin arrive par le flux
                 offering = clock >= 2 * LOW_CLOCK_MS and draws.offer(game.board, dead_draw(game.board, analyser))
                 increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
+                score = None  # notre éval, celle du choix du coup : aucune analyse en plus (elle changerait les coups)
                 if clock < LOW_CLOCK_MS:
                     move = analyser.analyse(game.board, multipv=1, depth=low_clock_depth(game.board))[0].move
                     game.board.push(move)
@@ -395,8 +386,17 @@ class BotGame(threading.Thread):
                     if hasattr(agent, "effort"):
                         agent.effort = effort
                     start = time.monotonic()
-                    move = game.play_engine(analyser).move
+                    decision = game.play_engine(analyser)
+                    move = decision.move
                     pace.observe(time.monotonic() - start, effort)
+                    score = max((c.score for c in decision.candidates), default=None)
+                their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
+                if resigns.resign(score, their):
+                    log(self.id, "abandonne (position perdue depuis", resigns.streak, "coups)")
+                    for text in RESIGN_TEXT:
+                        api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
+                    if api.post(f"/api/bot/game/{self.id}/resign", quick=True):
+                        continue  # la fin arrive par le flux ; sinon, on joue le coup prévu
                 # la proposition de nulle voyage avec le coup (une seule requête) ; le message suit, sans le retarder
                 suffix = "?offeringDraw=true" if offering else ""
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):
