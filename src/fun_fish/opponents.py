@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS games (
 );
 CREATE INDEX IF NOT EXISTS games_pair ON games (account, opponent, ended_at);
 """
+INIT_TRIES = 20
 EVAL_CAP = 1000  # cp : au-delà, la partie est jouée ; les écarts n'y veulent plus rien dire (convention de l'ACPL)
 
 
@@ -79,8 +80,15 @@ def connect(path: Path | None = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(path, timeout=10)
     try:
-        con.execute("PRAGMA journal_mode=WAL")
-        con.executescript(SCHEMA)
+        for attempt in range(INIT_TRIES):  # base neuve ouverte par plusieurs bots : le passage en WAL peut buter
+            try:
+                con.execute("PRAGMA journal_mode=WAL")
+                con.executescript(SCHEMA)
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc) or attempt == INIT_TRIES - 1:
+                    raise
+                time.sleep(0.05 * (attempt + 1) + random.random() * 0.05)
         with con:  # transaction : validée en sortie, annulée sur exception
             yield con
     finally:
@@ -88,11 +96,15 @@ def connect(path: Path | None = None):
 
 
 def record(game: GameRecord, path: Path | None = None) -> None:
-    """Enregistre une partie (la remplace si elle y est déjà : un import ne double rien)."""
+    """Enregistre une partie, ou la met à jour si elle y est déjà (un import ne double rien). Des mesures
+    absentes (import sans export de debug) ne remplacent pas celles déjà notées par le bot."""
     names = [f.name for f in fields(GameRecord)]
+    kept = {"their_loss", "our_loss"}
+    updates = ", ".join(f"{n} = coalesce(excluded.{n}, games.{n})" if n in kept else f"{n} = excluded.{n}"
+                        for n in names if n != "id")
     with connect(path) as con:
-        con.execute(f"INSERT OR REPLACE INTO games ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
-                    astuple(game))
+        con.execute(f"INSERT INTO games ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) "
+                    f"ON CONFLICT (id) DO UPDATE SET {updates}", astuple(game))
 
 
 def history(account: str, opponent: str, path: Path | None = None) -> History:
@@ -115,8 +127,8 @@ def losses(moves: list[dict], color: str) -> tuple[float | None, float | None]:
     """Pertes moyennes par coup (adversaire, nous), tirées des évals de nos propres coups, sans analyse en plus.
 
     À chacun de nos coups, l'export garde les candidats (évals du point de vue des Blancs) : le meilleur
-    donne l'éval de la position, le coup choisi celle d'après. L'adversaire a perdu ce qui sépare l'éval
-    après notre coup de celle de la position où nous rejouons ; nous, ce qui sépare le meilleur du choisi.
+    donne l'éval de la position, le coup choisi celle d'après. Les deux à notre point de vue : l'adversaire
+    a perdu ce dont notre éval a monté entre notre coup et le suivant ; nous, l'écart du meilleur au choisi.
     """
     sign = 1 if color == "white" else -1
     ours: dict[int, tuple[int, int]] = {}  # ply -> (meilleure éval, éval du coup choisi), pour nous
@@ -126,7 +138,7 @@ def losses(moves: list[dict], color: str) -> tuple[float | None, float | None]:
         if m.get("by") == "ai" and chosen:
             clip = lambda s: max(-EVAL_CAP, min(EVAL_CAP, sign * s))  # noqa: E731
             ours[m["ply"]] = (max(clip(c["score"]) for c in candidates), clip(chosen[0]))
-    their = [max(0, chosen - ours[ply + 2][0]) for ply, (_, chosen) in ours.items() if ply + 2 in ours]
+    their = [max(0, ours[ply + 2][0] - chosen) for ply, (_, chosen) in ours.items() if ply + 2 in ours]
     mine = [best - chosen for best, chosen in ours.values()]
     mean = lambda xs: round(sum(xs) / len(xs), 1) if xs else None  # noqa: E731
     return mean(their), mean(mine)
@@ -140,11 +152,10 @@ WELCOMES = {
     "revanche": [("On remet ça ? Avec plaisir !", "Another one? With pleasure!"),
                  ("Encore une ! Je replace les pièces.", "One more! Let me reset the pieces.")],
     "retrouvailles": [("Ça faisait longtemps ! Quel plaisir de te retrouver.", "It's been a while! So glad to see you again."),
-                      ("Te revoilà enfin ! Les pièces commençaient à prendre la poussière.",
-                       "There you are at last! The pieces were gathering dust.")],
+                      ("Te revoilà ! Les pièces prenaient la poussière.", "There you are at last! The pieces were gathering dust.")],
     "habitué": [("Tiens, qui voilà ! Toujours un plaisir de jouer avec toi.", "Look who's here! Always a pleasure to play you."),
                 ("Ah, un habitué ! Installe-toi, je replace les pièces.", "Ah, a regular! Have a seat, I'll set up the pieces."),
-                ("Content de te revoir, l'ami ! On reprend où on en était ?", "Good to see you again, friend! Shall we pick up where we left off?")],
+                ("Content de te revoir, l'ami ! On reprend où on en était ?", "Great to see you again, friend! Where were we?")],
     "retour": [("Re-bonjour !", "Welcome back!"),
                ("Content de te revoir !", "Good to see you again!")],
 }
@@ -161,6 +172,7 @@ def welcome_kind(past: History, now: float) -> str | None:
     return "habitué" if past.games >= REGULAR else "retour"
 
 
+CHAT_MAX = 140
 BALANCED = 0.25  # part des points du camp le moins heureux : en dessous, le compteur se tait (0-18 ne se rappelle pas)
 
 
@@ -180,16 +192,20 @@ def welcome(past: History, now: float | None = None, rng: random.Random | None =
     kind = welcome_kind(past, time.time() if now is None else now)
     if kind is None:
         return None
-    fr, en = (rng or random).choice(WELCOMES[kind])
+    lines = [(rng or random).choice(WELCOMES[kind])]
     n = past.games + 1
     if milestone(n):
-        fr, en = f"{fr} C'est notre {n}e partie ensemble !", f"{en} This is our {n}th game together!"
+        lines.append((f"C'est notre {n}e partie ensemble !", f"This is our {n}th game together!"))
     if balanced(past):
         draws_fr = f", {past.draws} nulle{'s' if past.draws > 1 else ''}" if past.draws else ""
         draws_en = f", {past.draws} draw{'s' if past.draws > 1 else ''}" if past.draws else ""
-        fr, en = (f"{fr} Le compteur : toi {past.losses}, moi {past.wins}{draws_fr}.",
-                  f"{en} Score so far: you {past.losses}, me {past.wins}{draws_en}.")
-    return fr, en
+        lines.append((f"Le compteur : toi {past.losses}, moi {past.wins}{draws_fr}.",
+                      f"Score so far: you {past.losses}, me {past.wins}{draws_en}."))
+    while True:  # 140 caractères au plus (Lichess refuse au-delà) : le compteur, puis le cap, cèdent la place
+        fr, en = (" ".join(part[i] for part in lines) for i in (0, 1))
+        if len(lines) == 1 or max(len(fr), len(en)) <= CHAT_MAX:
+            return fr, en
+        lines.pop()
 
 
 # Import de l'historique : les parties publiques de nos comptes, complétées par nos exports de debug.
