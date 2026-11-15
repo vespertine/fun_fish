@@ -184,3 +184,11 @@ def test_an_updated_bot_sheds_its_old_profile():
         opponents.record(bot_game(f"new{i}", "maj", result, 2, 40))
     maj = opponents.bot_profiles(now)["maj"]
     assert maj.kind == "disputé" and maj.games == pytest.approx(3 * 0.5 ** (2 / 30) + 3 * 0.5 ** 4)
+
+
+def test_one_old_measure_is_not_enough_to_call_a_bot_stockfish():
+    now = 1000 * DAY
+    opponents.record(bot_game("old", "x", "loss", 365, 15))
+    for i in range(3):
+        opponents.record(bot_game(f"new{i}", "x", "loss", 1, None))  # importées sans export : pas de mesure
+    assert opponents.bot_profiles(now)["x"].kind == "coriace"

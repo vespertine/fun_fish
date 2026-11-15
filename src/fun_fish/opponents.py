@@ -287,12 +287,14 @@ class Profile:
     games: float = 0.0  # pondérées par l'ancienneté
     score: float | None = None  # le nôtre, de 0 à 1
     their_loss: float | None = None
+    measured: float = 0.0  # poids des parties dont la perte est mesurée (un import sans export n'en a pas)
 
     @property
     def kind(self) -> str:
         if self.games < EVIDENCE or self.score is None:
             return "nouveau"
-        if self.their_loss is not None and self.their_loss <= STOCKFISH_LOSS and self.score <= STOCKFISH_SCORE:
+        if (self.their_loss is not None and self.measured >= EVIDENCE  # pas sur une seule mesure ancienne
+                and self.their_loss <= STOCKFISH_LOSS and self.score <= STOCKFISH_SCORE):
             return "stockfish"
         if DISPUTED[0] <= self.score <= DISPUTED[1]:
             return "disputé"
@@ -317,7 +319,7 @@ def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str
         if loss is not None:
             acc[2] += w
             acc[3] += w * loss
-    return {name: Profile(w, points / w, loss / measured if measured else None)
+    return {name: Profile(w, points / w, loss / measured if measured else None, measured)
             for name, (w, points, measured, loss) in sums.items() if w > 0}
 
 
