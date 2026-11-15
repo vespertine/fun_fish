@@ -341,6 +341,20 @@ def cmd_lichess_bot(args: argparse.Namespace) -> None:
     bot.run()
 
 
+def cmd_opponents(args: argparse.Namespace) -> None:
+    from fun_fish import lichess_bot, opponents
+
+    if args.action == "import":
+        accounts = args.account or sorted(lichess_bot.OUR_BOTS)
+        print(opponents.import_history(accounts, lichess_bot.GAMES_DIR), "parties enregistrées")
+        return
+    print(f"{'adversaire':<24} {'titre':<5} {'parties':>7} {'score':>6} {'perte adv.':>10} {'la nôtre':>8} {'coups':>6}")
+    for name, title, n, score, their, mine, plies, measured in opponents.report(bots=args.action == "bots"):
+        cell = lambda v: "—" if v is None else v  # noqa: E731
+        print(f"{name:<24} {title or '':<5} {n:>7} {cell(score):>5}% {cell(their):>10} {cell(mine):>8} {cell(plies):>6}"
+              + (f"  ({measured} mesurées)" if measured < n else ""))
+
+
 def cmd_stockfish(args: argparse.Namespace) -> None:
     print(find_stockfish(args.stockfish))
 
@@ -456,6 +470,11 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--matchmaking", action="store_true", help="libre depuis 10 minutes : défier un bot en ligne de niveau proche (cadence où notre classement est le plus incertain)")
     bot.add_argument("--accept-bots", action="store_true", help="accepter sans limite les défis d'autres bots (sinon : pauses proportionnelles au temps de jeu, jusqu'à 10+0)")
     bot.set_defaults(func=cmd_lichess_bot)
+    opp = sub.add_parser("opponents", help="mémoire des adversaires du bot Lichess : import de l'historique, bilans")
+    opp.add_argument("action", choices=["import", "bots", "humans"],
+                     help="import : verser les parties passées de nos comptes ; bots, humans : bilan par adversaire")
+    opp.add_argument("--account", action="append", help="compte à importer (défaut : tous les nôtres)")
+    opp.set_defaults(func=cmd_opponents)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)
     return parser

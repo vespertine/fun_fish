@@ -56,6 +56,8 @@ relance que les bots qui ont un jeton ; il attend la fin des parties de **tous**
 | l'arrêter / le relancer | `sudo systemctl stop fun-fish-bot` / `sudo systemctl restart fun-fish-bot` |
 | changer ses réglages | `echo 'FUN_FISH_BOT_ARGS="--max-games 2 -s luxury_cap=200"' \| sudo tee /etc/default/fun-fish-bot` puis relancer |
 | mettre à jour le code | une version taguée : `deploy/release.sh vX.Y.Z` (voir plus bas) |
+| bilan des adversaires (bots, humains) | `sudo -u funfish /srv/fun_fish/current/.venv/bin/fun-fish opponents bots` (ou `humans`) |
+| reconstruire la mémoire des adversaires | `sudo -u funfish /srv/fun_fish/current/.venv/bin/fun-fish opponents import` (sans doublon) |
 | rapatrier les parties (exports de debug) | `rsync -av --rsync-path="sudo rsync" ubuntu@ADRESSE:/home/funfish/.local/share/fun_fish/bot_games/ bot_games/` |
 
 Un seul bot doit tourner par compte Lichess : arrêter celui de votre machine avant de démarrer

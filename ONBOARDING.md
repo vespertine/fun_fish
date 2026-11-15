@@ -121,6 +121,12 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 - **L'abandon (`ResignSense`) :** quand la position est perdue sans espoir (éval du meilleur candidat), le bot
   abandonne avec un mot : à −10 pions trois coups de suite contre un bot, à −15 pions six coups de suite contre
   un humain, jamais quand l'adversaire a moins de 30 s.
+- **La mémoire des adversaires (`opponents.py`) :** une base SQLite partagée par nos comptes
+  (`~/.local/share/fun_fish/opponents.db`), une ligne par partie : adversaire, résultat, et la perte moyenne
+  par coup de chacun, tirée de nos propres évals. Un humain déjà rencontré par ce compte est accueilli
+  selon son passé (revanche dans l'heure, habitué à partir de 10 parties, retrouvailles après 14 jours),
+  avec le compteur s'il est équilibré et le numéro de la partie si c'est un cap (10e, 20e, 50e, 100e…).
+  `fun-fish opponents import` y verse l'historique public de nos comptes.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans

@@ -73,6 +73,57 @@ def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
     assert len(list(tmp_path.glob("*abc.json.gz"))) == 1
 
 
+class ChatApi(FakeApi):
+    def __init__(self):
+        super().__init__()
+        self.said = []
+
+    def post(self, path, data=None, quick=False):
+        if path.endswith("/chat"):
+            self.said.append(data["text"])
+        return super().post(path, data, quick)
+
+
+def test_a_returning_human_is_welcomed_back_and_every_game_is_remembered(tmp_path, monkeypatch):
+    from fun_fish import opponents
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "CHAT_LATE", 3600)
+    api = ChatApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert api.said == list(lichess_bot.GREETING)  # inconnu : l'accueil de la personnalité
+    assert opponents.history("bot", "x").wins == 1
+    assert json.load(gzip.open(next(tmp_path.glob("*abc.json.gz"))))["lichess"]["color"] == "white"
+
+    opponents.record(opponents.GameRecord("old", "bot", "x", None, False, 1500, "blitz", False, "black", "draw",
+                                          "draw", 80, time.time() - 86400))
+    api = ChatApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()  # même id : la ligne est remplacée
+    assert api.said[0].endswith("Le compteur : toi 0, moi 1, 1 nulle.")  # la partie d'il y a 1 jour, celle d'avant
+    assert api.said[1].endswith("Score so far: you 0, me 1, 1 draw.")  # 1,5 point sur 2 : encore équilibré
+
+
+def test_an_unreadable_memory_only_costs_the_personal_welcome(tmp_path, monkeypatch, capsys):
+    from fun_fish import opponents
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "CHAT_LATE", 3600)
+    monkeypatch.setattr(opponents, "DB_PATH", tmp_path)  # un dossier : base impossible à ouvrir
+    api = ChatApi()
+    bot = FakeBot(api, stockfish_path)
+    lichess_bot.BotGame(bot, "abc").run()
+    assert bot.done == ["abc"] and api.said == list(lichess_bot.GREETING)
+    assert len(list(tmp_path.glob("*abc.json.gz"))) == 1
+    out = capsys.readouterr().out
+    assert "partie absente de la mémoire" in out and "terminée : resign" in out  # la suite de la fin a lieu
+
+
 def test_the_game_chat_is_kept_with_the_export(tmp_path, monkeypatch, capsys):
     """Les retours des joueurs : dans le journal pendant la partie, dans l'export à la fin et après."""
     import gzip, json
