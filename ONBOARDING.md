@@ -126,6 +126,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   par coup de chacun, tirée de nos propres évals. Un humain déjà rencontré par ce compte est accueilli
   selon son passé (revanche dans l'heure, habitué à partir de 10 parties, retrouvailles après 14 jours),
   avec le compteur s'il est équilibré et le numéro de la partie si c'est un cap (10e, 20e, 50e, 100e…).
+  La recherche d'adversaires en tire un tirage pondéré (`Profile`, lissé avec une demi-vie de 30 jours) :
+  un bot qui joue comme Stockfish (perte ≤ 20 cp par coup et notre score ≤ 30 %) revient dix fois moins,
+  une partie disputée (score de 25 à 75 %) un peu plus souvent ; les autres gardent leur chance.
   `fun-fish opponents import` y verse l'historique public de nos comptes.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
