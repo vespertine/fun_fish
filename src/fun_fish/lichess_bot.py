@@ -99,8 +99,9 @@ def low_clock_depth(board: chess.Board) -> int:
 # DRAW_STREAK coups de suite dans cet état, à partir du coup DRAW_FROM ; acceptée si la position l'est
 # au moment de l'offre. (La probabilité de nulle de Stockfish ne suffit pas : 99 % pour toute position égale.)
 DRAW_SCORE, DRAW_STREAK, DRAW_FROM, DRAW_DEPTH = 15, 8, 30, 16
-DRAW_OFFER = ("La position est complètement bloquée : je vous propose la nulle.",
-              "The position is completely locked: I offer a draw.")
+DRAW_LOCKED = ("Mur de pions infranchissable, plus rien ne peut bouger : je propose la nulle.",
+               "An impassable pawn wall, nothing can move: I offer a draw.")
+PIECE_NAMES = {chess.ROOK: ("tour", "rook"), chess.BISHOP: ("fou", "bishop"), chess.KNIGHT: ("cavalier", "knight")}
 GREETING = ("Bonjour ! Je suis Fun Fish : je préfère les coups qui ont du style aux coups parfaits.",
             "Hi! I'm Fun Fish: I prefer stylish moves to perfect ones. Have fun!")  # 140 caractères au plus
 GREETINGS = {"crazy_fish": ("Salut à vous ! Je suis Crazy Fish : mes cavaliers vont où bon leur semble, et la raison suit… parfois.",
@@ -233,6 +234,21 @@ def bare(board: chess.Board) -> bool:
         return False
     material = [sum(v * len(board.pieces(p, c)) for p, v in VALUES.items()) for c in chess.COLORS]
     return material[0] == material[1] <= 5
+
+
+def draw_offer_text(board: chess.Board) -> tuple[str, str]:
+    """Le message qui accompagne la proposition : le cas précis de `dead_draw` (mur de pions, ou pièces seules)."""
+    if locked(board):
+        return DRAW_LOCKED
+    names = []
+    for color in chess.COLORS:  # `bare` : une pièce au plus de chaque côté (matériel égal, 5 au plus)
+        kinds = [p for p in PIECE_NAMES for _ in board.pieces(p, color)]
+        names.append(PIECE_NAMES[kinds[0]] if len(kinds) == 1 else None)
+    if all(names):
+        return (f"Plus aucun pion, {names[0][0]} contre {names[1][0]} : personne ne peut gagner, je propose la nulle.",
+                f"No pawns left, {names[0][1]} against {names[1][1]}: nobody can win, I offer a draw.")
+    return ("Plus aucun pion, et des forces égales : personne ne peut gagner, je propose la nulle.",
+            "No pawns left and equal forces: nobody can win, I offer a draw.")
 
 
 def dead_draw(board: chess.Board, analyser) -> bool:
@@ -417,7 +433,7 @@ class BotGame(threading.Thread):
                     self.wait_first_move()
                 if offering and game.board.turn != ours:
                     log(self.id, "propose la nulle (position bloquée)")
-                    for text in DRAW_OFFER:
+                    for text in draw_offer_text(game.board):
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
 
     def greeting(self) -> tuple[str, str]:

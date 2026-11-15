@@ -504,7 +504,7 @@ def test_draw_offer_travels_with_the_move(tmp_path, monkeypatch):
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "offre").run()
     move = next(p for p in api.posts if "/move/" in p)
     assert move.endswith("?offeringDraw=true") and not any(p.endswith("/draw/yes") for p in api.posts)
-    assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.DRAW_OFFER)  # accueil + message de nulle
+    assert sum("/chat" in p for p in api.posts) == 2 + 2  # accueil + message de nulle
 
 
 def test_greetings_name_the_bot_and_fit_lichess_chat():
@@ -1299,3 +1299,15 @@ def test_a_refused_resignation_plays_the_move_without_waiting(tmp_path, monkeypa
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
     assert ("/api/bot/game/abc/resign", True) in api.posts
     assert any("/move/" in path for path, _ in api.posts)
+
+
+@pytest.mark.parametrize("fen, expected", [
+    ("8/8/1k6/p1p1p1p1/P1P1P1P1/8/5K2/8 w - - 0 60", "Mur de pions infranchissable, plus rien ne peut bouger : je propose la nulle."),
+    ("8/8/3k4/8/8/2K5/r7/7R w - - 0 70", "Plus aucun pion, tour contre tour : personne ne peut gagner, je propose la nulle."),
+    ("8/8/3k4/2n5/8/2K5/8/5B2 w - - 0 70", "Plus aucun pion, fou contre cavalier : personne ne peut gagner, je propose la nulle."),
+])
+def test_the_draw_offer_says_why(fen, expected):
+    board = chess.Board(fen)
+    assert lichess_bot.locked(board) or lichess_bot.bare(board)
+    fr, en = lichess_bot.draw_offer_text(board)
+    assert fr == expected and len(fr) <= 140 and len(en) <= 140
