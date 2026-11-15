@@ -256,8 +256,9 @@ class ResignSense:
 
     def resign(self, score: int | None, their_clock: int) -> bool:
         """À notre tour, `score` de notre point de vue (None : pas d'analyse, le compte reste)."""
-        if score is not None:
-            self.streak = self.streak + 1 if score <= -self.loss else 0
+        if score is None:
+            return False  # jamais sans éval actuelle : l'adversaire a pu gaffer depuis
+        self.streak = self.streak + 1 if score <= -self.loss else 0
         return self.streak >= self.needed and their_clock >= RESIGN_THEIR_CLOCK
 
 
@@ -396,6 +397,7 @@ class BotGame(threading.Thread):
                     for text in RESIGN_TEXT:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
                     if api.post(f"/api/bot/game/{self.id}/resign", quick=True):
+                        game.retry()  # le coup prévu n'est pas joué : ni dans l'échiquier, ni dans l'export
                         continue  # la fin arrive par le flux ; sinon, on joue le coup prévu
                 # la proposition de nulle voyage avec le coup (une seule requête) ; le message suit, sans le retarder
                 suffix = "?offeringDraw=true" if offering else ""

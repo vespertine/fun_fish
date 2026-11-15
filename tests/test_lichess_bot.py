@@ -1,3 +1,5 @@
+import gzip
+import json
 import os
 import time
 
@@ -1167,6 +1169,7 @@ def test_resigns_only_after_a_streak_of_hopeless_positions():
     assert not bot.resign(-1200, 60_000) and not bot.resign(-1200, 60_000)
     assert bot.resign(None, 60_000) is False  # pas d'analyse : le compte ne bouge pas
     assert bot.resign(-1200, 60_000)  # 3e coup perdu de suite
+    assert bot.resign(None, 60_000) is False  # même après une série : jamais sans éval actuelle
     bot = lichess_bot.ResignSense(against_bot=True)
     assert not any(bot.resign(s, 60_000) for s in (-1200, -1200, -300, -1200, -1200))  # un sursaut remet à zéro
     assert not bot.resign(-1200, 10_000)  # l'adversaire peut encore perdre au temps
@@ -1196,6 +1199,8 @@ def test_resigns_a_lost_game_with_a_word(tmp_path, monkeypatch):
     api = LostApi()
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
     assert "/api/bot/game/abc/resign" in api.posts and not any("/move/" in p for p in api.posts)
+    export = json.loads(gzip.decompress(next(tmp_path.glob("*.json.gz")).read_bytes()))
+    assert len(export["moves"]) == 6  # le coup prévu, non joué, n'apparaît pas
     assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.RESIGN_TEXT)  # accueil + adieu
 
 
