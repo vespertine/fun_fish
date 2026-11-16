@@ -50,12 +50,15 @@ BOT_GAME_STALE = 3600  # s
 # stabiliser son classement face à des adversaires variés. Mêmes règles que les défis reçus (place
 # commune, pauses, même bot espacé) ; en plus, MATCH_SPACING entre deux défis lancés par nos comptes
 # réunis. La cadence est celle où notre classement est le plus incertain (rd de Lichess) ; l'adversaire,
-# un bot de niveau proche (MATCH_RANGE), ni l'un des nôtres, ni un bot qui nous a refusé depuis peu.
+# un bot à moins de MATCH_RANGE points, ni l'un des nôtres, ni un bot qui nous a refusé depuis peu. Pour
+# mesurer notre niveau face à un éventail large (plus faibles comme plus forts), on tire d'abord une tranche
+# d'écart de classement (MATCH_BAND) parmi celles qui ont un candidat, puis le bot dans cette tranche.
 MATCH_IDLE = 600  # s sans partie
 MATCH_SPACING = 300  # s
 MATCH_CHECK = 60  # s entre deux examens, en moyenne : tiré entre la moitié et une fois et demie, pour que
 # nos comptes, qui se disputent le même créneau (MATCH_SPACING), ne soient pas toujours servis dans le même ordre
-MATCH_RANGE = 250  # points de classement
+MATCH_RANGE = 600  # points de classement
+MATCH_BAND = 250  # écart qui sépare les tranches : plus faible (≤ −250), proche, plus fort (≥ +250)
 MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
@@ -65,6 +68,16 @@ OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot", "sharpdubot"}
 # à 96 % de précision) : un classement fait contre eux tromperait les humains qui nous choisissent.
 BOT_RATED = False
 MATCH_DEFAULT = 2000  # classement de référence d'un compte qui n'a encore joué aucune partie
+
+
+def band(candidates: list[tuple[str, int]], rng=random) -> list[str]:
+    """Les candidats (nom, écart de classement) d'une tranche tirée au hasard parmi les tranches non
+    vides (voir MATCH_BAND) : autant de défis aux plus faibles, aux proches et aux plus forts, quel que
+    soit leur nombre en ligne."""
+    tranches: dict[int, list[str]] = {}
+    for name, gap in candidates:
+        tranches.setdefault(-1 if gap <= -MATCH_BAND else 1 if gap >= MATCH_BAND else 0, []).append(name)
+    return tranches[rng.choice(sorted(tranches))]
 
 
 def reference_rating(perfs: dict, speed: str) -> int:
@@ -884,19 +897,22 @@ class Bot:
         speed = max(MATCH_CLOCKS, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()))
         rating = reference_rating(perfs, speed)
 
+        def gap(bot: dict) -> int:
+            return bot.get("perfs", {}).get(speed, {}).get("rating", -10**4) - rating
+
         def fits(bot: dict) -> bool:
             name = bot.get("id", "")
             last_played, last_declined = self.bot_opponents.get(name), self.declined.get(name)
             return (name not in OUR_BOTS | {self.me} and not bot.get("disabled") and not bot.get("tosViolation")
-                    and abs(bot.get("perfs", {}).get(speed, {}).get("rating", -10**4) - rating) <= MATCH_RANGE
+                    and abs(gap(bot)) <= MATCH_RANGE
                     and (last_played is None or now - last_played >= BOT_SAME_OPPONENT)
                     and (last_declined is None or now - last_declined >= MATCH_DECLINED)
                     and name not in blocked_players())
-        candidates = [b["id"] for b in self.api.lines("/api/bot/online?nb=200") if fits(b)]
+        candidates = [(b["id"], gap(b)) for b in self.api.lines("/api/bot/online?nb=200") if fits(b)]
         if not candidates:
             log(f"recherche d'adversaire ({speed}, {rating}) : aucun bot disponible")
             return None
-        opponent = self.pick(candidates)
+        opponent = self.pick(band(candidates))
         now = time.monotonic()
         with self.lock:  # l'état a pu changer pendant les lectures (humain accepté, vidange) : on revérifie
             if not self.ready_to_seek(now):

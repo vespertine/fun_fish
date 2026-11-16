@@ -1,6 +1,8 @@
+import collections
 import gzip
 import json
 import os
+import random
 import time
 
 import chess
@@ -715,6 +717,28 @@ def test_the_seek_draws_its_opponent_through_the_weighted_pick(monkeypatch, bot_
     assert bot.seek() == "m1" and seen == [["a", "b"]] and bot.api.created[0][0] == "b"
 
 
+def test_the_seek_spreads_its_opponents_across_rating_bands(monkeypatch):
+    candidates = [("faible", -500), ("fort", 590)] + [(f"proche{i}", i * 20) for i in range(10)]
+    picks, rng = collections.Counter(), random.Random(1)
+    for _ in range(600):
+        names = lichess_bot.band(candidates, rng)
+        picks["faible" if names == ["faible"] else "fort" if names == ["fort"] else len(names)] += 1
+    assert set(picks) == {"faible", "fort", 10}  # une tranche entière à la fois
+    assert all(150 <= n <= 250 for n in picks.values())  # ~1/3 chacune, malgré 10 proches pour 1 loin
+    assert lichess_bot.band([("seul", 30)]) == ["seul"]
+    bornes = [("a", -250), ("b", -249), ("c", 249), ("d", 250)]
+    assert {tuple(lichess_bot.band(bornes, random.Random(s))) for s in range(30)} == {("a",), ("b", "c"), ("d",)}
+
+
+def test_the_seek_reaches_far_opponents_but_not_beyond_the_range(monkeypatch, bot_games_dir):
+    online = [online_bot("bien_plus_fort", bullet=2350), online_bot("hors_de_portee", bullet=2450)]
+    bot, now = seeker(monkeypatch, online)  # bullet 1800 par défaut
+    seen = []
+    monkeypatch.setattr(bot, "pick", lambda names: seen.append(names) or names[0])
+    now[0] += 600
+    assert bot.seek() and seen == [["bien_plus_fort"]]
+
+
 def test_an_unreadable_memory_falls_back_to_a_uniform_pick(monkeypatch, tmp_path):
     from fun_fish import opponents
     monkeypatch.setattr(opponents, "DB_PATH", tmp_path)  # un dossier : base impossible à ouvrir
@@ -747,7 +771,7 @@ def test_seeks_a_bot_only_after_ten_idle_minutes(monkeypatch, bot_games_dir):
 def test_seek_picks_only_suitable_opponents(monkeypatch, tmp_path):
     monkeypatch.setattr(lichess_bot, "BLOCKED_PATH", tmp_path / "blocked")
     (tmp_path / "blocked").write_text("tricheur\n")
-    online = [online_bot("crazyfishbot"), online_bot("funfishbot"), online_bot("trop_fort", blitz=2100),
+    online = [online_bot("crazyfishbot"), online_bot("funfishbot"), online_bot("trop_fort", blitz=2400),
               online_bot("tricheur"), online_bot("refuse"), online_bot("deja_joue"), online_bot("le_bon")]
     for _ in range(10):
         bot, now = seeker(monkeypatch, online, perfs={"bullet": {"rating": 1800, "rd": 45, "games": 90},

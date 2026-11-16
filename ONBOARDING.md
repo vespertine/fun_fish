@@ -109,8 +109,10 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   deux parties contre des bots en même temps, tous nos comptes réunis (marqueurs dans `BOT_GAMES_DIR`).
   Le journal note la cadence de chaque défi, accepté ou refusé.
 - **La recherche d'adversaires (`--matchmaking`, activée dans tous les services) :** un compte libre
-  depuis 10 minutes défie un bot en ligne de niveau proche (±250), dans la cadence où son classement
-  est le plus incertain, pour le stabiliser face à des adversaires variés. Mêmes règles que les défis
+  depuis 10 minutes défie un bot en ligne à ±600 points, dans la cadence où son classement est le
+  plus incertain, pour le mesurer face à des adversaires variés : on tire d'abord une tranche (plus
+  faible de 250 et plus, proche, plus fort de 250 et plus) parmi celles qui ont un candidat, puis le
+  bot dans la tranche. Mêmes règles que les défis
   reçus (place commune, pauses, même bot espacé), plus 5 minutes entre deux défis lancés par nos
   comptes réunis ; jamais l'un de nos bots, ni un bot qui a refusé depuis moins d'un jour. Un humain
   qui arrive passe devant : notre défi en attente est annulé (`seek`, `MATCH_*`).
