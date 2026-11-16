@@ -2,6 +2,7 @@ import collections
 import gzip
 import json
 import os
+import random
 import time
 
 import chess
@@ -718,13 +719,15 @@ def test_the_seek_draws_its_opponent_through_the_weighted_pick(monkeypatch, bot_
 
 def test_the_seek_spreads_its_opponents_across_rating_bands(monkeypatch):
     candidates = [("faible", -500), ("fort", 590)] + [(f"proche{i}", i * 20) for i in range(10)]
-    picks = collections.Counter()
+    picks, rng = collections.Counter(), random.Random(1)
     for _ in range(600):
-        names = lichess_bot.band(candidates)
+        names = lichess_bot.band(candidates, rng)
         picks["faible" if names == ["faible"] else "fort" if names == ["fort"] else len(names)] += 1
     assert set(picks) == {"faible", "fort", 10}  # une tranche entière à la fois
     assert all(150 <= n <= 250 for n in picks.values())  # ~1/3 chacune, malgré 10 proches pour 1 loin
     assert lichess_bot.band([("seul", 30)]) == ["seul"]
+    bornes = [("a", -250), ("b", -249), ("c", 249), ("d", 250)]
+    assert {tuple(lichess_bot.band(bornes, random.Random(s))) for s in range(30)} == {("a",), ("b", "c"), ("d",)}
 
 
 def test_the_seek_reaches_far_opponents_but_not_beyond_the_range(monkeypatch, bot_games_dir):

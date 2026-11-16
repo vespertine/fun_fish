@@ -8,7 +8,6 @@ Bibliothèque standard seulement : pas de dépendance en plus.
 
 from __future__ import annotations
 
-import bisect
 import contextlib
 import gzip
 import json
@@ -53,13 +52,13 @@ BOT_GAME_STALE = 3600  # s
 # réunis. La cadence est celle où notre classement est le plus incertain (rd de Lichess) ; l'adversaire,
 # un bot à moins de MATCH_RANGE points, ni l'un des nôtres, ni un bot qui nous a refusé depuis peu. Pour
 # mesurer notre niveau face à un éventail large (plus faibles comme plus forts), on tire d'abord une tranche
-# d'écart de classement (MATCH_BANDS) parmi celles qui ont un candidat, puis le bot dans cette tranche.
+# d'écart de classement (MATCH_BAND) parmi celles qui ont un candidat, puis le bot dans cette tranche.
 MATCH_IDLE = 600  # s sans partie
 MATCH_SPACING = 300  # s
 MATCH_CHECK = 60  # s entre deux examens, en moyenne : tiré entre la moitié et une fois et demie, pour que
 # nos comptes, qui se disputent le même créneau (MATCH_SPACING), ne soient pas toujours servis dans le même ordre
 MATCH_RANGE = 600  # points de classement
-MATCH_BANDS = (-250, 250)  # bornes des tranches d'écart : plus faible, proche, plus fort
+MATCH_BAND = 250  # écart qui sépare les tranches : plus faible (≤ −250), proche, plus fort (≥ +250)
 MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
@@ -71,14 +70,14 @@ BOT_RATED = False
 MATCH_DEFAULT = 2000  # classement de référence d'un compte qui n'a encore joué aucune partie
 
 
-def band(candidates: list[tuple[str, int]]) -> list[str]:
-    """Les candidats (nom, écart de classement) d'une tranche de MATCH_BANDS tirée au hasard parmi les
-    tranches non vides : autant de défis aux plus faibles, aux proches et aux plus forts, quel que soit
-    leur nombre en ligne."""
+def band(candidates: list[tuple[str, int]], rng=random) -> list[str]:
+    """Les candidats (nom, écart de classement) d'une tranche tirée au hasard parmi les tranches non
+    vides (voir MATCH_BAND) : autant de défis aux plus faibles, aux proches et aux plus forts, quel que
+    soit leur nombre en ligne."""
     tranches: dict[int, list[str]] = {}
     for name, gap in candidates:
-        tranches.setdefault(bisect.bisect_right(MATCH_BANDS, gap), []).append(name)
-    return tranches[random.choice(sorted(tranches))]
+        tranches.setdefault(-1 if gap <= -MATCH_BAND else 1 if gap >= MATCH_BAND else 0, []).append(name)
+    return tranches[rng.choice(sorted(tranches))]
 
 
 def reference_rating(perfs: dict, speed: str) -> int:
