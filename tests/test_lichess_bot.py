@@ -47,6 +47,7 @@ class FakeApi:
 def no_drain(tmp_path, monkeypatch):
     """Les tests ne dépendent pas d'un drapeau de vidange réel (déploiement en cours sur la machine)."""
     monkeypatch.setattr(lichess_bot, "DRAIN_PATH", tmp_path / "drain")
+    monkeypatch.setattr(lichess_bot, "CAMPAIGN_PATH", tmp_path / "campaign")  # ni la campagne de la machine
 
 def _reply(first):
     board = chess.Board()
@@ -1785,3 +1786,145 @@ def test_a_finished_game_notes_its_highlights(tmp_path, monkeypatch):
     monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
     lichess_bot.BotGame(FakeBot(FakeApi(), stockfish_path), "abc").run()
     assert [s[:2] for s in seen] == [("abc", "bot")] and seen[0][2] > 0
+
+
+def campaign_file(until, **kw):
+    lichess_bot.CAMPAIGN_PATH.write_text(json.dumps({"until": until, **kw}))
+
+
+def iso(offset):
+    import datetime
+    return datetime.datetime.fromtimestamp(time.time() + offset, datetime.timezone.utc).isoformat()
+
+
+def test_a_campaign_is_read_from_its_file_and_ignored_if_unreadable():
+    assert lichess_bot.read_campaign() is None
+    campaign_file("2026-11-17T21:00:00+01:00")
+    assert lichess_bot.read_campaign() == lichess_bot.Campaign(1794945600.0, True, True, 75)
+    campaign_file("2026-11-17T21:00:00+01:00", rated=False, decline_bots=False, rd=90)
+    assert lichess_bot.read_campaign() == lichess_bot.Campaign(1794945600.0, False, False, 90)
+    lichess_bot.CAMPAIGN_PATH.write_text("{pas du json")
+    assert lichess_bot.read_campaign() is None
+    campaign_file("ce soir")
+    assert lichess_bot.read_campaign() is None
+
+
+def test_a_rated_campaign_lasts_until_its_end_and_until_the_rating_is_stable(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)  # vient de (re)démarrer : stabilité inconnue
+    perfs, asked = {"bullet": {"rd": 90, "games": 50}, "blitz": {"rd": 60, "games": 80}}, []
+    bot.api.get = lambda path: asked.append(path) or {"perfs": perfs}
+    campaign_file(iso(3600))
+    assert bot.campaign() is not None and asked == []  # avant l'heure : rien à demander
+    campaign_file(iso(-60))
+    assert bot.campaign() is not None and asked == ["/api/account"]  # l'heure est passée, bullet pas stable
+    perfs["bullet"]["rd"] = 70
+    assert bot.campaign() is not None and len(asked) == 1  # vu il y a moins de 10 minutes
+    now[0] += lichess_bot.STABLE_FRESH + 1
+    assert bot.campaign() is None and len(asked) == 2  # redemandé : stable, la campagne est finie
+    campaign_file(iso(-60), rd=65)
+    assert bot.campaign() is not None and len(asked) == 3  # un autre seuil : redemandé, pas encore atteint
+    campaign_file(iso(-60), rated=False)
+    assert bot.campaign() is None  # amicale : l'heure suffit
+    bot.api.get = lambda path: (_ for _ in ()).throw(OSError("Lichess muet"))
+    bot.stable = None
+    campaign_file(iso(-60))
+    assert bot.campaign() is not None  # injoignable : pas encore stable
+
+
+def test_a_campaign_needs_a_time_zone_and_real_booleans():
+    campaign_file("2026-11-17T21:00:00")  # l'heure de quel fuseau ?
+    assert lichess_bot.read_campaign() is None
+    for bad in ({"rated": "false"}, {"decline_bots": 0}, {"rd": "75"}, {"rd": True}):
+        campaign_file("2026-11-17T21:00:00+01:00", **bad)
+        assert lichess_bot.read_campaign() is None, bad
+
+
+def test_a_rated_refusal_does_not_block_the_bot_for_the_day_during_a_campaign(monkeypatch, bot_games_dir):
+    unstable = {"bullet": {"rating": 1800, "rd": 150, "games": 3}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=unstable)
+    now[0] += 600
+    assert bot.seek() == "m1"
+    bot.drop_outgoing("m1", declined="rated")  # amical refusé : il ne joue qu'en classé
+    bot.bot_opponents.clear()
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    now[0] += 600
+    assert bot.seek() is None  # hors campagne : la mémoire des refus l'écarte
+    campaign_file(iso(3600))  # la campagne commence, sans redémarrage
+    assert bot.seek() == "m2" and bot.api.created[1][1]["rated"] == "true"
+
+
+def test_stability_needs_a_low_rd_in_each_speed_we_seek():
+    good = {"bullet": {"rd": 70, "games": 50}, "blitz": {"rd": 75, "games": 80}}
+    assert lichess_bot.stable(good, 75)
+    assert not lichess_bot.stable({**good, "blitz": {"rd": 76, "games": 80}}, 75)
+    assert not lichess_bot.stable({"bullet": {"rd": 70, "games": 50}}, 75)  # blitz jamais joué
+    assert not lichess_bot.stable({**good, "blitz": {"rd": 60, "games": 0}}, 75)  # aucune partie : rien de mesuré
+
+
+def test_during_a_campaign_bots_are_declined_humans_still_welcome(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    campaign_file(iso(3600))
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later"
+    assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="humain")) is None
+    campaign_file(iso(3600), decline_bots=False)
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) is None
+
+
+def test_a_rated_campaign_challenges_rated_and_reaches_bots_that_want_rated_games(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("classe_seulement", "rated", "180+2")
+    unstable = {"bullet": {"rating": 1800, "rd": 150, "games": 3}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    for planned, expected in ((None, None), (iso(3600), "m1")):
+        if planned:
+            campaign_file(planned)
+        bot, now = seeker(monkeypatch, [online_bot("classe_seulement")], perfs=unstable)
+        now[0] += 600
+        assert bot.seek() == expected  # hors campagne : il ne joue qu'en classé, on le laisse
+        if expected:
+            assert bot.api.created[0][1]["rated"] == "true"
+            bot.drop_outgoing("m1")  # sans réponse : la place commune est rendue
+            os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    stable_perfs = {"bullet": {"rating": 1800, "rd": 50, "games": 90}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    campaign_file(iso(-60))  # l'heure est passée et le classement est stable : retour à l'amical
+    bot, now = seeker(monkeypatch, [online_bot("autre")], perfs=stable_perfs)
+    now[0] += 600
+    assert bot.seek() == "m1" and bot.api.created[0][1]["rated"] == "false"
+
+
+def test_a_received_challenge_never_waits_for_lichess_to_know_if_the_campaign_is_over(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    asked = []
+    bot.api.get = lambda path: asked.append(path) or {"perfs": {}}
+    campaign_file(iso(-60))  # l'heure est passée ; stabilité inconnue
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later" and asked == []
+    bot.api.get = lambda path: (_ for _ in ()).throw(OSError("Lichess muet"))
+    assert bot.campaign() is not None and bot.campaign() is not None  # un seul essai : l'échec est retenu
+    bot.api.get = lambda path: asked.append(path) or {"perfs": {}}
+    assert bot.campaign() is not None and asked == []
+    now[0] += lichess_bot.STABLE_FRESH + 1
+    bot.campaign()
+    assert asked == ["/api/account"]  # périmé : redemandé
+
+
+def test_a_casual_refusal_during_a_campaign_does_not_block_the_return_to_casual(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("amical_seulement", "casual", "120+1")  # refusé pendant la campagne classée
+    stable_perfs = {"bullet": {"rating": 1800, "rd": 50, "games": 90}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    campaign_file(iso(3600))
+    bot, now = seeker(monkeypatch, [online_bot("amical_seulement")], perfs=stable_perfs)
+    now[0] += 600
+    assert bot.seek() is None  # en campagne : il ne veut que de l'amical
+    campaign_file(iso(-60))  # finie
+    bot, now = seeker(monkeypatch, [online_bot("amical_seulement")], perfs=stable_perfs)
+    now[0] += 600
+    assert bot.seek() == "m1" and bot.api.created[0][1]["rated"] == "false"
+
+
+def test_the_watch_ends_a_finished_campaign_even_without_matchmaking(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)  # vient de redémarrer, sans recherche d'adversaires
+    stable_perfs = {"bullet": {"rd": 50, "games": 90}, "blitz": {"rd": 60, "games": 40}}
+    bot.api.get = lambda path: {"perfs": stable_perfs, "nowPlaying": []}
+    campaign_file(iso(-60))
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later"  # stabilité encore inconnue
+    bot.watch()
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) is None  # la surveillance l'a apprise

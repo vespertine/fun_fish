@@ -119,6 +119,11 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   du classé est laissé tranquille 30 jours, `generic` 7 jours, les autres raisons un jour ; un refus
   de cadence (`timecontrol`, `toofast`, `tooslow`) écarte seulement cette cadence pendant 7 jours. Un humain
   qui arrive passe devant : notre défi en attente est annulé (`seek`, `MATCH_*`).
+- **Les campagnes (`Campaign`) :** le fichier `~/.config/fun_fish/campaign` (JSON, relu sans redémarrage),
+  par exemple `{"until": "2026-11-17T21:00:00+01:00", "rated": true, "decline_bots": true, "rd": 75}` :
+  jusqu'à `until`, et pour une campagne classée tant que le compte n'est pas stable (rd ≤ `rd` en bullet
+  et en blitz), nos défis aux bots sont classés (les refus « rated » ne comptent plus) et les défis reçus
+  de bots refusés. Les humains passent toujours en priorité. Pour l'arrêter : supprimer le fichier.
 - **Contre les bots, en amical seulement (`BOT_RATED`) :** nos défis aux bots ne sont pas classés, et
   un défi classé d'un bot est refusé (« casual »). L'échelle des bots sur Lichess est sans rapport avec
   celle des humains (des moteurs classés 1850 jouent à 96 % de précision) : notre classement ne doit

@@ -400,7 +400,8 @@ class Profile:
 # Refus de nos défis. Certains disent « jamais » (nobot : pas de bots ; variant ; rated : que du classé,
 # alors que nos défis sont amicaux) : on laisse ce bot tranquille longtemps. D'autres visent la cadence :
 # on lui en propose une autre. Les autres (later, generic…) : un jour, comme avant.
-DECLINE_DAYS = {"nobot": 30, "variant": 30, "rated": 30, "generic": 7}
+DECLINE_DAYS = {"nobot": 30, "variant": 30, "rated": 30, "casual": 30, "generic": 7}  # rated, casual : ignorés
+# dans l'autre mode (une campagne classée ignore « rated », l'amical ignore « casual »)
 CLOCK_REASONS = {"timecontrol", "toofast", "tooslow"}
 CLOCK_DAYS = 7
 DEFAULT_DAYS = 1
@@ -418,14 +419,16 @@ def decline(opponent: str, reason: str, clock: str | None, at: float | None = No
                     (opponent, reason, clock, time.time() if at is None else at))
 
 
-def refusals(now: float | None = None, path: Path | None = None) -> dict[str, Refusal]:
-    """Les refus encore en vigueur, par bot."""
+def refusals(now: float | None = None, path: Path | None = None, ignore=()) -> dict[str, Refusal]:
+    """Les refus encore en vigueur, par bot ; sans les raisons de `ignore` (« rated » pendant une campagne classée)."""
     now = time.time() if now is None else now
     horizon = now - 86400 * max(max(DECLINE_DAYS.values()), CLOCK_DAYS, DEFAULT_DAYS)
     blocked, clocks = set(), {}
     with connect(path) as con:
         rows = con.execute("SELECT opponent, reason, clock, at FROM declines WHERE at >= ?", (horizon,)).fetchall()
     for opponent, reason, clock, at in rows:
+        if reason in ignore:
+            continue
         if reason in CLOCK_REASONS:
             if clock and now - at < 86400 * CLOCK_DAYS:
                 clocks.setdefault(opponent, set()).add(clock)
