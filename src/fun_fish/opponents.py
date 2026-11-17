@@ -37,8 +37,24 @@ CREATE TABLE IF NOT EXISTS games (
     ended_at REAL NOT NULL,   -- horodatage Unix
     their_loss REAL,          -- perte moyenne de l'adversaire par coup (centipions, selon nos évals)
     our_loss REAL             -- la nôtre : l'écart volontaire au meilleur coup (le style)
+    -- + les colonnes de MIGRATIONS (ajoutées aux bases existantes)
 );
 CREATE INDEX IF NOT EXISTS games_pair ON games (account, opponent, ended_at);
+CREATE TABLE IF NOT EXISTS challenges (
+    id TEXT,                  -- défi Lichess reçu
+    account TEXT NOT NULL,    -- notre compte
+    challenger TEXT NOT NULL,
+    title TEXT,
+    bot INTEGER NOT NULL,     -- 1 : un programme
+    rating INTEGER,
+    speed TEXT,
+    clock TEXT,               -- « 180+2 », ou correspondence…
+    rated INTEGER,
+    decision TEXT NOT NULL,   -- accepted, declined, failed (acceptation refusée par Lichess ou réseau)
+    reason TEXT,              -- raison du refus : later, tooFast, casual…, ou précision (« compte occupé »)
+    at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS challenges_account ON challenges (account, at);
 CREATE TABLE IF NOT EXISTS declines (
     opponent TEXT NOT NULL,   -- le bot qui a refusé l'un de nos défis (tous nos comptes réunis)
     reason TEXT NOT NULL,     -- declineReasonKey de Lichess : nobot, rated, timecontrol…
@@ -47,6 +63,13 @@ CREATE TABLE IF NOT EXISTS declines (
 );
 CREATE INDEX IF NOT EXISTS declines_opponent ON declines (opponent, at);
 """
+MIGRATIONS = {  # colonnes de `games` ajoutées après coup : (nom, type) ; absentes des parties importées
+    "ending": "TEXT",  # fin à notre initiative ou anormale : abandon, tricotage, nulle acceptée, flux perdu
+    "min_clock": "REAL",  # notre pendule la plus basse avant l'un de nos coups (s)
+    "longest_move": "REAL",  # notre plus longue réflexion (s)
+    "reduced": "REAL",  # part de nos coups à réflexion réduite (effort ≥ REDUCED_EFFORT) ou sans analyse
+}
+REDUCED_EFFORT = 3  # niveau d'effort (pace.COST) dès lequel la réflexion est nettement raccourcie (≤ 38 %)
 INIT_TRIES = 20
 EVAL_CAP = 1000  # cp : au-delà, la partie est jouée ; les écarts n'y veulent plus rien dire (convention de l'ACPL)
 
@@ -68,6 +91,10 @@ class GameRecord:
     ended_at: float
     their_loss: float | None = None
     our_loss: float | None = None
+    ending: str | None = None
+    min_clock: float | None = None
+    longest_move: float | None = None
+    reduced: float | None = None
 
 
 @dataclass
@@ -81,6 +108,18 @@ class History:
     last: float | None = None  # fin de la dernière partie
 
 
+def migrate(con: sqlite3.Connection) -> None:
+    """Ajoute aux bases existantes les colonnes de MIGRATIONS (un autre bot a pu le faire entre-temps)."""
+    have = {row[1] for row in con.execute("PRAGMA table_info(games)")}
+    for name, kind in MIGRATIONS.items():
+        if name not in have:
+            try:
+                con.execute(f"ALTER TABLE games ADD COLUMN {name} {kind}")
+            except sqlite3.OperationalError as exc:
+                if "duplicate column" not in str(exc):
+                    raise
+
+
 @contextlib.contextmanager
 def connect(path: Path | None = None):
     path = Path(path or DB_PATH)
@@ -91,6 +130,7 @@ def connect(path: Path | None = None):
             try:
                 con.execute("PRAGMA journal_mode=WAL")
                 con.executescript(SCHEMA)
+                migrate(con)
                 break
             except sqlite3.OperationalError as exc:
                 if "locked" not in str(exc) or attempt == INIT_TRIES - 1:
@@ -102,16 +142,31 @@ def connect(path: Path | None = None):
         con.close()
 
 
-def record(game: GameRecord, path: Path | None = None) -> None:
-    """Enregistre une partie, ou la met à jour si elle y est déjà (un import ne double rien). Des mesures
-    absentes (import sans export de debug) ne remplacent pas celles déjà notées par le bot."""
+def record(game: GameRecord, path: Path | None = None, how: str = "merge") -> None:
+    """Enregistre une partie, ou la met à jour si elle y est déjà (un import ne double rien), selon `how` :
+    « merge » (import) : des mesures absentes ne remplacent pas celles déjà notées par le bot ;
+    « confirmed » (fin confirmée par le bot) : remplace tout, y compris une fin « flux perdu » notée avant ;
+    « absent » (partie perdue de vue, notée d'après Lichess) : seulement si elle n'y est pas encore (atomique)."""
     names = [f.name for f in fields(GameRecord)]
-    kept = {"their_loss", "our_loss"}
+    kept = {"their_loss", "our_loss", *MIGRATIONS} if how == "merge" else set()
     updates = ", ".join(f"{n} = coalesce(excluded.{n}, games.{n})" if n in kept else f"{n} = excluded.{n}"
                         for n in names if n != "id")
+    conflict = "DO NOTHING" if how == "absent" else f"DO UPDATE SET {updates}"
     with connect(path) as con:
         con.execute(f"INSERT INTO games ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) "
-                    f"ON CONFLICT (id) DO UPDATE SET {updates}", astuple(game))
+                    f"ON CONFLICT (id) {conflict}", astuple(game))
+
+
+def challenge(account: str, c: dict, decision: str, reason: str | None, at: float | None = None,
+              path: Path | None = None) -> None:
+    """Un défi reçu et ce qu'on en a fait (événement `challenge` de Lichess)."""
+    name, title, program, rating = player(c.get("challenger") or {})
+    clock = c.get("timeControl") or {}
+    pace = f"{clock.get('limit', 0)}+{clock.get('increment', 0)}" if clock.get("type") == "clock" else clock.get("type")
+    with connect(path) as con:
+        con.execute("INSERT INTO challenges VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (c.get("id"), account.lower(), name, title, program, rating, c.get("speed"), pace,
+                     c.get("rated"), decision, reason, time.time() if at is None else at))
 
 
 def history(account: str, opponent: str, path: Path | None = None) -> History:
@@ -365,6 +420,15 @@ def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str
             acc[3] += w * loss
     return {name: Profile(w, points / w, loss / measured if measured else None, measured)
             for name, (w, points, measured, loss) in sums.items() if w > 0}
+
+
+def challenge_report(days: float = 7, now: float | None = None, path: Path | None = None) -> list[tuple]:
+    """Les défis reçus, par compte, humain ou bot, décision et raison : les humains qu'on n'a pas pu servir."""
+    since = (time.time() if now is None else now) - days * 86400
+    with connect(path) as con:
+        return con.execute(
+            "SELECT account, CASE bot WHEN 1 THEN 'bot' ELSE 'humain' END, decision, reason, count(*) FROM challenges "
+            "WHERE at >= ? GROUP BY 1, 2, 3, 4 ORDER BY 1, 2 DESC, 5 DESC", (since,)).fetchall()
 
 
 def report(path: Path | None = None, bots: bool = True, limit: int = 40) -> list[tuple]:

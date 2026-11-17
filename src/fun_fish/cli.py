@@ -348,6 +348,11 @@ def cmd_opponents(args: argparse.Namespace) -> None:
         accounts = args.account or sorted(lichess_bot.OUR_BOTS)
         print(opponents.import_history(accounts, lichess_bot.GAMES_DIR), "parties enregistrées")
         return
+    if args.action == "challenges":
+        print(f"{'compte':<14} {'qui':<7} {'décision':<9} {'raison':<45} {'défis':>6}")
+        for account, who, decision, reason, n in opponents.challenge_report(days=args.days):
+            print(f"{account:<14} {who:<7} {decision:<9} {reason or '':<45} {n:>6}")
+        return
     bots = args.action == "bots"
     profiles = opponents.bot_profiles() if bots else {}
     print(f"{'adversaire':<24} {'titre':<5} {'parties':>7} {'score':>6} {'perte adv.':>10} {'la nôtre':>8} {'coups':>6}"
@@ -475,8 +480,10 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--accept-bots", action="store_true", help="accepter sans limite les défis d'autres bots (sinon : pauses proportionnelles au temps de jeu, jusqu'à 10+0)")
     bot.set_defaults(func=cmd_lichess_bot)
     opp = sub.add_parser("opponents", help="mémoire des adversaires du bot Lichess : import de l'historique, bilans")
-    opp.add_argument("action", choices=["import", "bots", "humans"],
-                     help="import : verser les parties passées de nos comptes ; bots, humans : bilan par adversaire")
+    opp.add_argument("action", choices=["import", "bots", "humans", "challenges"],
+                     help="import : verser les parties passées de nos comptes ; bots, humans : bilan par adversaire ; "
+                          "challenges : défis reçus et leur sort, par compte")
+    opp.add_argument("--days", type=float, default=7, help="challenges : sur les N derniers jours (défaut : 7)")
     opp.add_argument("--account", action="append", help="compte à importer (défaut : tous les nôtres)")
     opp.set_defaults(func=cmd_opponents)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
