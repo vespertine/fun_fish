@@ -910,7 +910,7 @@ def test_a_bot_refusing_our_clock_gets_another_one(monkeypatch, bot_games_dir):
     os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
     bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=blitz)
     now[0] += 600
-    assert bot.seek() is None  # toutes ses cadences de blitz refusées
+    assert bot.seek() == "m1" and bot.api.created[0][1]["clock.limit"] == 120  # tout le blitz refusé : bullet
 
 
 def test_a_bot_that_never_plays_bots_is_left_alone_for_a_month(monkeypatch, bot_games_dir):
@@ -2001,3 +2001,44 @@ def test_a_campaign_adds_short_rapid_once_bullet_and_blitz_are_stable(monkeypatc
     bot, now = seeker(monkeypatch, [rival], perfs=settled)
     now[0] += 600
     assert bot.seek() == "m1" and bot.api.created[0][1]["clock.limit"] != 600
+
+
+def test_an_account_out_of_the_campaign_does_not_hold_the_second_place(monkeypatch, bot_games_dir):
+    online = [online_bot("rival")]
+    fun, now = seeker(monkeypatch, online)
+    dubot, _ = seeker(monkeypatch, online, now=now, me="dubot")
+    bot_games_dir.mkdir()
+    for account, age in (("funfishbot", 3000), ("dubot", 1000)):  # fun a été servi avant dubot
+        (bot_games_dir / f"servi.{account}").touch()
+        os.utime(bot_games_dir / f"servi.{account}", (time.time() - age, time.time() - age))
+    lichess_bot.reserve_bot_game("sharpdubot", "partie")  # une partie contre un bot en cours
+    now[0] += 600
+    assert fun.seek() is None  # hors campagne : une seule place, prise ; il attend son tour
+    campaign_file(iso(3600))
+    monkeypatch.setattr(fun, "campaign", lambda ask=True: None)  # fun est sorti de la campagne, pas dubot
+    assert dubot.seek() == "m1"  # la deuxième place n'est pas retenue par fun
+    dubot.drop_outgoing("m1")
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    (bot_games_dir / "attente.funfishbot").write_text("2")  # fun aussi en campagne : son tour d'abord
+    dubot.bot_opponents.clear()
+    assert dubot.seek() is None
+
+
+def test_without_a_rapid_opponent_a_settled_account_plays_bullet_or_blitz(monkeypatch, bot_games_dir):
+    settled = {"bullet": {"rating": 1800, "rd": 60, "games": 90}, "blitz": {"rating": 1700, "rd": 70, "games": 40}}
+    campaign_file(iso(3600))
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=settled)  # aucun bot classé en rapide
+    now[0] += 600
+    assert bot.seek() == "m1" and bot.api.created[0][1]["clock.limit"] != 600
+
+
+def test_an_account_with_nobody_to_play_gives_up_its_turn(monkeypatch, bot_games_dir):
+    fun, now = seeker(monkeypatch, [online_bot("rival")])
+    lonely, _ = seeker(monkeypatch, [], now=now, me="sharpdubot")
+    lichess_bot.reserve_bot_game("funfishbot", "ancien", spacing=1)
+    lichess_bot.unmark_bot_games("funfishbot", "ancien")
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    (bot_games_dir / "attente.sharpdubot").write_text("1")
+    now[0] += 600
+    assert lonely.seek() is None  # aucun bot pour lui
+    assert fun.seek() == "m1"
