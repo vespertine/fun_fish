@@ -388,13 +388,14 @@ class ShuffleSense:
                 and fullmove >= SHUFFLE_RESIGN_FROM and self.offers >= SHUFFLE_RESIGN_OFFERS)
 
 
-def timing_summary(timing: dict[int, dict]) -> tuple[float | None, float | None, float | None]:
-    """(pendule la plus basse, plus longue réflexion, part de réflexion réduite) de nos coups."""
-    if not timing:
+def timing_summary(timing: dict[int, dict], plies: int) -> tuple[float | None, float | None, float | None]:
+    """(pendule la plus basse, plus longue réflexion, part de réflexion réduite) de nos coups parmi les
+    `plies` premiers demi-coups de la partie (une mesure au-delà : un coup qui n'a jamais été joué)."""
+    moves = [m for ply, m in timing.items() if ply < plies]
+    if not moves:
         return None, None, None
-    moves = timing.values()
     reduced = sum(m["effort"] is None or m["effort"] >= opponents.REDUCED_EFFORT for m in moves)
-    return (min(m["clock"] for m in moves), max(m["seconds"] for m in moves), round(reduced / len(timing), 3))
+    return (min(m["clock"] for m in moves), max(m["seconds"] for m in moves), round(reduced / len(moves), 3))
 
 
 class BotGame(threading.Thread):
@@ -585,8 +586,8 @@ class BotGame(threading.Thread):
                 # la proposition de nulle voyage avec le coup (une seule requête) ; le message suit, sans le retarder
                 suffix = "?offeringDraw=true" if offering else ""
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):
-                    self.timing.pop(len(game.board.move_stack) - 1, None)
-                    game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état
+                    game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état (sa mesure reste :
+                    # Lichess a pu le recevoir malgré la réponse perdue ; sinon, le coup rejoué la remplace)
                 else:
                     if offering:
                         shuffle.sent(fullmove, shuffling)
@@ -634,8 +635,10 @@ class BotGame(threading.Thread):
         if record is None:
             return
         record.ending = "flux perdu"
-        record.min_clock, record.longest_move, record.reduced = timing_summary(self.timing)
+        record.min_clock, record.longest_move, record.reduced = timing_summary(self.timing, record.plies or 0)
         try:
+            if opponents.has_game(self.id):  # un autre fil l'a reprise et terminée : sa fin confirmée prime
+                return
             opponents.record(record)
             log(self.id, "notée d'après Lichess :", game.get("status"), "gagnant :", game.get("winner", "aucun"))
         except (sqlite3.Error, OSError) as exc:
@@ -652,7 +655,8 @@ class BotGame(threading.Thread):
             opponents.record(opponents.GameRecord(
                 self.id, self.bot.me, name, title, program, rating, facts["speed"], facts["rated"], facts["color"],
                 opponents.result_for(facts["color"], info["status"], info["winner"]), info["status"],
-                len(export["moves"]), time.time(), their, mine, self.ending, *timing_summary(self.timing)))
+                len(export["moves"]), time.time(), their, mine, self.ending,
+                *timing_summary(self.timing, len(export["moves"]))))
         except (sqlite3.Error, OSError) as exc:
             log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
 

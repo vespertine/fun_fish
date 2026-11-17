@@ -154,6 +154,11 @@ def record(game: GameRecord, path: Path | None = None) -> None:
                     f"ON CONFLICT (id) DO UPDATE SET {updates}", astuple(game))
 
 
+def has_game(game_id: str, path: Path | None = None) -> bool:
+    with connect(path) as con:
+        return con.execute("SELECT 1 FROM games WHERE id = ?", (game_id,)).fetchone() is not None
+
+
 def challenge(account: str, c: dict, decision: str, reason: str | None, at: float | None = None,
               path: Path | None = None) -> None:
     """Un défi reçu et ce qu'on en a fait (événement `challenge` de Lichess)."""

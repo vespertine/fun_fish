@@ -1736,3 +1736,38 @@ def test_get_asks_lichess_for_json(monkeypatch):
     monkeypatch.setattr(lichess_bot.urllib.request, "urlopen", urlopen)
     assert lichess_bot.Lichess("t").get("/game/export/abc") == {}
     assert seen.get("Accept") == "application/json"
+
+
+def test_a_late_look_at_lichess_does_not_overwrite_a_confirmed_game(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish import opponents
+    opponents.record(opponents.GameRecord("abc", "bot", "x", "BOT", True, 1500, "blitz", False, "white", "loss",
+                                          "outoftime", 2, 2.0, None, None, None, 10.0, 3.0, 0.5))  # le fil repris
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "GAME_RETRY_FOR", 0)
+    lichess_bot.BotGame(FakeBot(LostForGoodApi(), stockfish_path), "abc").run()
+    with opponents.connect() as con:
+        assert con.execute("SELECT ending, min_clock FROM games WHERE id = 'abc'").fetchone() == (None, 10.0)
+
+
+class LostReplyApi(FakeApi):
+    """La réponse au premier coup se perd (post → False), mais Lichess l'a bien reçu : le flux le montre."""
+
+    def post(self, path, data=None, quick=False):
+        self.posts.append(path)
+        return not (path.startswith("/api/bot/game/abc/move/") and sum("/move/" in p for p in self.posts) == 1)
+
+
+def test_the_measure_of_a_move_whose_reply_was_lost_is_kept(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    lichess_bot.BotGame(FakeBot(LostReplyApi(), stockfish_path), "abc").run()
+    export = json.loads(gzip.decompress(next(tmp_path.glob("*abc.json.gz")).read_bytes()))
+    ours = [m for m in export["moves"] if m["by"] == "ai"]
+    assert len(ours) == 2 and all("clock" in m for m in ours)
