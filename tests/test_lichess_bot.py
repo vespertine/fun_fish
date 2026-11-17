@@ -1476,3 +1476,81 @@ def test_the_draw_offer_says_why(fen, expected):
     assert lichess_bot.locked(board) or lichess_bot.bare(board)
     fr, en = lichess_bot.draw_offer_text(board)
     assert fr == expected and len(fr) <= 140 and len(en) <= 140
+
+
+def test_shuffle_sense_offers_then_resigns_only_in_long_level_games_against_bots():
+    sense = lichess_bot.ShuffleSense(applies=True)
+    for _ in range(19):
+        sense.observe(15)
+    assert not sense.offer(80)  # 19 coups égaux : pas encore
+    sense.observe(None)  # coup sans analyse : la série tient
+    sense.observe(-20)
+    assert sense.streak == 20 and not sense.offer(59) and sense.offer(60)  # pas avant le coup 60
+    assert not sense.offer(69) and sense.offer(70)  # une proposition tous les 10 coups
+    sense.observe(25)  # un écart : la série repart de zéro
+    assert not sense.level(100) and sense.streak == 0
+    for _ in range(20):
+        sense.observe(0)
+    assert sense.offer(140) and sense.offers == 3
+    assert not sense.resign(149) and sense.resign(150)
+    tired = lichess_bot.ShuffleSense(applies=True)
+    for _ in range(20):
+        tired.observe(0)
+    assert tired.offer(150) and not tired.resign(151)  # une seule proposition refusée : on continue
+    human = lichess_bot.ShuffleSense(applies=False)
+    for _ in range(40):
+        human.observe(0)
+    assert not human.offer(100) and not human.level(100) and not human.resign(200)
+
+
+class BotOpponentApi(FakeApi):
+    """La partie de FakeApi, contre un bot, en amical ou classé ; l'adversaire propose la nulle après 1.?? e5."""
+
+    def __init__(self, title="BOT", rated=False):
+        super().__init__()
+        self.title, self.rated = title, rated
+
+    def stream(self, path):
+        yield {"type": "gameFull", "initialFen": "startpos", "rated": self.rated, "white": {"id": "bot"},
+               "black": {"id": "x", "name": "x", "title": self.title},
+               "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+        first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1].split("?")[0]
+        moves = f"{first} {_reply(first)}"
+        yield {"type": "gameState", "moves": moves, "status": "started", "wtime": 59000, "btime": 59000, "bdraw": True}
+        yield {"type": "gameState", "moves": moves, "status": "draw"}
+
+
+@pytest.mark.parametrize("title, rated, applies", [("BOT", False, True), (None, False, False), ("BOT", True, False)])
+def test_a_shuffling_game_offers_and_accepts_a_draw_only_against_a_bot_in_casual(tmp_path, monkeypatch, title, rated,
+                                                                                 applies):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+
+    class Level(lichess_bot.ShuffleSense):  # la partie tricote déjà (la règle elle-même : test précédent)
+        def level(self, fullmove):
+            return self.applies
+    monkeypatch.setattr(lichess_bot, "ShuffleSense", Level)
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    api = BotOpponentApi(title, rated)
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert any(p.endswith("?offeringDraw=true") for p in api.posts) == applies
+    assert ("/api/bot/game/abc/draw/yes" in api.posts) == applies
+
+
+def test_a_shuffling_game_ends_with_a_resignation_and_a_word(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+
+    class Hopeless(lichess_bot.ShuffleSense):
+        def resign(self, fullmove):
+            return self.applies
+    monkeypatch.setattr(lichess_bot, "ShuffleSense", Hopeless)
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    api = LostApi()  # contre un bot, en amical
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert "/api/bot/game/abc/resign" in api.posts and not any("/move/" in p for p in api.posts)
+    assert sum("/chat" in p for p in api.posts) == 2 + len(lichess_bot.SHUFFLE_RESIGN)
