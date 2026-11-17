@@ -1771,3 +1771,17 @@ def test_the_measure_of_a_move_whose_reply_was_lost_is_kept(tmp_path, monkeypatc
     export = json.loads(gzip.decompress(next(tmp_path.glob("*abc.json.gz")).read_bytes()))
     ours = [m for m in export["moves"] if m["by"] == "ai"]
     assert len(ours) == 2 and all("clock" in m for m in ours)
+
+
+def test_a_finished_game_notes_its_highlights(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish import opponents
+    seen = []
+    monkeypatch.setattr(opponents, "note_highlights", lambda game, account, export: seen.append((game, account,
+                                                                                                 len(export["moves"]))))
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    lichess_bot.BotGame(FakeBot(FakeApi(), stockfish_path), "abc").run()
+    assert [s[:2] for s in seen] == [("abc", "bot")] and seen[0][2] > 0
