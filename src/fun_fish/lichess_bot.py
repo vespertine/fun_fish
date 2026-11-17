@@ -699,7 +699,7 @@ class Bot:
         # bots qui ont refusé ; depuis quand le compte est libre.
         self.matchmaking = matchmaking
         self.outgoing: tuple[str, float, str, str] | None = None  # (défi, lancé à, adversaire, cadence)
-        self.early_drops: dict[str, str] = {}
+        self.early_drops: dict[str, tuple[str, str | None]] = {}  # défi : (raison du refus ou « », destinataire)
         self.declined: dict[str, float] = {}
         self.idle_since = time.monotonic()
         # Défis acceptés dont la partie n'a pas commencé : None tant que le POST d'acceptation est en
@@ -859,19 +859,19 @@ class Bot:
         log("défi à", pending[2], "annulé : un humain arrive")
         return True
 
-    def drop_outgoing(self, challenge_id: str, declined: str | None = None) -> None:
+    def drop_outgoing(self, challenge_id: str, declined: str | None = None, to: str | None = None) -> None:
         """Notre défi est refusé (`declined` : la raison donnée par Lichess), annulé ou expiré : la place
         est rendue. Reçu avant que Lichess ait donné l'identifiant de notre défi, l'événement est gardé
         pour `seek`. Le refus est noté dans la mémoire des adversaires (`opponents.refusals`)."""
         with self.lock:
             if self.outgoing is not None and self.outgoing[0] == "" and challenge_id:
-                self.early_drops[challenge_id] = declined or ""  # « » : annulé, sans refus
+                self.early_drops[challenge_id] = (declined or "", to)  # « » : annulé, sans refus
                 return
             if self.outgoing is None or self.outgoing[0] != challenge_id:
                 return
-            if not challenge_id and not declined:  # identifiant jamais connu (réponse de création perdue) : un
-                declined = next(filter(None, self.early_drops.values()), None)  # refus reçu entre-temps est le nôtre
             _, _, opponent, clock = self.outgoing
+            if not challenge_id and not declined:  # identifiant jamais connu (réponse de création perdue) : un refus
+                declined = next((r for r, dest in self.early_drops.values() if r and dest == opponent), None)  # reçu
             self.outgoing = None
             if declined and declined not in opponents.CLOCK_REASONS:  # une autre cadence reste possible
                 self.declined[opponent] = time.monotonic()
@@ -1006,7 +1006,7 @@ class Bot:
             self.outgoing = (game_id, now, opponent, f"{limit}+{increment}")
             early = self.early_drops.pop(game_id, None)
         if early is not None:  # refusé ou annulé avant même la réponse de Lichess
-            self.drop_outgoing(game_id, declined=early or None)
+            self.drop_outgoing(game_id, declined=early[0] or None)
             return None
         log(f"défi lancé à {opponent} ({limit // 60}+{increment} {speed}, notre classement {rating})")
         return game_id
@@ -1074,7 +1074,7 @@ class Bot:
                         ours = c.get("challenger", {}).get("id", self.me) == self.me  # pas nos refus de défis reçus
                         reason = (c.get("declineReasonKey") or "generic").lower() \
                             if kind == "challengeDeclined" and ours else None
-                        self.drop_outgoing(c.get("id", ""), declined=reason)
+                        self.drop_outgoing(c.get("id", ""), declined=reason, to=c.get("destUser", {}).get("id"))
             except (OSError, ValueError) as exc:
                 log("flux interrompu, reconnexion dans 10 s :", exc)
                 time.sleep(10)

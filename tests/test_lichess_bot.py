@@ -1086,13 +1086,21 @@ def uncertain_seek(monkeypatch):
     return bot, now
 
 
+def opponents_rows():
+    from types import SimpleNamespace
+    from fun_fish import opponents
+    with opponents.connect() as con:
+        return [SimpleNamespace(opponent=o, reason=r) for o, r in con.execute("SELECT opponent, reason FROM declines")]
+
+
 def test_a_refusal_received_while_the_creation_response_is_lost_is_remembered(monkeypatch, bot_games_dir):
     from fun_fish import opponents
     bot, now = seeker(monkeypatch, [online_bot("rival")])
 
     def lost(path, data):  # le refus arrive pendant la création, puis la réponse se perd
         bot.drop_outgoing("zz")  # une annulation étrangère : sans raison
-        bot.drop_outgoing("m1", declined="nobot")
+        bot.drop_outgoing("vieux", declined="nobot", to="ancien")  # le refus tardif d'un ancien défi
+        bot.drop_outgoing("m1", declined="later", to="rival")
         raise OSError("réseau coupé")
     bot.api.create = lost
     now[0] += 600
@@ -1100,7 +1108,9 @@ def test_a_refusal_received_while_the_creation_response_is_lost_is_remembered(mo
     now[0] += 61
     bot.seek()  # Lichess : aucune partie en cours, la place est rendue
     assert bot.outgoing is None
-    assert opponents.refusals()["rival"].blocked
+    refused = opponents.refusals()
+    assert refused["rival"].blocked and "ancien" not in refused
+    assert [r.reason for r in opponents_rows()] == ["later"]  # le refus de rival, pas celui de l'ancien défi
 
 
 def test_an_uncertain_creation_keeps_the_place_until_lichess_says_no_game(monkeypatch, bot_games_dir):
