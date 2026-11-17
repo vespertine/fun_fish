@@ -1246,13 +1246,19 @@ class Bot:
         return game_id
 
     def watch_forever(self) -> None:
-        """Chaque minute : les acceptations sans gameStart, puis la recherche d'adversaires si elle est active."""
+        """Chaque minute : `watch`."""
         while True:
             time.sleep(random.uniform(MATCH_CHECK / 2, MATCH_CHECK * 1.5))
             try:
-                self.seek() if self.matchmaking else self.reconcile_accepting()
+                self.watch()
             except Exception as exc:  # jamais au prix du bot
                 log("surveillance :", repr(exc))
+
+    def watch(self) -> None:
+        """La fin éventuelle d'une campagne (stabilité redemandée ici, hors du flux des défis, même sans
+        recherche d'adversaires), puis les acceptations sans gameStart et la recherche si elle est active."""
+        self.campaign()
+        self.seek() if self.matchmaking else self.reconcile_accepting()
 
     def game_started(self, game_id: str) -> None:
         """`gameStart`. Pendant la création de notre défi (identifiant pas encore connu, ou réponse perdue),

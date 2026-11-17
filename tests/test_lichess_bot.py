@@ -1918,3 +1918,13 @@ def test_a_casual_refusal_during_a_campaign_does_not_block_the_return_to_casual(
     bot, now = seeker(monkeypatch, [online_bot("amical_seulement")], perfs=stable_perfs)
     now[0] += 600
     assert bot.seek() == "m1" and bot.api.created[0][1]["rated"] == "false"
+
+
+def test_the_watch_ends_a_finished_campaign_even_without_matchmaking(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)  # vient de redémarrer, sans recherche d'adversaires
+    stable_perfs = {"bullet": {"rd": 50, "games": 90}, "blitz": {"rd": 60, "games": 40}}
+    bot.api.get = lambda path: {"perfs": stable_perfs, "nowPlaying": []}
+    campaign_file(iso(-60))
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later"  # stabilité encore inconnue
+    bot.watch()
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) is None  # la surveillance l'a apprise
