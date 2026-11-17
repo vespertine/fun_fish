@@ -1,5 +1,6 @@
 import collections
 import contextlib
+import functools
 import gzip
 import json
 import os
@@ -876,13 +877,60 @@ def test_a_declined_challenge_frees_the_place_and_the_bot_is_left_alone(monkeypa
     bot.bot_opponents.clear()
     now[0] += 600
     bot.seek()
-    bot.drop_outgoing("m1", declined=True)  # événement challengeDeclined
+    bot.drop_outgoing("m1", declined="later")  # événement challengeDeclined
     assert bot.outgoing is None and list(bot_games_dir.glob("*--*")) == []
     os.utime(bot_games_dir / "dernier-defi", (0, 0))
     bot.bot_opponents.clear()
     assert bot.seek() is None  # il nous a refusé : pas avant un jour
     now[0] += 86400
+    from fun_fish import opponents
+    monkeypatch.setattr(opponents, "refusals", functools.partial(opponents.refusals, time.time() + 86400))
     assert bot.seek() == "m2"
+
+
+def test_a_bot_refusing_our_clock_gets_another_one(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    for clock in ("180+0", "300+0"):
+        opponents.decline("rival", "toofast", clock)
+    blitz = {"bullet": {"rating": 1800, "rd": 45, "games": 90}, "blitz": {"rating": 1700, "rd": 200, "games": 2}}
+    for _ in range(10):
+        bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=blitz)
+        now[0] += 600
+        assert bot.seek() == "m1"
+        assert (bot.api.created[0][1]["clock.limit"], bot.api.created[0][1]["clock.increment"]) == (180, 2)
+        bot.drop_outgoing("m1")  # sans réponse : on recommence
+        os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=blitz)
+    now[0] += 600
+    assert bot.seek() == "m1"
+    bot.drop_outgoing("m1", declined="toofast")  # encore une cadence refusée : le bot n'est pas écarté pour autant
+    assert "rival" not in bot.declined
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=blitz)
+    now[0] += 600
+    assert bot.seek() is None  # toutes ses cadences de blitz refusées
+
+
+def test_a_bot_that_never_plays_bots_is_left_alone_for_a_month(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    now[0] += 600
+    assert bot.seek() == "m1"
+
+    def events(path):
+        yield {"type": "challengeDeclined", "challenge": {"id": "m1", "destUser": {"name": "rival"},
+                                                          "declineReasonKey": "noBot"}}
+        raise SystemExit
+    bot.api.stream, bot.matchmaking = events, False
+    with pytest.raises(SystemExit):
+        bot.run()
+    real = opponents.refusals
+    for days, expected in ((29, None), (31, "m1")):
+        monkeypatch.setattr(opponents, "refusals", functools.partial(real, time.time() + days * 86400))
+        os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))  # l'espacement entre défis ne joue pas
+        restarted, now = seeker(monkeypatch, [online_bot("rival")])  # le service a redémarré entre-temps
+        now[0] += 600
+        assert restarted.seek() == expected
 
 
 def test_our_accounts_space_their_challenges(monkeypatch, bot_games_dir):
@@ -890,7 +938,7 @@ def test_our_accounts_space_their_challenges(monkeypatch, bot_games_dir):
     crazy, _ = seeker(monkeypatch, [online_bot("rival"), online_bot("autre")], now=now, me="crazyfishbot")
     now[0] += 600
     assert fun.seek() == "m1"
-    fun.drop_outgoing("m1", declined=True)
+    fun.drop_outgoing("m1", declined="generic")
     assert crazy.seek() is None  # moins de 5 minutes depuis le défi de fun
     os.utime(bot_games_dir / "dernier-defi", (time.time() - 300, time.time() - 300))
     assert crazy.seek() == "m1"
@@ -1067,7 +1115,7 @@ def test_a_game_started_without_news_is_found_and_played(monkeypatch, bot_games_
 @pytest.mark.parametrize("event", ["declined", "canceled"])
 def test_an_answer_arriving_before_the_creation_response_is_kept(monkeypatch, bot_games_dir, event):
     bot, now = seeker(monkeypatch, [online_bot("rival")])
-    bot.api.on_create = lambda game_id: bot.drop_outgoing(game_id, declined=event == "declined")
+    bot.api.on_create = lambda game_id: bot.drop_outgoing(game_id, declined="later" if event == "declined" else None)
     now[0] += 600
     assert bot.seek() is None
     assert bot.outgoing is None and list(bot_games_dir.glob("*--*")) == []

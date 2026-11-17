@@ -114,7 +114,10 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   faible de 250 et plus, proche, plus fort de 250 et plus) parmi celles qui ont un candidat, puis le
   bot dans la tranche. Mêmes règles que les défis
   reçus (place commune, pauses, même bot espacé), plus 5 minutes entre deux défis lancés par nos
-  comptes réunis ; jamais l'un de nos bots, ni un bot qui a refusé depuis moins d'un jour. Un humain
+  comptes réunis ; jamais l'un de nos bots. Les refus sont notés dans la mémoire des adversaires
+  (table `declines`) : un bot qui ne joue jamais contre des bots (`nobot`), que des variantes ou que
+  du classé est laissé tranquille 30 jours, `generic` 7 jours, les autres raisons un jour ; un refus
+  de cadence (`timecontrol`, `toofast`, `tooslow`) écarte seulement cette cadence pendant 7 jours. Un humain
   qui arrive passe devant : notre défi en attente est annulé (`seek`, `MATCH_*`).
 - **Contre les bots, en amical seulement (`BOT_RATED`) :** nos défis aux bots ne sont pas classés, et
   un défi classé d'un bot est refusé (« casual »). L'échelle des bots sur Lichess est sans rapport avec
