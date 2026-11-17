@@ -1479,22 +1479,25 @@ def test_the_draw_offer_says_why(fen, expected):
 
 
 def test_shuffle_sense_offers_then_resigns_only_in_long_level_games_against_bots():
+    plies = iter(range(0, 10_000, 2))
     sense = lichess_bot.ShuffleSense(applies=True)
     for _ in range(19):
-        sense.observe(15)
+        sense.observe(15, next(plies))
     assert not sense.offer(80)  # 19 coups égaux : pas encore
-    sense.observe(None)  # coup sans analyse : la série tient
-    sense.observe(-20)
+    sense.observe(None, next(plies))  # coup sans analyse : la série tient
+    sense.observe(-20, next(plies))
     assert sense.streak == 20 and not sense.offer(59) and sense.offer(60)  # pas avant le coup 60
+    sense.observe(0, sense.seen)  # le même coup, rejoué après un envoi raté : compté une fois
+    assert sense.streak == 20
     sense.sent(60, True)
     assert not sense.offer(69) and sense.offer(70)  # une proposition tous les 10 coups
     assert sense.offer(70)  # non envoyée (coup refusé par Lichess) : ni comptée ni espacée
     sense.sent(70, False)  # partie avec une proposition de position morte : même espacement, non comptée
     assert not sense.offer(79) and sense.offers == 1
-    sense.observe(25)  # un écart : la série repart de zéro
+    sense.observe(25, next(plies))  # un écart : la série repart de zéro
     assert not sense.level(100) and sense.streak == 0
     for _ in range(20):
-        sense.observe(0)
+        sense.observe(0, next(plies))
     for move in (140, 145):
         sense.sent(move, True)
     assert sense.offers == 3
@@ -1504,12 +1507,12 @@ def test_shuffle_sense_offers_then_resigns_only_in_long_level_games_against_bots
     assert sense.accept(100, -20) and not sense.accept(100, 250) and not sense.accept(100, None)
     tired = lichess_bot.ShuffleSense(applies=True)
     for _ in range(20):
-        tired.observe(0)
+        tired.observe(0, next(plies))
     tired.sent(150, True)
     assert not tired.resign(151, 0)  # une seule proposition refusée : on continue
     human = lichess_bot.ShuffleSense(applies=False)
     for _ in range(40):
-        human.observe(0)
+        human.observe(0, next(plies))
     assert not human.offer(100) and not human.accept(100, 0) and not human.resign(200, 0)
 
 
@@ -1595,3 +1598,30 @@ def test_a_draw_offered_right_after_a_blunder_is_declined(tmp_path, monkeypatch)
     api = BlunderThenDrawApi()
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
     assert "/api/bot/game/abc/draw/yes" not in api.posts  # éval fraîche : la dame est gagnée
+
+
+class MateInOneApi(FakeApi):
+    """Contre un bot : les Blancs (le bot) ont Dxf7# ; le coup prévu conclut la partie."""
+
+    def stream(self, path):
+        moves = "e2e4 e7e5 f1c4 b8c6 d1h5 g8f6"
+        yield {"type": "gameFull", "initialFen": "startpos", "rated": False, "white": {"id": "bot"},
+               "black": {"id": "x", "name": "x", "title": "BOT"},
+               "state": {"moves": moves, "status": "started", "wtime": 60000, "btime": 60000}}
+        yield {"type": "gameState", "moves": moves + " h5f7", "status": "mate", "winner": "white"}
+
+
+def test_no_shuffle_resignation_when_the_planned_move_ends_the_game(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+
+    class Hopeless(lichess_bot.ShuffleSense):
+        def resign(self, fullmove, score):
+            return self.applies
+    monkeypatch.setattr(lichess_bot, "ShuffleSense", Hopeless)
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    api = MateInOneApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    assert "/api/bot/game/abc/resign" not in api.posts and "/api/bot/game/abc/move/h5f7" in api.posts

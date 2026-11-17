@@ -351,9 +351,13 @@ class ShuffleSense:
         self.streak = 0  # nos coups de suite à ±SHUFFLE_SCORE
         self.offers = 0  # propositions faites (refusées, puisque la partie continue)
         self.offered_at = -100
+        self.seen = -1  # dernier demi-coup observé : un coup rejoué après un envoi raté ne compte qu'une fois
 
-    def observe(self, score: int | None) -> None:
+    def observe(self, score: int | None, ply: int) -> None:
         """À chacun de nos coups, notre éval (None : coup joué sans analyse, la série n'est pas rompue)."""
+        if ply == self.seen:
+            return
+        self.seen = ply
         if score is not None:
             self.streak = self.streak + 1 if abs(score) <= SHUFFLE_SCORE else 0
 
@@ -534,8 +538,9 @@ class BotGame(threading.Thread):
                     pace.observe(time.monotonic() - start, effort)
                     score = max((c.score for c in decision.candidates), default=None)
                 their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
-                shuffle.observe(score)
-                if shuffle.resign(fullmove, score):
+                shuffle.observe(score, len(game.board.move_stack) - 1)  # le coup prévu est déjà sur l'échiquier
+                if shuffle.resign(fullmove, score) and not game.board.is_game_over(claim_draw=True):  # pas si ce coup
+                    # conclut déjà la nulle (50 coups, répétition)
                     log(self.id, "abandonne (partie nulle qui tricote,", shuffle.offers, "propositions refusées)")
                     for text in SHUFFLE_RESIGN:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
