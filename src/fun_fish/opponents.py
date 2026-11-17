@@ -55,6 +55,23 @@ CREATE TABLE IF NOT EXISTS challenges (
     at REAL NOT NULL
 );
 CREATE INDEX IF NOT EXISTS challenges_account ON challenges (account, at);
+CREATE TABLE IF NOT EXISTS highlights (  -- les coups notables de nos parties (notable.py)
+    game TEXT NOT NULL,       -- partie Lichess
+    account TEXT NOT NULL,
+    ply INTEGER NOT NULL,
+    san TEXT NOT NULL,
+    kind TEXT NOT NULL,       -- piège, sacrifice, style, notre erreur, leur erreur, garde-fou
+    cost INTEGER,             -- cp : meilleur candidat moins coup choisi (éval de la personnalité)
+    swing INTEGER,            -- cp : de l'éval du coup à celle de notre coup suivant (une erreur, de qui ?)
+    chance INTEGER,           -- % : probabilité d'erreur annoncée par le piège
+    gain REAL,                -- pions : gain annoncé par le piège
+    explanation TEXT,         -- la justification de la personnalité (début)
+    PRIMARY KEY (game, ply, kind)
+);
+CREATE TABLE IF NOT EXISTS analysed (  -- les parties passées par notable.py, avec ou sans coup notable
+    game TEXT PRIMARY KEY,
+    account TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS declines (
     opponent TEXT NOT NULL,   -- le bot qui a refusé l'un de nos défis (tous nos comptes réunis)
     reason TEXT NOT NULL,     -- declineReasonKey de Lichess : nobot, rated, timecontrol…
@@ -155,6 +172,17 @@ def record(game: GameRecord, path: Path | None = None, how: str = "merge") -> No
     with connect(path) as con:
         con.execute(f"INSERT INTO games ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) "
                     f"ON CONFLICT (id) {conflict}", astuple(game))
+
+
+def note_highlights(game_id: str, account: str, export: dict, path: Path | None = None) -> int:
+    """Les coups notables d'une partie (sans doublon si on la renote). Renvoie leur nombre."""
+    from fun_fish import notable
+    rows = [(game_id, account.lower(), h["ply"], h["san"], h["kind"], h["cost"], h["swing"], h["chance"], h["gain"],
+             h["explanation"]) for h in notable.highlights(export)]
+    with connect(path) as con:
+        con.executemany("INSERT OR REPLACE INTO highlights VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        con.execute("INSERT OR IGNORE INTO analysed VALUES (?, ?)", (game_id, account.lower()))
+    return len(rows)
 
 
 def challenge(account: str, c: dict, decision: str, reason: str | None, at: float | None = None,
@@ -328,6 +356,8 @@ def import_history(accounts, games_dir: Path, fetch=lichess_games, path: Path | 
             rec = from_lichess(game, account.lower(), exports)
             if rec is not None:
                 record(rec, path)
+                if rec.id in exports:
+                    note_highlights(rec.id, account, exports[rec.id], path)
                 count += 1
     return count
 
@@ -420,6 +450,22 @@ def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str
             acc[3] += w * loss
     return {name: Profile(w, points / w, loss / measured if measured else None, measured)
             for name, (w, points, measured, loss) in sums.items() if w > 0}
+
+
+def notable_report(path: Path | None = None) -> tuple[list[tuple], list[tuple]]:
+    """Coups notables par partie analysée, par compte et sorte ; et les pièges : annoncés contre tenus (parmi
+    ceux dont on connaît la suite ; None si aucun), humains et bots à part."""
+    from fun_fish import notable
+    with connect(path) as con:
+        kinds = con.execute(
+            "SELECT h.account, h.kind, round(1.0 * count(*) / (SELECT count(*) FROM analysed a "
+            "WHERE a.account = h.account), 2) FROM highlights h GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+        traps = con.execute(
+            "SELECT h.account, CASE g.bot WHEN 1 THEN 'bots' ELSE 'humains' END, count(*), round(avg(h.chance)), "
+            "round(100.0 * sum(h.swing >= ?) / nullif(count(h.swing), 0)) FROM highlights h "
+            "JOIN games g ON g.id = h.game "
+            "WHERE h.kind = 'piège' GROUP BY 1, 2 ORDER BY 1, 2", (notable.SWING,)).fetchall()
+    return kinds, traps
 
 
 def challenge_report(days: float = 7, now: float | None = None, path: Path | None = None) -> list[tuple]:

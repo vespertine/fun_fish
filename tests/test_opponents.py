@@ -263,3 +263,15 @@ def test_a_confirmed_end_replaces_a_lost_from_sight_one_but_not_the_reverse():
     assert row() == ("win", None, 10.0)
     opponents.record(lost, how="absent")  # la relecture différée, arrivée après : sans effet
     assert row() == ("win", None, 10.0)
+
+
+def test_the_import_notes_the_highlights_of_our_exports(tmp_path, monkeypatch):
+    export = {"lichess": {"id": "g1"}, "moves": [_move(0, "ai", (-50,))]}
+    with gzip.open(tmp_path / "2026-11-14-g1.json.gz", "wt") as f:
+        json.dump(export, f)
+    game = {"id": "g1", "variant": "standard", "speed": "blitz", "status": "mate", "winner": "white",
+            "players": {"white": {"user": {"id": "dubot"}}, "black": {"user": {"id": "x"}}}, "createdAt": 1}
+    seen = []
+    monkeypatch.setattr(opponents, "note_highlights", lambda gid, account, data, path=None: seen.append((gid, data)))
+    opponents.import_history(["dubot"], tmp_path, fetch=lambda a: [game, {**game, "id": "g2"}])
+    assert seen == [("g1", export)]  # g2 : pas d'export, pas de coups notables

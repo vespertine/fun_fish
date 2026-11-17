@@ -670,6 +670,10 @@ class BotGame(threading.Thread):
         path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
         write_export(path, export)
         self.remember(export)
+        try:
+            opponents.note_highlights(self.id, self.bot.me, export)
+        except (sqlite3.Error, OSError, ValueError, KeyError) as exc:  # jamais au prix de la fin de partie
+            log(self.id, "coups notables non notés :", repr(exc))
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
         self.chat_lock = threading.Lock()  # la lecture immédiate et la relecture tardive n'écrivent pas ensemble
         self.chat_now = threading.Thread(target=self.late_chat, args=(path, export, False), daemon=True)

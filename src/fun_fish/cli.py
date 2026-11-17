@@ -348,6 +348,15 @@ def cmd_opponents(args: argparse.Namespace) -> None:
         accounts = args.account or sorted(lichess_bot.OUR_BOTS)
         print(opponents.import_history(accounts, lichess_bot.GAMES_DIR), "parties enregistrées")
         return
+    if args.action == "notable":
+        kinds, traps = opponents.notable_report()
+        print(f"{'compte':<14} {'sorte':<14} {'par partie':>10}")
+        for account, kind, per_game in kinds:
+            print(f"{account:<14} {kind:<14} {per_game:>10}")
+        print(f"\n{'compte':<14} {'contre':<8} {'pièges':>7} {'annoncé':>8} {'tenu':>6}")
+        for account, against, n, chance, held in traps:
+            print(f"{account:<14} {against:<8} {n:>7} {chance:>7}% " + ("    —" if held is None else f"{held:>5}%"))
+        return
     if args.action == "challenges":
         print(f"{'compte':<14} {'qui':<7} {'décision':<9} {'raison':<45} {'défis':>6}")
         for account, who, decision, reason, n in opponents.challenge_report(days=args.days):
@@ -480,9 +489,9 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--accept-bots", action="store_true", help="accepter sans limite les défis d'autres bots (sinon : pauses proportionnelles au temps de jeu, jusqu'à 10+0)")
     bot.set_defaults(func=cmd_lichess_bot)
     opp = sub.add_parser("opponents", help="mémoire des adversaires du bot Lichess : import de l'historique, bilans")
-    opp.add_argument("action", choices=["import", "bots", "humans", "challenges"],
+    opp.add_argument("action", choices=["import", "bots", "humans", "challenges", "notable"],
                      help="import : verser les parties passées de nos comptes ; bots, humans : bilan par adversaire ; "
-                          "challenges : défis reçus et leur sort, par compte")
+                          "challenges : défis reçus et leur sort, par compte ; notable : coups notables et pièges")
     opp.add_argument("--days", type=float, default=7, help="challenges : sur les N derniers jours (défaut : 7)")
     opp.add_argument("--account", action="append", help="compte à importer (défaut : tous les nôtres)")
     opp.set_defaults(func=cmd_opponents)

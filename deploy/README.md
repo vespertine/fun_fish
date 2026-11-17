@@ -58,6 +58,7 @@ relance que les bots qui ont un jeton ; il attend la fin des parties de **tous**
 | mettre à jour le code | une version taguée : `deploy/release.sh vX.Y.Z` (voir plus bas) |
 | bilan des adversaires (bots, humains) | `sudo -u funfish /srv/fun_fish/current/.venv/bin/fun-fish opponents bots` (ou `humans`) |
 | défis reçus et leur sort (7 jours) | `sudo -u funfish /srv/fun_fish/current/.venv/bin/fun-fish opponents challenges` (`--days N`) |
+| coups notables, pièges annoncés contre tenus | `sudo -u funfish /srv/fun_fish/current/.venv/bin/fun-fish opponents notable` (après un `import` pour le passé) |
 | reconstruire la mémoire des adversaires | `sudo -u funfish /srv/fun_fish/current/.venv/bin/fun-fish opponents import` (sans doublon) |
 | rapatrier les parties (exports de debug) | `rsync -av --rsync-path="sudo rsync" ubuntu@ADRESSE:/home/funfish/.local/share/fun_fish/bot_games/ bot_games/` |
 

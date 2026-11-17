@@ -144,6 +144,12 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   réflexion réduite ; l'export de debug, la pendule et l'effort de chacun de nos coups. Les défis reçus
   sont notés avec leur sort (table `challenges`, `fun-fish opponents challenges`) : combien d'humains on
   n'a pas pu servir, et pourquoi.
+- **Les coups notables (`notable.py`, table `highlights`) :** en fin de partie (et à l'import), les coups
+  qui méritent qu'on lise leur justification : piège (annoncé ≥ 40 %, gain ≥ 2 pions, choisi pour lui :
+  il coûte ≥ 0,3), sacrifice (≥ 2 pions perdus après la réponse adverse et encore ensuite, éval ≥ −1),
+  choix de style (≥ 0,5 sous le meilleur candidat), notre erreur ou la leur (l'éval bouge de ≥ 1,5 jusqu'à
+  notre coup suivant), garde-fou ; avec la justification de la personnalité. `fun-fish opponents
+  notable` : leur fréquence, et les pièges annoncés contre ceux qui ont pris, humains et bots à part.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans
