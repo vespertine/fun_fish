@@ -39,6 +39,13 @@ CREATE TABLE IF NOT EXISTS games (
     our_loss REAL             -- la nôtre : l'écart volontaire au meilleur coup (le style)
 );
 CREATE INDEX IF NOT EXISTS games_pair ON games (account, opponent, ended_at);
+CREATE TABLE IF NOT EXISTS declines (
+    opponent TEXT NOT NULL,   -- le bot qui a refusé l'un de nos défis (tous nos comptes réunis)
+    reason TEXT NOT NULL,     -- declineReasonKey de Lichess : nobot, rated, timecontrol…
+    clock TEXT,               -- la cadence proposée, « 180+2 »
+    at REAL NOT NULL          -- horodatage Unix
+);
+CREATE INDEX IF NOT EXISTS declines_opponent ON declines (opponent, at);
 """
 INIT_TRIES = 20
 EVAL_CAP = 1000  # cp : au-delà, la partie est jouée ; les écarts n'y veulent plus rien dire (convention de l'ACPL)
@@ -303,6 +310,43 @@ class Profile:
     @property
     def interest(self) -> float:
         return INTEREST[self.kind]
+
+
+# Refus de nos défis. Certains disent « jamais » (nobot : pas de bots ; variant ; rated : que du classé,
+# alors que nos défis sont amicaux) : on laisse ce bot tranquille longtemps. D'autres visent la cadence :
+# on lui en propose une autre. Les autres (later, generic…) : un jour, comme avant.
+DECLINE_DAYS = {"nobot": 30, "variant": 30, "rated": 30, "generic": 7}
+CLOCK_REASONS = {"timecontrol", "toofast", "tooslow"}
+CLOCK_DAYS = 7
+DEFAULT_DAYS = 1
+
+
+@dataclass
+class Refusal:
+    blocked: bool = False  # ne plus le défier pour l'instant
+    clocks: frozenset[str] = frozenset()  # cadences refusées récemment (« 180+2 »)
+
+
+def decline(opponent: str, reason: str, clock: str | None, at: float | None = None, path: Path | None = None) -> None:
+    with connect(path) as con:
+        con.execute("INSERT INTO declines VALUES (?, ?, ?, ?)",
+                    (opponent, reason, clock, time.time() if at is None else at))
+
+
+def refusals(now: float | None = None, path: Path | None = None) -> dict[str, Refusal]:
+    """Les refus encore en vigueur, par bot."""
+    now = time.time() if now is None else now
+    horizon = now - 86400 * max(max(DECLINE_DAYS.values()), CLOCK_DAYS, DEFAULT_DAYS)
+    blocked, clocks = set(), {}
+    with connect(path) as con:
+        rows = con.execute("SELECT opponent, reason, clock, at FROM declines WHERE at >= ?", (horizon,)).fetchall()
+    for opponent, reason, clock, at in rows:
+        if reason in CLOCK_REASONS:
+            if clock and now - at < 86400 * CLOCK_DAYS:
+                clocks.setdefault(opponent, set()).add(clock)
+        elif now - at < 86400 * DECLINE_DAYS.get(reason, DEFAULT_DAYS):
+            blocked.add(opponent)
+    return {name: Refusal(name in blocked, frozenset(clocks.get(name, ()))) for name in blocked | set(clocks)}
 
 
 def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str, Profile]:

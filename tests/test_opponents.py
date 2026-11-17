@@ -192,3 +192,16 @@ def test_one_old_measure_is_not_enough_to_call_a_bot_stockfish():
     for i in range(3):
         opponents.record(bot_game(f"new{i}", "x", "loss", 1, None))  # importées sans export : pas de mesure
     assert opponents.bot_profiles(now)["x"].kind == "coriace"
+
+
+def test_refusals_last_according_to_their_reason():
+    day, now = 86400, 1_000_000_000.0
+    for name, reason, clock, age in [("jamais", "nobot", "180+0", 29), ("plus_jamais", "nobot", "180+0", 31),
+                                     ("occupe", "generic", "180+0", 6), ("plus_occupe", "generic", "180+0", 8),
+                                     ("tard", "later", "180+0", 0.5), ("plus_tard", "later", "180+0", 1.5),
+                                     ("bizarre", "inconnue", "180+0", 0.5), ("classe", "rated", "180+0", 29),
+                                     ("lent", "toofast", "120+1", 6), ("lent", "toofast", "180+0", 8)]:
+        opponents.decline(name, reason, clock, at=now - age * day)
+    refused = opponents.refusals(now)
+    assert {n for n, r in refused.items() if r.blocked} == {"jamais", "occupe", "tard", "bizarre", "classe"}
+    assert refused["lent"] == opponents.Refusal(False, frozenset({"120+1"}))  # la cadence seule, une semaine
