@@ -1,9 +1,11 @@
 import collections
+import contextlib
 import gzip
 import json
 import os
 import random
 import time
+import urllib.error
 
 import chess
 import pytest
@@ -593,6 +595,69 @@ def test_a_failed_accept_frees_the_bot_place(monkeypatch, bot_games_dir):
     assert accepted(crazy, challenge("blitz", 180, 2, who="b", id="g2"))
 
 
+class CutApi(FakeApi):
+    """Lichess renvoie un 503 au milieu de la partie (partie dPHJHW0U) : le flux suivant reprend par gameFull."""
+
+    def __init__(self, thread=None):
+        super().__init__()
+        self.streams, self.thread = 0, None
+
+    def stream(self, path):
+        self.streams += 1
+        if self.streams == 1:
+            yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"},
+                   "black": {"id": "x", "name": "x"},
+                   "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+            if self.thread:  # une longue réflexion de l'adversaire (15+0) : plus de 10 min sans événement
+                self.thread.last_event -= 1000
+            raise urllib.error.HTTPError(path, 503, "Service Unavailable", {}, None)
+        first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1]
+        moves = f"{first} {_reply(first)}"
+        yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"},
+               "black": {"id": "x", "name": "x"},
+               "state": {"moves": moves, "status": "started", "wtime": 59000, "btime": 59000}}
+        yield {"type": "gameState", "moves": moves, "status": "resign", "winner": "white"}
+
+
+def test_a_game_stream_cut_by_lichess_is_resumed(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "GAME_RETRY", 0)
+    for long_silence in (False, True):
+        api = CutApi()
+        bot = FakeBot(api, stockfish_path)
+        game = lichess_bot.BotGame(bot, "abc")
+        api.thread = game if long_silence else None  # le délai d'abandon part de la coupure, pas du dernier coup
+        game.run()
+        assert api.streams == 2 and bot.done == ["abc"]  # reprise, puis fin confirmée
+        assert sum("/move/" in p for p in api.posts) == 2  # il a rejoué après la coupure
+        assert sum("/chat" in p for p in api.posts) == 2  # l'accueil (deux langues) une seule fois
+        export = json.loads(gzip.decompress(sorted(tmp_path.glob("*abc.json.gz"))[-1].read_bytes()))
+        ours = [m for m in export["moves"] if m["by"] == "ai"]
+        assert len(ours) == 2 and all("decision" in m for m in ours)  # l'état d'avant la coupure est gardé
+
+
+def test_a_game_unknown_to_lichess_is_not_retried(monkeypatch):
+    class GoneApi(FakeApi):
+        streams = 0
+
+        def stream(self, path):
+            self.streams += 1
+            raise urllib.error.HTTPError(path, 404, "Not Found", {}, None)
+            yield
+    from fun_fish import analysis
+    monkeypatch.setattr(analysis, "Analyser", lambda *a, **k: contextlib.nullcontext())
+    monkeypatch.setattr(lichess_bot, "GAME_RETRY", 0)
+    monkeypatch.setattr(lichess_bot, "GAME_RETRY_FOR", 0.2)  # sans la règle des 4xx : plusieurs essais, puis fin
+    api = GoneApi()
+    bot = FakeBot(api, None)
+    lichess_bot.BotGame(bot, "abc").run()
+    assert api.streams == 1 and bot.done == [("abc", "fin non confirmée")]
+
+
 def test_a_cut_game_stream_keeps_the_bot_place(monkeypatch, bot_games_dir):
     from fun_fish import analysis
     fun, crazy, _ = two_accounts(monkeypatch)
@@ -613,6 +678,7 @@ def test_a_cut_game_stream_keeps_the_bot_place(monkeypatch, bot_games_dir):
         raise OSError("flux coupé")
         yield
     fun.api.stream = cut
+    monkeypatch.setattr(lichess_bot, "GAME_RETRY_FOR", 0)  # flux perdu pour de bon : on cesse de le suivre
     lichess_bot.BotGame(fun, "g1").run()  # le vrai fil de partie : erreur réseau, fin non confirmée
     assert "g1" not in fun.games and "g1" in fun.bot_games
     assert (bot_games_dir / "funfishbot--g1").exists()
