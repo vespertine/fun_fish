@@ -637,9 +637,7 @@ class BotGame(threading.Thread):
         record.ending = "flux perdu"
         record.min_clock, record.longest_move, record.reduced = timing_summary(self.timing, record.plies or 0)
         try:
-            if opponents.has_game(self.id):  # un autre fil l'a reprise et terminée : sa fin confirmée prime
-                return
-            opponents.record(record)
+            opponents.record(record, how="absent")  # un autre fil l'a peut-être reprise et terminée : il prime
             log(self.id, "notée d'après Lichess :", game.get("status"), "gagnant :", game.get("winner", "aucun"))
         except (sqlite3.Error, OSError) as exc:
             log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
@@ -656,7 +654,7 @@ class BotGame(threading.Thread):
                 self.id, self.bot.me, name, title, program, rating, facts["speed"], facts["rated"], facts["color"],
                 opponents.result_for(facts["color"], info["status"], info["winner"]), info["status"],
                 len(export["moves"]), time.time(), their, mine, self.ending,
-                *timing_summary(self.timing, len(export["moves"]))))
+                *timing_summary(self.timing, len(export["moves"]))), how="confirmed")
         except (sqlite3.Error, OSError) as exc:
             log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
 

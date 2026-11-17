@@ -248,3 +248,18 @@ def test_the_challenge_report_counts_who_we_could_not_serve():
     assert opponents.challenge_report(days=7, now=500.0) == [
         ("dubot", "humain", "declined", "later", 2), ("dubot", "humain", "accepted", None, 1),
         ("dubot", "bot", "declined", "casual", 1)]
+
+
+def test_a_confirmed_end_replaces_a_lost_from_sight_one_but_not_the_reverse():
+    lost = opponents.GameRecord("g", "dubot", "x", "BOT", True, 1500, "blitz", False, "white", "loss", "outoftime",
+                                40, 1.0, None, None, "flux perdu", 60.0, 2.0, 0.1)
+    confirmed = opponents.GameRecord("g", "dubot", "x", "BOT", True, 1500, "blitz", False, "white", "win", "mate",
+                                     80, 2.0, 30.0, 20.0, None, 10.0, 3.0, 0.4)
+    def row():
+        with opponents.connect() as con:
+            return con.execute("SELECT result, ending, min_clock FROM games").fetchone()
+    opponents.record(lost, how="absent")
+    opponents.record(confirmed, how="confirmed")  # le fil repris termine : sa fin efface « flux perdu »
+    assert row() == ("win", None, 10.0)
+    opponents.record(lost, how="absent")  # la relecture différée, arrivée après : sans effet
+    assert row() == ("win", None, 10.0)

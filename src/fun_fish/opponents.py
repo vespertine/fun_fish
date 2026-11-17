@@ -142,21 +142,19 @@ def connect(path: Path | None = None):
         con.close()
 
 
-def record(game: GameRecord, path: Path | None = None) -> None:
-    """Enregistre une partie, ou la met à jour si elle y est déjà (un import ne double rien). Des mesures
-    absentes (import sans export de debug) ne remplacent pas celles déjà notées par le bot."""
+def record(game: GameRecord, path: Path | None = None, how: str = "merge") -> None:
+    """Enregistre une partie, ou la met à jour si elle y est déjà (un import ne double rien), selon `how` :
+    « merge » (import) : des mesures absentes ne remplacent pas celles déjà notées par le bot ;
+    « confirmed » (fin confirmée par le bot) : remplace tout, y compris une fin « flux perdu » notée avant ;
+    « absent » (partie perdue de vue, notée d'après Lichess) : seulement si elle n'y est pas encore (atomique)."""
     names = [f.name for f in fields(GameRecord)]
-    kept = {"their_loss", "our_loss", *MIGRATIONS}
+    kept = {"their_loss", "our_loss", *MIGRATIONS} if how == "merge" else set()
     updates = ", ".join(f"{n} = coalesce(excluded.{n}, games.{n})" if n in kept else f"{n} = excluded.{n}"
                         for n in names if n != "id")
+    conflict = "DO NOTHING" if how == "absent" else f"DO UPDATE SET {updates}"
     with connect(path) as con:
         con.execute(f"INSERT INTO games ({', '.join(names)}) VALUES ({', '.join('?' * len(names))}) "
-                    f"ON CONFLICT (id) DO UPDATE SET {updates}", astuple(game))
-
-
-def has_game(game_id: str, path: Path | None = None) -> bool:
-    with connect(path) as con:
-        return con.execute("SELECT 1 FROM games WHERE id = ?", (game_id,)).fetchone() is not None
+                    f"ON CONFLICT (id) {conflict}", astuple(game))
 
 
 def challenge(account: str, c: dict, decision: str, reason: str | None, at: float | None = None,
