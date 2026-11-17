@@ -267,6 +267,14 @@ def draw_offer_text(board: chess.Board) -> tuple[str, str]:
             "No pawns left and equal forces: nobody can win, I offer a draw.")
 
 
+def current_score(board: chess.Board, analyser) -> int | None:
+    """Une éval fraîche de la position (pour accepter une nulle proposée), à faible profondeur."""
+    if board.is_game_over():
+        return None
+    lines = analyser.analyse(board, multipv=1, depth=SHUFFLE_DEPTH)
+    return lines[0].score if lines else None
+
+
 def dead_draw(board: chess.Board, analyser) -> bool:
     """Nulle absolue : partie totalement fermée (mur de pions, ou presque plus rien sur l'échiquier) et
     Stockfish à ±DRAW_SCORE. Une position simplement égale, où il reste à creuser, ne compte pas."""
@@ -325,6 +333,7 @@ class DrawSense:
 # 8 nulles qui ont dépassé 150 coups auraient été écourtées, et aucune victoire perdue.
 SHUFFLE_SCORE, SHUFFLE_STREAK, SHUFFLE_FROM, SHUFFLE_EVERY = 20, 20, 60, 10  # cp, nos coups, coup, coups
 SHUFFLE_RESIGN_FROM, SHUFFLE_RESIGN_OFFERS = 150, 3
+SHUFFLE_DEPTH = 10  # éval fraîche avant d'accepter une nulle proposée
 SHUFFLE_OFFER = ("La position est égale depuis longtemps et plus rien ne bouge : je propose la nulle.",
                  "This has been dead level for a long time: I offer a draw.")
 SHUFFLE_RESIGN = ("La position est nulle, mais mes propositions sont refusées : j'abandonne plutôt que de tourner "
@@ -352,13 +361,24 @@ class ShuffleSense:
         return self.applies and fullmove >= SHUFFLE_FROM and self.streak >= SHUFFLE_STREAK
 
     def offer(self, fullmove: int) -> bool:
-        if self.level(fullmove) and fullmove - self.offered_at >= SHUFFLE_EVERY:
-            self.offered_at, self.offers = fullmove, self.offers + 1
-            return True
-        return False
+        """Faut-il proposer ? (`sent` note la proposition une fois le coup réellement envoyé)"""
+        return self.level(fullmove) and fullmove - self.offered_at >= SHUFFLE_EVERY
 
-    def resign(self, fullmove: int) -> bool:
-        return self.level(fullmove) and fullmove >= SHUFFLE_RESIGN_FROM and self.offers >= SHUFFLE_RESIGN_OFFERS
+    def sent(self, fullmove: int, ours: bool) -> None:
+        """Une proposition est partie avec notre coup (celle-ci, ou celle d'une position morte : un seul
+        espacement pour les deux). Seules les nôtres comptent pour l'abandon."""
+        self.offered_at = fullmove
+        self.offers += ours
+
+    def accept(self, fullmove: int, score: int | None) -> bool:
+        """L'adversaire propose : on accepte si la partie tricote et si l'éval *actuelle* l'est encore
+        (son dernier coup a pu être une gaffe)."""
+        return self.level(fullmove) and score is not None and abs(score) <= SHUFFLE_SCORE
+
+    def resign(self, fullmove: int, score: int | None) -> bool:
+        """Jamais sans éval actuelle (pendule basse : coup sans analyse, un mat a pu apparaître)."""
+        return (self.level(fullmove) and score is not None and abs(score) <= SHUFFLE_SCORE
+                and fullmove >= SHUFFLE_RESIGN_FROM and self.offers >= SHUFFLE_RESIGN_OFFERS)
 
 
 class BotGame(threading.Thread):
@@ -490,7 +510,8 @@ class BotGame(threading.Thread):
             offered = state.get("bdraw" if ours == chess.WHITE else "wdraw", False)
             if offered and answered != len(moves) and clock >= 2 * LOW_CLOCK_MS:
                 answered = len(moves)  # refuser, c'est simplement jouer : l'offre tombe avec notre coup
-                accept = dead_draw(game.board, analyser) or shuffle.level(game.board.fullmove_number)
+                accept = dead_draw(game.board, analyser) or (shuffle.level(game.board.fullmove_number) and shuffle.accept(
+                    game.board.fullmove_number, current_score(game.board, analyser)))
                 log(self.id, "nulle proposée par l'adversaire :", "acceptée" if accept else "on joue")
                 if accept and api.post(f"/api/bot/game/{self.id}/draw/yes", quick=True):
                     continue
@@ -514,7 +535,7 @@ class BotGame(threading.Thread):
                     score = max((c.score for c in decision.candidates), default=None)
                 their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
                 shuffle.observe(score)
-                if shuffle.resign(fullmove):
+                if shuffle.resign(fullmove, score):
                     log(self.id, "abandonne (partie nulle qui tricote,", shuffle.offers, "propositions refusées)")
                     for text in SHUFFLE_RESIGN:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
@@ -534,8 +555,12 @@ class BotGame(threading.Thread):
                 suffix = "?offeringDraw=true" if offering else ""
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):
                     game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état
-                elif not self.started.is_set():
-                    self.wait_first_move()
+                else:
+                    if offering:
+                        shuffle.sent(fullmove, shuffling)
+                        draws.offered_at = fullmove
+                    if not self.started.is_set():
+                        self.wait_first_move()
                 if offering and game.board.turn != ours:
                     log(self.id, "propose la nulle", "(partie égale qui tricote)" if shuffling else "(position bloquée)")
                     for text in SHUFFLE_OFFER if shuffling else draw_offer_text(game.board):
