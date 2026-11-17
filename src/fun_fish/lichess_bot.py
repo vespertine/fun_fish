@@ -66,6 +66,16 @@ MATCH_BAND = 250  # écart qui sépare les tranches : plus faible (≤ −250), 
 MATCH_DECLINED = 86400  # s : un bot qui a refusé n'est pas redéfié avant
 MATCH_WAIT = 30  # s : sans réponse, le défi est oublié (Lichess l'annule au bout de 20 s)
 MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
+# Pendant une campagne classée, un compte stable en bullet et en blitz joue aussi du rapide, le plus court
+# (10+0, la limite de BOT_MAX_ESTIMATE) : la vitesse reste celle où le classement est le plus incertain.
+CAMPAIGN_CLOCKS = {**MATCH_CLOCKS, "rapid": [(600, 0)]}
+# Pendant une campagne, CAMPAIGN_BOT_GAMES parties contre des bots en même temps, nos comptes réunis (une
+# seule sinon) : le test de charge du 17/11 a tenu cinq parties de blitz sans perte au temps.
+CAMPAIGN_BOT_GAMES = 2
+# Tour de rôle : un compte qui veut lancer un défi laisse un marqueur `attente.<compte>` (frais pendant
+# MATCH_WAITING s) ; la place va au compte en attente dont le dernier défi lancé (`servi.<compte>`) est le
+# plus ancien. Sans cela, le premier arrivé l'emporte, et un compte peut attendre des heures.
+MATCH_WAITING = 2 * MATCH_CHECK  # s : plus que l'écart maximal entre deux examens (1,5 × MATCH_CHECK)
 OUR_BOTS = {"funfishbot", "crazyfishbot", "dubot", "capabot", "sharpdubot"}
 # Les parties contre des bots sont amicales, dans les deux sens (défis lancés, défis reçus).
 # L'échelle des bots sur Lichess n'a rien à voir avec celle des humains (des moteurs classés 1850 jouent
@@ -772,20 +782,55 @@ def blocked_players() -> set[str]:
     return {name.lower() for line in text.splitlines() if (name := line.split("#", 1)[0].strip())}
 
 
-def bot_game_running() -> bool:
-    """Un de nos comptes joue-t-il déjà contre un bot (ou s'apprête-t-il à le faire) ?"""
+def bot_games_count() -> int:
+    """Nos parties contre des bots en cours (ou sur le point de commencer), tous comptes réunis."""
     try:
         marks = list(BOT_GAMES_DIR.glob("*--*"))
     except OSError:
-        return False
-    now = time.time()
+        return 0
+    now, running = time.time(), 0
     for mark in marks:
         try:
-            if now - mark.stat().st_mtime < BOT_GAME_STALE:
-                return True
+            running += now - mark.stat().st_mtime < BOT_GAME_STALE
         except OSError:  # effacé entre-temps
             pass
+    return running
+
+
+def bot_game_running(capacity: int = 1) -> bool:
+    """Nos comptes jouent-ils déjà `capacity` parties contre des bots (ou s'apprêtent-ils à le faire) ?"""
+    return bot_games_count() >= capacity
+
+
+def served_at(account: str) -> float:
+    """Heure du dernier défi lancé par ce compte (0 : jamais)."""
+    try:
+        return (BOT_GAMES_DIR / f"servi.{account}").stat().st_mtime
+    except OSError:
+        return 0.0
+
+
+def someone_waited_longer(account: str) -> bool:
+    """Un autre de nos comptes attend une place qu'il pourrait prendre maintenant (sa capacité, écrite dans
+    son marqueur, n'est pas atteinte), et son dernier défi lancé est plus ancien que le nôtre. Un compte
+    sorti de campagne (une place) ne retient donc pas la deuxième place de ceux qui y sont encore."""
+    now, mine, running = time.time(), served_at(account), bot_games_count()
+    for mark in BOT_GAMES_DIR.glob("attente.*"):
+        other = mark.name.split(".", 1)[1]
+        try:
+            fresh = now - mark.stat().st_mtime < MATCH_WAITING
+            capacity = int(mark.read_text() or 1)
+        except (OSError, ValueError):
+            continue
+        if other != account and fresh and running < capacity and served_at(other) < mine:
+            return True
     return False
+
+
+def withdraw(account: str) -> None:
+    """Le compte n'attend plus la place (occupé, ou servi)."""
+    with contextlib.suppress(OSError):
+        (BOT_GAMES_DIR / f"attente.{account}").unlink(missing_ok=True)
 
 
 @contextlib.contextmanager
@@ -815,18 +860,25 @@ def bot_games_lock():
         lock.unlink(missing_ok=True)
 
 
-def reserve_bot_game(account: str, game_id: str, spacing: float = 0) -> bool:
-    """Réserve la place commune (une seule partie contre un bot à la fois), atomiquement. `spacing` :
-    pour un défi lancé, au moins ce délai depuis le précédent défi lancé par l'un de nos comptes."""
+def reserve_bot_game(account: str, game_id: str, spacing: float = 0, capacity: int = 1) -> bool:
+    """Réserve une place commune (au plus `capacity` parties contre des bots à la fois), atomiquement.
+    `spacing` : pour un défi lancé, au moins ce délai depuis le précédent défi lancé par l'un de nos
+    comptes, et chacun son tour (le compte servi il y a le plus longtemps d'abord)."""
     try:
         with bot_games_lock():
-            if bot_game_running():
+            if spacing:
+                (BOT_GAMES_DIR / f"attente.{account}").write_text(str(capacity))  # même refusé, on attend son tour
+                if someone_waited_longer(account):
+                    return False
+            if bot_game_running(capacity):
                 return False
             if spacing:
                 last = BOT_GAMES_DIR / "dernier-defi"
                 if last.exists() and time.time() - last.stat().st_mtime < spacing:
                     return False
                 last.touch()
+                (BOT_GAMES_DIR / f"servi.{account}").touch()
+                withdraw(account)
             (BOT_GAMES_DIR / f"{account}--{game_id}").touch()
             return True
     except OSError as exc:  # verrou occupé trop longtemps, dossier inutilisable : dans le doute, pas de bot
@@ -1165,16 +1217,20 @@ class Bot:
         if not self.reconcile_accepting():
             return None
         with self.lock:
-            if not self.ready_to_seek(now):
-                return None
+            ready = self.ready_to_seek(now)
+        if not ready:
+            withdraw(self.me)  # occupé : on ne retient pas la place des autres
+            return None
         perfs = self.api.get("/api/account").get("perfs", {})
-        speed = max(MATCH_CLOCKS, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()))
-        rating = reference_rating(perfs, speed)
         planned = read_campaign()
         if planned is not None:
             self.stable = (planned.rd, stable(perfs, planned.rd), time.monotonic())
         campaign = self.campaign()
         rated = BOT_RATED or bool(campaign and campaign.rated)
+        table = CAMPAIGN_CLOCKS if rated and campaign and stable(perfs, campaign.rd) else MATCH_CLOCKS
+        # la vitesse la plus incertaine d'abord ; sans adversaire possible, la suivante
+        speeds = sorted(table, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()), reverse=True)
+        speed, rating = speeds[0], 0
 
         def gap(bot: dict) -> int:
             return bot.get("perfs", {}).get(speed, {}).get("rating", -10**4) - rating
@@ -1188,7 +1244,7 @@ class Bot:
         def clocks(name: str) -> list[tuple[int, int]]:
             """Les cadences de cette vitesse que ce bot n'a pas refusées récemment."""
             no = refused.get(name, opponents.Refusal()).clocks
-            return [c for c in MATCH_CLOCKS[speed] if f"{c[0]}+{c[1]}" not in no]
+            return [c for c in table[speed] if f"{c[0]}+{c[1]}" not in no]
 
         def fits(bot: dict) -> bool:
             name = bot.get("id", "")
@@ -1200,18 +1256,28 @@ class Bot:
                     and (last_played is None or now - last_played >= BOT_SAME_OPPONENT)
                     and (last_declined is None or now - last_declined >= MATCH_DECLINED)
                     and name not in blocked_players())
-        candidates = [(b["id"], gap(b)) for b in self.api.lines("/api/bot/online?nb=200") if fits(b)]
-        if not candidates:
-            log(f"recherche d'adversaire ({speed}, {rating}) : aucun bot disponible")
+        online = list(self.api.lines("/api/bot/online?nb=200"))
+        for speed in speeds:
+            rating = reference_rating(perfs, speed)
+            candidates = [(b["id"], gap(b)) for b in online if fits(b)]
+            if candidates:
+                break
+        else:
+            log(f"recherche d'adversaire ({'/'.join(speeds)}) : aucun bot disponible")
+            withdraw(self.me)  # rien à jouer : on ne retient pas le tour des autres
             return None
         opponent = self.pick(band(candidates))
         now = time.monotonic()
         with self.lock:  # l'état a pu changer pendant les lectures (humain accepté, vidange) : on revérifie
-            if not self.ready_to_seek(now):
-                return None
-            limit, increment = random.choice(clocks(opponent))
-            self.outgoing, self.early_drops = ("", now, opponent, f"{limit}+{increment}"), {}  # dès lors, humains et bots attendent
-        if not reserve_bot_game(self.me, "sortant", spacing=MATCH_SPACING):
+            ready = self.ready_to_seek(now)
+            if ready:
+                limit, increment = random.choice(clocks(opponent))
+                self.outgoing, self.early_drops = ("", now, opponent, f"{limit}+{increment}"), {}  # dès lors, humains et bots attendent
+        if not ready:
+            withdraw(self.me)
+            return None
+        if not reserve_bot_game(self.me, "sortant", spacing=MATCH_SPACING,
+                                capacity=CAMPAIGN_BOT_GAMES if campaign else 1):
             with self.lock:
                 self.outgoing = None
             return None
