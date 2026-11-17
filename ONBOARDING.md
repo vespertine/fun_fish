@@ -126,6 +126,10 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 - **L'abandon (`ResignSense`) :** quand la position est perdue sans espoir (éval du meilleur candidat), le bot
   abandonne avec un mot : à −10 pions trois coups de suite contre un bot, à −15 pions six coups de suite contre
   un humain, jamais quand l'adversaire a moins de 30 s.
+- **Le tricotage (`ShuffleSense`) :** contre un bot, en partie amicale seulement, une longue partie égale
+  (notre éval à ±0,2 pendant 20 de nos coups, au-delà du coup 60) : le bot propose la nulle (avec son coup,
+  tous les 10 coups au plus) et accepte celle de l'adversaire. Au-delà du coup 150, après trois propositions
+  refusées, il abandonne avec un mot. Jamais contre un humain ni en partie classée.
 - **La mémoire des adversaires (`opponents.py`) :** une base SQLite partagée par nos comptes
   (`~/.local/share/fun_fish/opponents.db`), une ligne par partie : adversaire, résultat, et la perte moyenne
   par coup de chacun, tirée de nos propres évals. Un humain déjà rencontré par ce compte est accueilli
