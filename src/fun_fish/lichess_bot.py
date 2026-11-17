@@ -33,6 +33,7 @@ GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on finit ses parties sans en accepter (déploiement)
 BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
 CAMPAIGN_PATH = Path("~/.config/fun_fish/campaign").expanduser()  # JSON : une campagne contre des bots (`Campaign`)
+STABLE_FRESH = 600  # s : au-delà, la stabilité du classement est redemandée à Lichess
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
 # Défis d'autres bots : le bot ne joue qu'une partie à la fois, il doit rester libre pour les humains.
@@ -742,9 +743,13 @@ def read_campaign() -> Campaign | None:
     """La campagne décrite par CAMPAIGN_PATH, ou None (absente ou illisible : on joue comme d'habitude)."""
     try:
         data = json.loads(CAMPAIGN_PATH.read_text())
-        until = datetime.datetime.fromisoformat(data["until"]).timestamp()
-        return Campaign(until, bool(data.get("rated", True)), bool(data.get("decline_bots", True)),
-                        int(data.get("rd", 75)))
+        end = datetime.datetime.fromisoformat(data["until"])
+        if end.tzinfo is None:
+            raise ValueError(f"heure sans fuseau : {data['until']} (par exemple +01:00)")
+        rated, decline, rd = data.get("rated", True), data.get("decline_bots", True), data.get("rd", 75)
+        if not isinstance(rated, bool) or not isinstance(decline, bool) or isinstance(rd, bool) or not isinstance(rd, int):
+            raise ValueError(f"rated et decline_bots : true ou false ; rd : un entier ({data})")
+        return Campaign(end.timestamp(), rated, decline, rd)
     except FileNotFoundError:
         return None
     except (OSError, ValueError, KeyError, TypeError) as exc:
@@ -884,7 +889,7 @@ class Bot:
         self.outgoing: tuple[str, float, str, str] | None = None  # (défi, lancé à, adversaire, cadence)
         self.early_drops: dict[str, tuple[str, str | None]] = {}  # défi : (raison du refus ou « », destinataire)
         self.declined: dict[str, float] = {}
-        self.stable = False  # classement stable (vu à la dernière recherche) : fin possible d'une campagne classée
+        self.stable: tuple[int, bool, float] | None = None  # (rd visé, classement stable ?, vu à) : fin d'une campagne
         self.in_campaign = False
         self.idle_since = time.monotonic()
         # Défis acceptés dont la partie n'a pas commencé : None tant que le POST d'acceptation est en
@@ -933,12 +938,23 @@ class Bot:
     def campaign(self) -> Campaign | None:
         """La campagne en cours pour ce compte (voir `Campaign`), ou None ; le journal note son début et sa fin."""
         planned = read_campaign()
-        running = planned is not None and (time.time() < planned.until or (planned.rated and not self.stable))
+        running = planned is not None and (time.time() < planned.until or (planned.rated and not self.is_stable(planned.rd)))
         if running != self.in_campaign:
             self.in_campaign = running
-            log("campagne", "en cours" if running else "terminée",
-                "(classée)" if planned and planned.rated else "", "classement stable" if self.stable else "")
+            log("campagne", "en cours" if running else "terminée", "(classée)" if planned and planned.rated else "")
         return planned if running else None
+
+    def is_stable(self, rd: int) -> bool:
+        """Classement stable pour ce seuil : vu à la dernière recherche s'il date de moins de STABLE_FRESH s
+        (et pour ce même seuil), sinon redemandé à Lichess ; injoignable : pas encore stable."""
+        if self.stable is None or self.stable[0] != rd or time.monotonic() - self.stable[2] > STABLE_FRESH:
+            try:
+                perfs = self.api.get("/api/account").get("perfs", {})
+            except (OSError, ValueError) as exc:
+                log("classement inconnu (campagne) :", repr(exc))
+                return False
+            self.stable = (rd, stable(perfs, rd), time.monotonic())
+        return self.stable[1]
 
     def decline_reason(self, challenge: dict) -> str | None:
         if DRAIN_PATH.exists():
@@ -1080,7 +1096,8 @@ class Bot:
             if not challenge_id and not declined:  # identifiant jamais connu (réponse de création perdue) : un refus
                 declined = next((r for r, dest in self.early_drops.values() if r and dest == opponent), None)  # reçu
             self.outgoing = None
-            if declined and declined not in opponents.CLOCK_REASONS:  # une autre cadence reste possible
+            if declined and declined not in opponents.CLOCK_REASONS | {"rated"}:  # une autre cadence reste possible ;
+                # « rated » : la mémoire des refus seule en décide (une campagne classée l'ignore)
                 self.declined[opponent] = time.monotonic()
         unmark_bot_games(self.me, challenge_id or "sortant")
         if declined:
@@ -1150,7 +1167,8 @@ class Bot:
         speed = max(MATCH_CLOCKS, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()))
         rating = reference_rating(perfs, speed)
         planned = read_campaign()
-        self.stable = planned is not None and stable(perfs, planned.rd)
+        if planned is not None:
+            self.stable = (planned.rd, stable(perfs, planned.rd), time.monotonic())
         campaign = self.campaign()
         rated = BOT_RATED or bool(campaign and campaign.rated)
 
