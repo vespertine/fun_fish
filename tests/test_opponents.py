@@ -205,3 +205,46 @@ def test_refusals_last_according_to_their_reason():
     refused = opponents.refusals(now)
     assert {n for n, r in refused.items() if r.blocked} == {"jamais", "occupe", "tard", "bizarre", "classe"}
     assert refused["lent"] == opponents.Refusal(False, frozenset({"120+1"}))  # la cadence seule, une semaine
+
+
+def test_an_old_database_gets_the_new_columns_and_keeps_its_games(tmp_path):
+    import sqlite3
+    path = tmp_path / "ancienne.db"
+    con = sqlite3.connect(path)
+    old = opponents.SCHEMA.split("CREATE TABLE IF NOT EXISTS challenges")[0]  # le schéma d'avant : games seule
+    con.executescript(old)
+    con.execute("INSERT INTO games (id, account, opponent, bot, color, result, ended_at) "
+                "VALUES ('g1', 'dubot', 'x', 1, 'white', 'win', 1.0)")
+    con.commit()
+    con.close()
+    with opponents.connect(path) as con:
+        columns = {row[1] for row in con.execute("PRAGMA table_info(games)")}
+    assert set(opponents.MIGRATIONS) <= columns
+    opponents.record(opponents.GameRecord("g2", "dubot", "y", "BOT", True, 2000, "blitz", False, "black", "draw",
+                                          "draw", 300, 2.0, None, None, "tricotage", 12.5, 4.1, 0.25), path)
+    opponents.record(opponents.GameRecord("g2", "dubot", "y", "BOT", True, 2000, "blitz", False, "black", "draw",
+                                          "draw", 300, 2.0), path)  # un import ensuite : ne les efface pas
+    with opponents.connect(path) as con:
+        rows = con.execute("SELECT id, ending, min_clock, longest_move, reduced FROM games ORDER BY id").fetchall()
+    assert rows == [("g1", None, None, None, None), ("g2", "tricotage", 12.5, 4.1, 0.25)]
+
+
+def test_a_received_challenge_is_noted_with_its_answer():
+    c = {"id": "c1", "speed": "blitz", "rated": True, "timeControl": {"type": "clock", "limit": 180, "increment": 2},
+         "challenger": {"id": "humain", "name": "Humain", "rating": 1500}}
+    opponents.challenge("DuBot", c, "declined", "later", at=5.0)
+    with opponents.connect() as con:
+        row = con.execute("SELECT * FROM challenges").fetchone()
+    assert row == ("c1", "dubot", "humain", None, 0, 1500, "blitz", "180+2", 1, "declined", "later", 5.0)
+
+
+def test_the_challenge_report_counts_who_we_could_not_serve():
+    human = {"id": "c", "challenger": {"id": "h", "name": "h"}, "timeControl": {"type": "clock", "limit": 180, "increment": 0}}
+    bot = {"id": "d", "challenger": {"id": "b", "name": "b", "title": "BOT"}}
+    for c, decision, reason, at in [(human, "declined", "later", 100.0), (human, "declined", "later", 200.0),
+                                    (human, "accepted", None, 300.0), (bot, "declined", "casual", 400.0),
+                                    (human, "declined", "later", -10 * 86400.0)]:  # trop ancien
+        opponents.challenge("DuBot", c, decision, reason, at=at)
+    assert opponents.challenge_report(days=7, now=500.0) == [
+        ("dubot", "humain", "declined", "later", 2), ("dubot", "humain", "accepted", None, 1),
+        ("dubot", "bot", "declined", "casual", 1)]

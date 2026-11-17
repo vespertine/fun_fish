@@ -98,6 +98,7 @@ NO_START_RETRY = 15  # s : nouvel essai si l'annulation échoue (429, délai dé
 GAME_RETRY = 3  # s entre deux reconnexions au flux d'une partie (partie dPHJHW0U : perdue au temps, fil arrêté
 # sur un 503 de Lichess)
 GAME_RETRY_FOR = 600  # s sans aucun événement de la partie : on cesse de la suivre
+UNCONFIRMED_RECHECK = 600  # s : partie encore en cours chez Lichess quand on cesse de la suivre, regardée à nouveau
 CHAT_LATE = 120  # s : on relit le chat de la partie après sa fin, pour les messages d'adieu
 QUICK_TIMEOUT = 3  # s : nulle, chat ; jamais au prix du coup à jouer
 CALM_CLOCK_MS = 300_000  # sans incrément, en dessous de 5 min de base, pas de pièges calculés plus loin en finale
@@ -145,15 +146,17 @@ class Lichess:
     def __init__(self, token: str):
         self.token = token
 
-    def _request(self, method: str, path: str, data: dict | None = None, timeout: float | None = 30):
+    def _request(self, method: str, path: str, data: dict | None = None, timeout: float | None = 30,
+                 accept: str | None = None):
         body = urllib.parse.urlencode(data).encode() if data is not None else (b"" if method == "POST" else None)
-        req = urllib.request.Request(LICHESS + path, data=body, method=method,
-                                     headers={"Authorization": f"Bearer {self.token}",
-                                              "User-Agent": "fun_fish-bot"})
+        headers = {"Authorization": f"Bearer {self.token}", "User-Agent": "fun_fish-bot"}
+        if accept:
+            headers["Accept"] = accept
+        req = urllib.request.Request(LICHESS + path, data=body, method=method, headers=headers)
         return urllib.request.urlopen(req, timeout=timeout)
 
     def get(self, path: str) -> dict:
-        with self._request("GET", path) as r:
+        with self._request("GET", path, accept="application/json") as r:
             return json.load(r)
 
     def post(self, path: str, data: dict | None = None, *, quick: bool = False) -> bool:
@@ -385,12 +388,23 @@ class ShuffleSense:
                 and fullmove >= SHUFFLE_RESIGN_FROM and self.offers >= SHUFFLE_RESIGN_OFFERS)
 
 
+def timing_summary(timing: dict[int, dict]) -> tuple[float | None, float | None, float | None]:
+    """(pendule la plus basse, plus longue réflexion, part de réflexion réduite) de nos coups."""
+    if not timing:
+        return None, None, None
+    moves = timing.values()
+    reduced = sum(m["effort"] is None or m["effort"] >= opponents.REDUCED_EFFORT for m in moves)
+    return (min(m["clock"] for m in moves), max(m["seconds"] for m in moves), round(reduced / len(timing), 3))
+
+
 class BotGame(threading.Thread):
     def __init__(self, bot: "Bot", game_id: str):
         super().__init__(daemon=True, name=f"partie-{game_id}")
         self.bot, self.id = bot, game_id
         self.over = False  # fin confirmée par Lichess (et non flux coupé ou erreur)
         self.greeted = False  # accueil envoyé (une seule fois, reconnexions comprises)
+        self.timing: dict[int, dict] = {}  # demi-coup : pendule avant le coup (s), effort (None : sans analyse), durée
+        self.ending: str | None = None  # fin à notre initiative ou anormale (opponents.MIGRATIONS)
         self.last_event = time.monotonic()  # dernier événement reçu du flux de la partie
         self.session = None  # (game, ours, pace, draws, resigns, shuffle) : l'état gardé entre deux connexions
         self.started = threading.Event()  # l'adversaire a joué au moins un coup
@@ -412,6 +426,8 @@ class BotGame(threading.Thread):
             self.ended.set()
             self.watchdog.cancel()
             self.bot.finished(self.id, self.over)
+            if not self.over:
+                self.remember_unconfirmed()
 
     def follow(self, analyser, Game) -> None:
         """Joue la partie jusqu'à sa fin confirmée. Un flux coupé ou une erreur passagère de Lichess (5xx,
@@ -518,6 +534,7 @@ class BotGame(threading.Thread):
                     game.board.fullmove_number, current_score(game.board, analyser)))
                 log(self.id, "nulle proposée par l'adversaire :", "acceptée" if accept else "on joue")
                 if accept and api.post(f"/api/bot/game/{self.id}/draw/yes", quick=True):
+                    self.ending = "nulle acceptée"
                     continue
             if game.board.turn == ours and not game.over:
                 fullmove = game.board.fullmove_number  # avant notre coup
@@ -525,8 +542,11 @@ class BotGame(threading.Thread):
                 increment = state.get("winc" if ours == chess.WHITE else "binc", 0)
                 score = None  # notre éval, celle du choix du coup : aucune analyse en plus (elle changerait les coups)
                 if clock < LOW_CLOCK_MS:
+                    start = time.monotonic()
                     move = analyser.analyse(game.board, multipv=1, depth=low_clock_depth(game.board))[0].move
                     game.board.push(move)
+                    self.timing[len(game.board.move_stack) - 1] = {
+                        "clock": round(clock / 1000, 1), "effort": None, "seconds": round(time.monotonic() - start, 2)}
                 else:
                     agent = game.personality
                     effort = pace.effort(clock / 1000, increment / 1000, game.board.fullmove_number)
@@ -537,6 +557,8 @@ class BotGame(threading.Thread):
                     move = decision.move
                     pace.observe(time.monotonic() - start, effort)
                     score = max((c.score for c in decision.candidates), default=None)
+                    self.timing[len(game.board.move_stack) - 1] = {
+                        "clock": round(clock / 1000, 1), "effort": effort, "seconds": round(time.monotonic() - start, 2)}
                 their = state.get("btime" if ours == chess.WHITE else "wtime", 10**9)
                 shuffle.observe(score, len(game.board.move_stack) - 1)  # le coup prévu est déjà sur l'échiquier
                 if shuffle.resign(fullmove, score) and not game.board.is_game_over(claim_draw=True):  # pas si ce coup
@@ -545,6 +567,8 @@ class BotGame(threading.Thread):
                     for text in SHUFFLE_RESIGN:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
                     if api.post(f"/api/bot/game/{self.id}/resign", quick=True):
+                        self.ending = "tricotage"
+                        self.timing.pop(len(game.board.move_stack) - 1, None)
                         game.retry()
                         continue
                 shuffling = not offering and clock >= 2 * LOW_CLOCK_MS and shuffle.offer(fullmove)
@@ -554,11 +578,14 @@ class BotGame(threading.Thread):
                     for text in RESIGN_TEXT:
                         api.post(f"/api/bot/game/{self.id}/chat", {"room": "player", "text": text}, quick=True)
                     if api.post(f"/api/bot/game/{self.id}/resign", quick=True):
+                        self.ending = "abandon"
+                        self.timing.pop(len(game.board.move_stack) - 1, None)
                         game.retry()  # le coup prévu n'est pas joué : ni dans l'échiquier, ni dans l'export
                         continue  # la fin arrive par le flux ; sinon, on joue le coup prévu
                 # la proposition de nulle voyage avec le coup (une seule requête) ; le message suit, sans le retarder
                 suffix = "?offeringDraw=true" if offering else ""
                 if not api.post(f"/api/bot/game/{self.id}/move/{move.uci()}{suffix}"):
+                    self.timing.pop(len(game.board.move_stack) - 1, None)
                     game.board.pop()  # coup refusé : on se resynchronisera sur le prochain état
                 else:
                     if offering:
@@ -587,6 +614,33 @@ class BotGame(threading.Thread):
                 return again
         return GREETINGS.get(self.bot.personality, GREETING)
 
+    def remember_unconfirmed(self, again: bool = True) -> None:
+        """Fil arrêté sans fin confirmée (flux perdu, erreur) : la partie est notée quand même, d'après
+        Lichess, si elle y est finie ; sinon on regarde une fois encore, UNCONFIRMED_RECHECK s plus tard."""
+        if not getattr(self, "facts", None):
+            return  # jamais commencée de notre côté : rien à noter
+        try:
+            game = self.bot.api.get(f"/game/export/{self.id}?moves=true&clocks=false&evals=false")
+        except (OSError, ValueError) as exc:
+            game = {}
+            log(self.id, "fin de partie inconnue :", repr(exc))
+        if game.get("status") in (None, "created", "started"):
+            if again:
+                timer = threading.Timer(UNCONFIRMED_RECHECK, self.remember_unconfirmed, (False,))
+                timer.daemon = True
+                timer.start()
+            return
+        record = opponents.from_lichess(game, self.bot.me, {})
+        if record is None:
+            return
+        record.ending = "flux perdu"
+        record.min_clock, record.longest_move, record.reduced = timing_summary(self.timing)
+        try:
+            opponents.record(record)
+            log(self.id, "notée d'après Lichess :", game.get("status"), "gagnant :", game.get("winner", "aucun"))
+        except (sqlite3.Error, OSError) as exc:
+            log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
+
     def remember(self, export: dict) -> None:
         """Note la partie dans la mémoire des adversaires ; un échec ne coûte que cette ligne."""
         facts, info = getattr(self, "facts", None), export["lichess"]
@@ -598,7 +652,7 @@ class BotGame(threading.Thread):
             opponents.record(opponents.GameRecord(
                 self.id, self.bot.me, name, title, program, rating, facts["speed"], facts["rated"], facts["color"],
                 opponents.result_for(facts["color"], info["status"], info["winner"]), info["status"],
-                len(export["moves"]), time.time(), their, mine))
+                len(export["moves"]), time.time(), their, mine, self.ending, *timing_summary(self.timing)))
         except (sqlite3.Error, OSError) as exc:
             log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
 
@@ -606,8 +660,10 @@ class BotGame(threading.Thread):
         GAMES_DIR.mkdir(parents=True, exist_ok=True)
         export = game.debug_export(engine=analyser.engine_name)
         export["anomalies"] = getattr(game.personality, "anomalies", [])
+        for entry in export["moves"]:  # pendule et effort de chacun de nos coups
+            entry.update(self.timing.get(entry["ply"], {}))
         export["lichess"] = {"id": self.id, "url": f"{LICHESS}/{self.id}", "status": state.get("status"),
-                             "winner": state.get("winner"), **getattr(self, "facts", {})}
+                             "winner": state.get("winner"), "ending": self.ending, **getattr(self, "facts", {})}
         export["chat"] = None  # lu à part : une lecture lente ne doit pas retarder la libération de la place
         path = GAMES_DIR / f"{time.strftime('%Y-%m-%d')}-{self.id}.json.gz"
         write_export(path, export)
@@ -887,7 +943,15 @@ class Bot:
         return True
 
     def handle_challenge(self, c: dict) -> None:
-        """Accepte ou refuse un défi. Le quota des bots n'est compté qu'une fois l'acceptation confirmée
+        """Traite un défi reçu, et le note dans la mémoire des adversaires (table `challenges`)."""
+        decision, reason = self.answer_challenge(c)
+        try:
+            opponents.challenge(self.me, c, decision, reason)
+        except (sqlite3.Error, OSError) as exc:
+            log("défi absent de la mémoire des adversaires :", repr(exc))
+
+    def answer_challenge(self, c: dict) -> tuple[str, str | None]:
+        """Accepte ou refuse un défi : (accepted, declined ou failed, raison). Le quota des bots n'est compté qu'une fois l'acceptation confirmée
         par Lichess : un échec (défi annulé entre-temps, réseau) ne bloque pas les bots suivants."""
         reason = self.decline_reason(c)
         who = c.get("challenger", {}).get("name", "?")
@@ -895,12 +959,12 @@ class Bot:
         if reason:
             log("défi de", who, "refusé :", reason, what)
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": reason})
-            return
+            return "declined", reason
         rationed = self.rationed(c)
         if rationed and not reserve_bot_game(self.me, c["id"]):  # un autre compte vient de la prendre
             log("défi de", who, "refusé : later (un autre compte joue contre un bot)", what)
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": "later"})
-            return
+            return "declined", "later (un autre compte joue contre un bot)"
         cancelled = rationed or self.cancel_outgoing()  # pour un humain : notre défi lancé lui cède la place
         with self.lock:  # même verrou que la recherche : jamais un défi lancé et une acceptation ensemble
             free = cancelled and self.outgoing is None
@@ -911,7 +975,7 @@ class Bot:
             self.api.post(f"/api/challenge/{c['id']}/decline", {"reason": "later"})
             if rationed:
                 unmark_bot_games(self.me, c["id"])
-            return
+            return "declined", "later (notre défi à un bot est en cours)"
         log("défi de", who, "accepté", what)
         ok = False
         try:
@@ -926,10 +990,11 @@ class Bot:
                 if rationed:
                     unmark_bot_games(self.me, c["id"])  # place rendue
         if not ok or not rationed:
-            return
+            return ("accepted", None) if ok else ("failed", None)
         now = time.monotonic()
         self.bot_games[c["id"]] = self.bot_opponents[c.get("challenger", {}).get("id", "")] = now
         self.bot_free_at = now + BOT_GAME_STALE  # au cas où la fin de partie ne serait jamais vue
+        return "accepted", None
 
     def cancel_outgoing(self) -> bool:
         """Annule notre défi lancé (place laissée à un humain). False : impossible (en cours de création,
@@ -1009,7 +1074,7 @@ class Bot:
             profiles = {}
         profile = {name: profiles.get(name, opponents.Profile()) for name in candidates}
         opponent = random.choices(candidates, [profile[name].interest for name in candidates])[0]
-        log(f"adversaire tiré : {opponent} ({profile[opponent].kind}, parmi {len(candidates)})")
+        self.picked = f"{profile[opponent].kind}, parmi {len(candidates)}"  # écrit au journal avec le défi
         return opponent
 
     def seek(self) -> str | None:
@@ -1093,7 +1158,8 @@ class Bot:
         if early is not None:  # refusé ou annulé avant même la réponse de Lichess
             self.drop_outgoing(game_id, declined=early[0] or None)
             return None
-        log(f"défi lancé à {opponent} ({limit // 60}+{increment} {speed}, notre classement {rating})")
+        log(f"défi lancé à {opponent} ({limit // 60}+{increment} {speed}, notre classement {rating} ; "
+            f"{getattr(self, 'picked', '?')})")
         return game_id
 
     def watch_forever(self) -> None:

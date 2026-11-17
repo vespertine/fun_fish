@@ -2,6 +2,7 @@ import collections
 import contextlib
 import functools
 import gzip
+import io
 import json
 import os
 import random
@@ -1625,3 +1626,113 @@ def test_no_shuffle_resignation_when_the_planned_move_ends_the_game(tmp_path, mo
     api = MateInOneApi()
     lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
     assert "/api/bot/game/abc/resign" not in api.posts and "/api/bot/game/abc/move/h5f7" in api.posts
+
+
+def challenge_rows():
+    from fun_fish import opponents
+    with opponents.connect() as con:
+        return con.execute("SELECT challenger, bot, decision, reason FROM challenges ORDER BY rowid").fetchall()
+
+
+def test_received_challenges_are_noted_with_what_we_did(monkeypatch, bot_games_dir):
+    bot, _ = rationed_bot(monkeypatch)
+    bot.me = "funfishbot"
+    assert accepted(bot, challenge("blitz", 180, 2, title=None, who="Humain", id="h1"))
+    bot.handle_challenge(challenge("bullet", 60, 0, who="Rapide", id="b1"))
+    assert challenge_rows() == [("humain", 0, "accepted", None), ("rapide", 1, "declined", "tooFast")]
+
+
+def test_our_moves_carry_their_clock_and_effort_and_the_game_its_summary(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish import opponents
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    api = FakeApi()
+    lichess_bot.BotGame(FakeBot(api, stockfish_path), "abc").run()
+    export = json.loads(gzip.decompress(next(tmp_path.glob("*abc.json.gz")).read_bytes()))
+    ours = [m for m in export["moves"] if m["by"] == "ai"]
+    assert [m["clock"] for m in ours] == [60.0, 59.0] and all(isinstance(m["effort"], int) for m in ours)
+    with opponents.connect() as con:
+        row = con.execute("SELECT ending, min_clock, longest_move, reduced FROM games WHERE id = 'abc'").fetchone()
+    assert row[0] is None and row[1] == 59.0 and row[2] == max(m["seconds"] for m in ours) and row[3] is not None
+
+
+def test_a_resignation_is_noted_as_such(tmp_path, monkeypatch):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish import opponents
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "RESIGN_BOT", (500, 1))
+    lichess_bot.BotGame(FakeBot(LostApi(), stockfish_path), "abc").run()
+    export = json.loads(gzip.decompress(next(tmp_path.glob("*.json.gz")).read_bytes()))
+    assert export["lichess"]["ending"] == "abandon"
+    assert not any("clock" in m for m in export["moves"])  # le coup prévu, non joué, n'a pas de mesure
+    with opponents.connect() as con:
+        # aucun coup joué par le bot : pas de mesure (celle du coup prévu est retirée avec lui)
+        assert con.execute("SELECT ending, min_clock FROM games WHERE id = 'abc'").fetchone() == ("abandon", None)
+
+
+class LostForGoodApi(FakeApi):
+    """Le flux se coupe après le premier coup du bot et ne revient pas ; Lichess dit ensuite la partie finie."""
+
+    def __init__(self, status="outoftime"):
+        super().__init__()
+        self.status, self.exports = status, 0
+
+    def stream(self, path):
+        yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"},
+               "black": {"id": "x", "name": "x", "title": "BOT"}, "speed": "blitz", "rated": False,
+               "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+        raise OSError("flux coupé")
+
+    def get(self, path):
+        assert path.startswith("/game/export/abc")
+        self.exports += 1
+        return {"id": "abc", "status": self.status, "winner": "black", "speed": "blitz", "rated": False,
+                "createdAt": 1000, "lastMoveAt": 2000, "moves": "e2e4 e7e5",
+                "players": {"white": {"user": {"id": "bot", "name": "bot", "title": "BOT"}},
+                            "black": {"user": {"id": "x", "name": "x", "title": "BOT"}, "rating": 1500}}}
+
+
+@pytest.mark.parametrize("status", ["outoftime", "started"])
+def test_a_game_lost_from_sight_is_noted_from_lichess(tmp_path, monkeypatch, status):
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    from fun_fish import opponents
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    monkeypatch.setattr(lichess_bot, "GAME_RETRY_FOR", 0)
+    monkeypatch.setattr(lichess_bot, "UNCONFIRMED_RECHECK", 0.05)
+    api = LostForGoodApi(status)
+    bot = FakeBot(api, stockfish_path)
+    lichess_bot.BotGame(bot, "abc").run()
+    time.sleep(0.3)  # la seconde lecture, quand la partie était encore en cours
+    with opponents.connect() as con:
+        row = con.execute("SELECT result, status, ending, min_clock FROM games WHERE id = 'abc'").fetchone()
+    if status == "started":
+        assert row is None and api.exports == 2  # encore en cours : regardée deux fois, jamais notée
+    else:
+        assert row == ("loss", "outoftime", "flux perdu", 60.0) and api.exports == 1
+
+
+def test_get_asks_lichess_for_json(monkeypatch):
+    seen = {}
+
+    class Response(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    def urlopen(req, timeout=None):
+        seen.update(req.headers)
+        return Response(b"{}")
+    monkeypatch.setattr(lichess_bot.urllib.request, "urlopen", urlopen)
+    assert lichess_bot.Lichess("t").get("/game/export/abc") == {}
+    assert seen.get("Accept") == "application/json"
