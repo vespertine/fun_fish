@@ -1086,6 +1086,23 @@ def uncertain_seek(monkeypatch):
     return bot, now
 
 
+def test_a_refusal_received_while_the_creation_response_is_lost_is_remembered(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+
+    def lost(path, data):  # le refus arrive pendant la création, puis la réponse se perd
+        bot.drop_outgoing("zz")  # une annulation étrangère : sans raison
+        bot.drop_outgoing("m1", declined="nobot")
+        raise OSError("réseau coupé")
+    bot.api.create = lost
+    now[0] += 600
+    assert bot.seek() is None and bot.outgoing[0] == ""
+    now[0] += 61
+    bot.seek()  # Lichess : aucune partie en cours, la place est rendue
+    assert bot.outgoing is None
+    assert opponents.refusals()["rival"].blocked
+
+
 def test_an_uncertain_creation_keeps_the_place_until_lichess_says_no_game(monkeypatch, bot_games_dir):
     bot, now = uncertain_seek(monkeypatch)
     assert [m.name for m in bot_games_dir.glob("*--*")] == ["funfishbot--sortant"]

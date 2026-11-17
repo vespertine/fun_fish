@@ -869,6 +869,8 @@ class Bot:
                 return
             if self.outgoing is None or self.outgoing[0] != challenge_id:
                 return
+            if not challenge_id and not declined:  # identifiant jamais connu (réponse de création perdue) : un
+                declined = next(filter(None, self.early_drops.values()), None)  # refus reçu entre-temps est le nôtre
             _, _, opponent, clock = self.outgoing
             self.outgoing = None
             if declined and declined not in opponents.CLOCK_REASONS:  # une autre cadence reste possible
@@ -1069,7 +1071,9 @@ class Bot:
                         if kind == "challengeDeclined" and c.get("challenger", {}).get("id") == self.me:
                             log("défi refusé par", c.get("destUser", {}).get("name", "?"), ":",
                                 c.get("declineReasonKey", "?"))  # (pas l'écho de nos propres refus)
-                        reason = (c.get("declineReasonKey") or "generic").lower() if kind == "challengeDeclined" else None
+                        ours = c.get("challenger", {}).get("id", self.me) == self.me  # pas nos refus de défis reçus
+                        reason = (c.get("declineReasonKey") or "generic").lower() \
+                            if kind == "challengeDeclined" and ours else None
                         self.drop_outgoing(c.get("id", ""), declined=reason)
             except (OSError, ValueError) as exc:
                 log("flux interrompu, reconnexion dans 10 s :", exc)
