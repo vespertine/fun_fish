@@ -47,6 +47,7 @@ class FakeApi:
 def no_drain(tmp_path, monkeypatch):
     """Les tests ne dépendent pas d'un drapeau de vidange réel (déploiement en cours sur la machine)."""
     monkeypatch.setattr(lichess_bot, "DRAIN_PATH", tmp_path / "drain")
+    monkeypatch.setattr(lichess_bot, "CAMPAIGN_PATH", tmp_path / "campaign")  # ni la campagne de la machine
 
 def _reply(first):
     board = chess.Board()
@@ -1785,3 +1786,75 @@ def test_a_finished_game_notes_its_highlights(tmp_path, monkeypatch):
     monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
     lichess_bot.BotGame(FakeBot(FakeApi(), stockfish_path), "abc").run()
     assert [s[:2] for s in seen] == [("abc", "bot")] and seen[0][2] > 0
+
+
+def campaign_file(until, **kw):
+    lichess_bot.CAMPAIGN_PATH.write_text(json.dumps({"until": until, **kw}))
+
+
+def iso(offset):
+    import datetime
+    return datetime.datetime.fromtimestamp(time.time() + offset, datetime.timezone.utc).isoformat()
+
+
+def test_a_campaign_is_read_from_its_file_and_ignored_if_unreadable():
+    assert lichess_bot.read_campaign() is None
+    campaign_file("2026-11-17T21:00:00+01:00")
+    assert lichess_bot.read_campaign() == lichess_bot.Campaign(1794945600.0, True, True, 75)
+    campaign_file("2026-11-17T21:00:00+01:00", rated=False, decline_bots=False, rd=90)
+    assert lichess_bot.read_campaign() == lichess_bot.Campaign(1794945600.0, False, False, 90)
+    lichess_bot.CAMPAIGN_PATH.write_text("{pas du json")
+    assert lichess_bot.read_campaign() is None
+    campaign_file("ce soir")
+    assert lichess_bot.read_campaign() is None
+
+
+def test_a_rated_campaign_lasts_until_its_end_and_until_the_rating_is_stable(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    campaign_file(iso(3600))
+    assert bot.campaign() is not None  # avant l'heure
+    campaign_file(iso(-60))
+    assert bot.campaign() is not None  # l'heure est passée, mais le classement n'est pas encore stable
+    bot.stable = True
+    assert bot.campaign() is None
+    campaign_file(iso(-60), rated=False)
+    bot.stable = False
+    assert bot.campaign() is None  # amicale : l'heure suffit
+
+
+def test_stability_needs_a_low_rd_in_each_speed_we_seek():
+    good = {"bullet": {"rd": 70, "games": 50}, "blitz": {"rd": 75, "games": 80}}
+    assert lichess_bot.stable(good, 75)
+    assert not lichess_bot.stable({**good, "blitz": {"rd": 76, "games": 80}}, 75)
+    assert not lichess_bot.stable({"bullet": {"rd": 70, "games": 50}}, 75)  # blitz jamais joué
+    assert not lichess_bot.stable({**good, "blitz": {"rd": 60, "games": 0}}, 75)  # aucune partie : rien de mesuré
+
+
+def test_during_a_campaign_bots_are_declined_humans_still_welcome(monkeypatch):
+    bot, _ = rationed_bot(monkeypatch)
+    campaign_file(iso(3600))
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later"
+    assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="humain")) is None
+    campaign_file(iso(3600), decline_bots=False)
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) is None
+
+
+def test_a_rated_campaign_challenges_rated_and_reaches_bots_that_want_rated_games(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("classe_seulement", "rated", "180+2")
+    unstable = {"bullet": {"rating": 1800, "rd": 150, "games": 3}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    for planned, expected in ((None, None), (iso(3600), "m1")):
+        if planned:
+            campaign_file(planned)
+        bot, now = seeker(monkeypatch, [online_bot("classe_seulement")], perfs=unstable)
+        now[0] += 600
+        assert bot.seek() == expected  # hors campagne : il ne joue qu'en classé, on le laisse
+        if expected:
+            assert bot.api.created[0][1]["rated"] == "true"
+            bot.drop_outgoing("m1")  # sans réponse : la place commune est rendue
+            os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    stable_perfs = {"bullet": {"rating": 1800, "rd": 50, "games": 90}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    campaign_file(iso(-60))  # l'heure est passée et le classement est stable : retour à l'amical
+    bot, now = seeker(monkeypatch, [online_bot("autre")], perfs=stable_perfs)
+    now[0] += 600
+    assert bot.seek() == "m1" and bot.api.created[0][1]["rated"] == "false"

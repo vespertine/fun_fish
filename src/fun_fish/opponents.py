@@ -418,14 +418,16 @@ def decline(opponent: str, reason: str, clock: str | None, at: float | None = No
                     (opponent, reason, clock, time.time() if at is None else at))
 
 
-def refusals(now: float | None = None, path: Path | None = None) -> dict[str, Refusal]:
-    """Les refus encore en vigueur, par bot."""
+def refusals(now: float | None = None, path: Path | None = None, ignore=()) -> dict[str, Refusal]:
+    """Les refus encore en vigueur, par bot ; sans les raisons de `ignore` (« rated » pendant une campagne classée)."""
     now = time.time() if now is None else now
     horizon = now - 86400 * max(max(DECLINE_DAYS.values()), CLOCK_DAYS, DEFAULT_DAYS)
     blocked, clocks = set(), {}
     with connect(path) as con:
         rows = con.execute("SELECT opponent, reason, clock, at FROM declines WHERE at >= ?", (horizon,)).fetchall()
     for opponent, reason, clock, at in rows:
+        if reason in ignore:
+            continue
         if reason in CLOCK_REASONS:
             if clock and now - at < 86400 * CLOCK_DAYS:
                 clocks.setdefault(opponent, set()).add(clock)

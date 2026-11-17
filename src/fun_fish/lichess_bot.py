@@ -9,6 +9,7 @@ Bibliothèque standard seulement : pas de dépendance en plus.
 from __future__ import annotations
 
 import contextlib
+import datetime
 import gzip
 import json
 import os
@@ -19,6 +20,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 
 import chess
@@ -30,6 +32,7 @@ TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on finit ses parties sans en accepter (déploiement)
 BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
+CAMPAIGN_PATH = Path("~/.config/fun_fish/campaign").expanduser()  # JSON : une campagne contre des bots (`Campaign`)
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
 MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
 # Défis d'autres bots : le bot ne joue qu'une partie à la fois, il doit rester libre pour les humains.
@@ -722,6 +725,39 @@ def write_export(path, export: dict) -> None:
         tmp.unlink(missing_ok=True)
 
 
+# Campagne : nos comptes mènent eux-mêmes leurs parties contre des bots, classées pour stabiliser leur
+# classement. Fichier JSON relu à chaque recherche et à chaque défi, sans redémarrage, par exemple
+# {"until": "2026-11-17T21:00:00+01:00", "rated": true, "decline_bots": true, "rd": 75}. Elle dure jusqu'à
+# `until`, et, si elle est classée, tant que le compte n'est pas stable (rd ≤ `rd` dans chaque vitesse de
+# MATCH_CLOCKS) : le dernier des deux. Les humains passent toujours en priorité.
+@dataclass
+class Campaign:
+    until: float  # horodatage Unix
+    rated: bool = True  # nos défis aux bots sont classés (les refus « rated » ne comptent plus)
+    decline_bots: bool = True  # les défis reçus de bots sont refusés (later)
+    rd: int = 75  # incertitude visée
+
+
+def read_campaign() -> Campaign | None:
+    """La campagne décrite par CAMPAIGN_PATH, ou None (absente ou illisible : on joue comme d'habitude)."""
+    try:
+        data = json.loads(CAMPAIGN_PATH.read_text())
+        until = datetime.datetime.fromisoformat(data["until"]).timestamp()
+        return Campaign(until, bool(data.get("rated", True)), bool(data.get("decline_bots", True)),
+                        int(data.get("rd", 75)))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        log("campagne illisible, ignorée :", repr(exc))
+        return None
+
+
+def stable(perfs: dict, rd: int) -> bool:
+    """Le classement du compte est stable dans chaque vitesse que joue la recherche d'adversaires."""
+    return all(perfs.get(speed, {}).get("games", 0) and perfs.get(speed, {}).get("rd", 500) <= rd
+               for speed in MATCH_CLOCKS)
+
+
 def blocked_players() -> set[str]:
     """Les comptes dont on refuse les défis (triche, farming...), relus à chaque défi : sans redémarrage."""
     try:  # un octet invalide ne doit pas bloquer tous les défis : on garde les noms lisibles
@@ -848,6 +884,8 @@ class Bot:
         self.outgoing: tuple[str, float, str, str] | None = None  # (défi, lancé à, adversaire, cadence)
         self.early_drops: dict[str, tuple[str, str | None]] = {}  # défi : (raison du refus ou « », destinataire)
         self.declined: dict[str, float] = {}
+        self.stable = False  # classement stable (vu à la dernière recherche) : fin possible d'une campagne classée
+        self.in_campaign = False
         self.idle_since = time.monotonic()
         # Défis acceptés dont la partie n'a pas commencé : None tant que le POST d'acceptation est en
         # cours (il peut durer : 429, réseau), puis l'heure de sa réponse.
@@ -892,12 +930,25 @@ class Bot:
             else:
                 unmark_bot_games(self.me, game_id)
 
+    def campaign(self) -> Campaign | None:
+        """La campagne en cours pour ce compte (voir `Campaign`), ou None ; le journal note son début et sa fin."""
+        planned = read_campaign()
+        running = planned is not None and (time.time() < planned.until or (planned.rated and not self.stable))
+        if running != self.in_campaign:
+            self.in_campaign = running
+            log("campagne", "en cours" if running else "terminée",
+                "(classée)" if planned and planned.rated else "", "classement stable" if self.stable else "")
+        return planned if running else None
+
     def decline_reason(self, challenge: dict) -> str | None:
         if DRAIN_PATH.exists():
             return "later"
         challenger = challenge.get("challenger", {})
         if {challenger.get("id", ""), challenger.get("name", "").lower()} & blocked_players():
             return "generic"
+        if challenger.get("title") == "BOT" and not self.accept_bots and (campaign := self.campaign()) \
+                and campaign.decline_bots:
+            return "later"  # nous menons nos propres parties contre des bots
         if challenge.get("variant", {}).get("key") != "standard":
             return "standard"
         clock = challenge.get("timeControl", {})
@@ -1098,12 +1149,16 @@ class Bot:
         perfs = self.api.get("/api/account").get("perfs", {})
         speed = max(MATCH_CLOCKS, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()))
         rating = reference_rating(perfs, speed)
+        planned = read_campaign()
+        self.stable = planned is not None and stable(perfs, planned.rd)
+        campaign = self.campaign()
+        rated = BOT_RATED or bool(campaign and campaign.rated)
 
         def gap(bot: dict) -> int:
             return bot.get("perfs", {}).get(speed, {}).get("rating", -10**4) - rating
 
         try:
-            refused = opponents.refusals()
+            refused = opponents.refusals(ignore={"rated"} if rated else ())
         except (sqlite3.Error, OSError) as exc:
             log("mémoire des refus illisible :", repr(exc))
             refused = {}
@@ -1140,7 +1195,7 @@ class Bot:
             return None
         try:
             created = self.api.create(f"/api/challenge/{opponent}", {
-                "rated": str(BOT_RATED).lower(), "clock.limit": limit, "clock.increment": increment, "color": "random",
+                "rated": str(rated).lower(), "clock.limit": limit, "clock.increment": increment, "color": "random",
                 "variant": "standard"})
         except OSError as exc:  # le défi existe peut-être : place gardée jusqu'à MATCH_WAIT (`game_started`)
             log(f"défi à {opponent} : issue inconnue ({exc})")
