@@ -114,7 +114,8 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   faible de 250 et plus, proche, plus fort de 250 et plus) parmi celles qui ont un candidat, puis le
   bot dans la tranche. Mêmes règles que les défis
   reçus (place commune, pauses, même bot espacé), plus 5 minutes entre deux défis lancés par nos
-  comptes réunis ; jamais l'un de nos bots. Les refus sont notés dans la mémoire des adversaires
+  comptes réunis, chacun son tour (la place va au compte en attente servi il y a le plus longtemps :
+  marqueurs `attente.<compte>` et `servi.<compte>`) ; jamais l'un de nos bots. Les refus sont notés dans la mémoire des adversaires
   (table `declines`) : un bot qui ne joue jamais contre des bots (`nobot`), que des variantes ou que
   du classé est laissé tranquille 30 jours, `generic` 7 jours, les autres raisons un jour ; un refus
   de cadence (`timecontrol`, `toofast`, `tooslow`) écarte seulement cette cadence pendant 7 jours. Un humain
@@ -123,7 +124,10 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   par exemple `{"until": "2026-11-17T21:00:00+01:00", "rated": true, "decline_bots": true, "rd": 75}` :
   jusqu'à `until`, et pour une campagne classée tant que le compte n'est pas stable (rd ≤ `rd` en bullet
   et en blitz), nos défis aux bots sont classés (les refus « rated » ne comptent plus) et les défis reçus
-  de bots refusés. Les humains passent toujours en priorité. Pour l'arrêter : supprimer le fichier.
+  de bots refusés. Pendant une campagne, deux parties contre des bots à la fois (`CAMPAIGN_BOT_GAMES`) ;
+  un compte déjà stable en bullet et en blitz joue aussi du rapide 10+0 (`CAMPAIGN_CLOCKS`), toujours
+  dans la vitesse la plus incertaine. Les humains passent toujours en priorité. Pour l'arrêter :
+  supprimer le fichier.
 - **Contre les bots, en amical seulement (`BOT_RATED`) :** nos défis aux bots ne sont pas classés, et
   un défi classé d'un bot est refusé (« casual »). L'échelle des bots sur Lichess est sans rapport avec
   celle des humains (des moteurs classés 1850 jouent à 96 % de précision) : notre classement ne doit

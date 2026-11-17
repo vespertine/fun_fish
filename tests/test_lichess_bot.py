@@ -552,7 +552,7 @@ def test_quota_kept_when_the_real_client_fails_to_accept(monkeypatch, failure):
 
 def test_a_lost_game_end_still_pauses_the_bots(monkeypatch):
     bot, now = rationed_bot(monkeypatch)
-    monkeypatch.setattr(lichess_bot, "bot_game_running", lambda: False)  # marqueur impossible à écrire
+    monkeypatch.setattr(lichess_bot, "bot_game_running", lambda capacity=1: False)  # marqueur impossible à écrire
     assert accepted(bot, challenge("bullet", 120, 1, who="a", id="g1"))
     now[0] += 1800  # fin de partie jamais vue (flux coupé) : on ne repart pas pour autant
     assert bot.decline_reason(challenge("bullet", 120, 1, who="b")) == "later"
@@ -1928,3 +1928,76 @@ def test_the_watch_ends_a_finished_campaign_even_without_matchmaking(monkeypatch
     assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later"  # stabilité encore inconnue
     bot.watch()
     assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) is None  # la surveillance l'a apprise
+
+
+def test_our_accounts_take_turns_the_least_recently_served_first(monkeypatch, bot_games_dir):
+    online = [online_bot("rival")]
+    fun, now = seeker(monkeypatch, online)
+    sharp, _ = seeker(monkeypatch, online, now=now, me="sharpdubot")
+    now[0] += 600
+    assert fun.seek() == "m1"
+    fun.drop_outgoing("m1")  # sans réponse
+    fun.bot_opponents.clear()
+    assert sharp.seek() is None  # moins de 5 minutes : il attend son tour
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    assert fun.seek() is None  # sharpdubot attend, et n'a jamais été servi
+    assert sharp.seek() == "m1"
+    sharp.drop_outgoing("m1")
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    assert fun.seek() == "m2"  # servi avant sharpdubot : son tour
+
+
+def test_a_busy_or_silent_account_does_not_keep_its_turn(monkeypatch, bot_games_dir):
+    online = [online_bot("rival")]
+    fun, now = seeker(monkeypatch, online)
+    sharp, _ = seeker(monkeypatch, online, now=now, me="sharpdubot")
+    lichess_bot.reserve_bot_game("funfishbot", "ancien", spacing=1)  # fun a déjà été servi
+    lichess_bot.unmark_bot_games("funfishbot", "ancien")
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    (bot_games_dir / "attente.sharpdubot").touch()
+    now[0] += 600
+    sharp.games["h"] = object()  # sharpdubot joue contre un humain : il ne retient plus la place
+    assert sharp.seek() is None
+    assert fun.seek() == "m1"
+    fun.drop_outgoing("m1")
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    (bot_games_dir / "attente.sharpdubot").touch()
+    old = time.time() - lichess_bot.MATCH_WAITING
+    os.utime(bot_games_dir / "attente.sharpdubot", (old, old))  # plus de nouvelles depuis trop longtemps
+    fun.bot_opponents.clear()
+    assert fun.seek() == "m2"
+
+
+def test_a_campaign_plays_two_bot_games_at_once(monkeypatch, bot_games_dir):
+    online = [online_bot("rival")]
+    fun, now = seeker(monkeypatch, online)
+    crazy, _ = seeker(monkeypatch, online, now=now, me="crazyfishbot")
+    sharp, _ = seeker(monkeypatch, online, now=now, me="sharpdubot")
+    now[0] += 600
+    assert fun.seek() == "m1"
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    assert crazy.seek() is None  # hors campagne : une seule partie contre un bot à la fois
+    campaign_file(iso(3600))
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    assert crazy.seek() == "m1"
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    assert sharp.seek() is None  # deux places, déjà prises
+
+
+def test_a_campaign_adds_short_rapid_once_bullet_and_blitz_are_stable(monkeypatch, bot_games_dir):
+    rival = online_bot("rival")
+    rival["perfs"]["rapid"] = {"rating": 1900}
+    settled = {"bullet": {"rating": 1800, "rd": 60, "games": 90}, "blitz": {"rating": 1700, "rd": 70, "games": 40},
+               "rapid": {"rating": 1900, "rd": 300, "games": 2}}
+    campaign_file(iso(3600))
+    for perfs, limit in ((settled, 600), ({**settled, "bullet": {"rating": 1800, "rd": 80, "games": 9}}, 120)):
+        bot, now = seeker(monkeypatch, [rival], perfs=perfs)
+        now[0] += 600
+        assert bot.seek() == "m1"
+        assert (bot.api.created[0][1]["clock.limit"], bot.api.created[0][1]["clock.increment"]) == (limit, 0 if limit == 600 else 1)
+        bot.drop_outgoing("m1")
+        os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    campaign_file(iso(3600), rated=False)  # campagne amicale : pas de rapide, il ne stabilise rien
+    bot, now = seeker(monkeypatch, [rival], perfs=settled)
+    now[0] += 600
+    assert bot.seek() == "m1" and bot.api.created[0][1]["clock.limit"] != 600
