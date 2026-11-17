@@ -598,9 +598,9 @@ def test_a_failed_accept_frees_the_bot_place(monkeypatch, bot_games_dir):
 class CutApi(FakeApi):
     """Lichess renvoie un 503 au milieu de la partie (partie dPHJHW0U) : le flux suivant reprend par gameFull."""
 
-    def __init__(self):
+    def __init__(self, thread=None):
         super().__init__()
-        self.streams = 0
+        self.streams, self.thread = 0, None
 
     def stream(self, path):
         self.streams += 1
@@ -608,6 +608,8 @@ class CutApi(FakeApi):
             yield {"type": "gameFull", "initialFen": "startpos", "white": {"id": "bot"},
                    "black": {"id": "x", "name": "x"},
                    "state": {"moves": "", "status": "started", "wtime": 60000, "btime": 60000}}
+            if self.thread:  # une longue réflexion de l'adversaire (15+0) : plus de 10 min sans événement
+                self.thread.last_event -= 1000
             raise urllib.error.HTTPError(path, 503, "Service Unavailable", {}, None)
         first = next(p for p in self.posts if "/move/" in p).rsplit("/", 1)[1]
         moves = f"{first} {_reply(first)}"
@@ -624,12 +626,18 @@ def test_a_game_stream_cut_by_lichess_is_resumed(tmp_path, monkeypatch):
         pytest.skip("Stockfish absent")
     monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
     monkeypatch.setattr(lichess_bot, "GAME_RETRY", 0)
-    api = CutApi()
-    bot = FakeBot(api, stockfish_path)
-    lichess_bot.BotGame(bot, "abc").run()
-    assert api.streams == 2 and bot.done == ["abc"]  # reprise, puis fin confirmée
-    assert sum("/move/" in p for p in api.posts) == 2  # il a rejoué après la coupure
-    assert sum("/chat" in p for p in api.posts) == 2  # l'accueil (deux langues) une seule fois
+    for long_silence in (False, True):
+        api = CutApi()
+        bot = FakeBot(api, stockfish_path)
+        game = lichess_bot.BotGame(bot, "abc")
+        api.thread = game if long_silence else None  # le délai d'abandon part de la coupure, pas du dernier coup
+        game.run()
+        assert api.streams == 2 and bot.done == ["abc"]  # reprise, puis fin confirmée
+        assert sum("/move/" in p for p in api.posts) == 2  # il a rejoué après la coupure
+        assert sum("/chat" in p for p in api.posts) == 2  # l'accueil (deux langues) une seule fois
+        export = json.loads(gzip.decompress(sorted(tmp_path.glob("*abc.json.gz"))[-1].read_bytes()))
+        ours = [m for m in export["moves"] if m["by"] == "ai"]
+        assert len(ours) == 2 and all("decision" in m for m in ours)  # l'état d'avant la coupure est gardé
 
 
 def test_a_game_unknown_to_lichess_is_not_retried(monkeypatch):

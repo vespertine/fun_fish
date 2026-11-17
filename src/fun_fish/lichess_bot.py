@@ -325,6 +325,7 @@ class BotGame(threading.Thread):
         self.over = False  # fin confirmée par Lichess (et non flux coupé ou erreur)
         self.greeted = False  # accueil envoyé (une seule fois, reconnexions comprises)
         self.last_event = time.monotonic()  # dernier événement reçu du flux de la partie
+        self.session = None  # (game, ours, pace, draws, resigns) : l'état gardé entre deux connexions au flux
         self.started = threading.Event()  # l'adversaire a joué au moins un coup
         self.ended = threading.Event()  # fil de partie terminé : plus aucune annulation
         self.armed = False  # compte à rebours lancé (par le fil de partie seul ; les nouveaux essais n'y touchent pas)
@@ -348,7 +349,8 @@ class BotGame(threading.Thread):
     def follow(self, analyser, Game) -> None:
         """Joue la partie jusqu'à sa fin confirmée. Un flux coupé ou une erreur passagère de Lichess (5xx,
         429, réseau) n'arrête pas le fil : on se reconnecte, et `gameFull` redonne l'état complet. On abandonne
-        après GAME_RETRY_FOR s sans le moindre événement, ou sur un refus net (4xx : partie inconnue)."""
+        après GAME_RETRY_FOR s de coupure sans le moindre événement, ou sur un refus net (4xx : partie inconnue)."""
+        failing_since = None
         while True:
             try:
                 self.play(analyser, Game)
@@ -361,7 +363,10 @@ class BotGame(threading.Thread):
                 reason = repr(exc)
             if self.over:
                 return
-            if time.monotonic() - self.last_event >= GAME_RETRY_FOR:
+            now = time.monotonic()
+            if failing_since is None or self.last_event > failing_since:  # première coupure depuis un événement
+                failing_since = now
+            if now - failing_since >= GAME_RETRY_FOR:
                 log(self.id, "flux de la partie perdu, on cesse de la suivre :", reason)
                 return
             log(self.id, f"flux de la partie interrompu ({reason}), reconnexion dans {GAME_RETRY} s")
@@ -389,27 +394,31 @@ class BotGame(threading.Thread):
 
         from fun_fish.pace import Pace
 
-        api, game, ours, pace = self.bot.api, None, None, Pace()
-        draws, answered = DrawSense(), None  # answered : nombre de coups au moment de la dernière offre traitée
-        resigns = None
+        api, answered = self.bot.api, None  # answered : nombre de coups au moment de la dernière offre traitée
+        # l'état de la partie survit aux reconnexions (`follow`) : décisions et anomalies de l'export, pendule apprise
+        game, ours, pace, draws, resigns = self.session or (None, None, Pace(), DrawSense(), None)
         for event in api.stream(f"/api/bot/game/stream/{self.id}"):
             self.last_event = time.monotonic()
             if event.get("type") == "gameFull":
                 if event.get("initialFen", "startpos") != "startpos":
                     self.over = api.post(f"/api/bot/game/{self.id}/abort")
                     return
-                ours = chess.WHITE if event["white"].get("id") == self.bot.me else chess.BLACK
-                agent = personalities.create(self.bot.personality, rng=random.Random(), **self.bot.params)
-                if not calm_clock(event.get("clock")) and hasattr(agent, "endgame_attack_depth"):
-                    agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
-                game = Game(agent, human_color=not ours)
-                opponent = event["black" if ours == chess.WHITE else "white"]
-                self.facts = {"opponent": opponent, "speed": event.get("speed"), "rated": event.get("rated"),
-                              "color": "white" if ours == chess.WHITE else "black"}
-                resigns = ResignSense(is_program(opponent))
-                log(self.id, "contre", opponent.get("name", "?"), opponent.get("rating", "?"),
-                    "avec les", "Blancs" if ours == chess.WHITE else "Noirs")
                 state = event["state"]
+                if game is None:
+                    ours = chess.WHITE if event["white"].get("id") == self.bot.me else chess.BLACK
+                    agent = personalities.create(self.bot.personality, rng=random.Random(), **self.bot.params)
+                    if not calm_clock(event.get("clock")) and hasattr(agent, "endgame_attack_depth"):
+                        agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
+                    game = Game(agent, human_color=not ours)
+                    opponent = event["black" if ours == chess.WHITE else "white"]
+                    self.facts = {"opponent": opponent, "speed": event.get("speed"), "rated": event.get("rated"),
+                                  "color": "white" if ours == chess.WHITE else "black"}
+                    resigns = ResignSense(is_program(opponent))
+                    self.session = (game, ours, pace, draws, resigns)
+                    log(self.id, "contre", opponent.get("name", "?"), opponent.get("rating", "?"),
+                        "avec les", "Blancs" if ours == chess.WHITE else "Noirs")
+                else:  # reconnexion : seul l'état compte, le reste est gardé (`session`)
+                    log(self.id, "reprise de la partie après", len(game.board.move_stack), "demi-coups")
             elif event.get("type") == "gameState":
                 state = event
             else:
