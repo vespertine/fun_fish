@@ -1889,3 +1889,32 @@ def test_a_rated_campaign_challenges_rated_and_reaches_bots_that_want_rated_game
     bot, now = seeker(monkeypatch, [online_bot("autre")], perfs=stable_perfs)
     now[0] += 600
     assert bot.seek() == "m1" and bot.api.created[0][1]["rated"] == "false"
+
+
+def test_a_received_challenge_never_waits_for_lichess_to_know_if_the_campaign_is_over(monkeypatch):
+    bot, now = rationed_bot(monkeypatch)
+    asked = []
+    bot.api.get = lambda path: asked.append(path) or {"perfs": {}}
+    campaign_file(iso(-60))  # l'heure est passée ; stabilité inconnue
+    assert bot.decline_reason(challenge("blitz", 180, 2, who="robot")) == "later" and asked == []
+    bot.api.get = lambda path: (_ for _ in ()).throw(OSError("Lichess muet"))
+    assert bot.campaign() is not None and bot.campaign() is not None  # un seul essai : l'échec est retenu
+    bot.api.get = lambda path: asked.append(path) or {"perfs": {}}
+    assert bot.campaign() is not None and asked == []
+    now[0] += lichess_bot.STABLE_FRESH + 1
+    bot.campaign()
+    assert asked == ["/api/account"]  # périmé : redemandé
+
+
+def test_a_casual_refusal_during_a_campaign_does_not_block_the_return_to_casual(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("amical_seulement", "casual", "120+1")  # refusé pendant la campagne classée
+    stable_perfs = {"bullet": {"rating": 1800, "rd": 50, "games": 90}, "blitz": {"rating": 1700, "rd": 60, "games": 40}}
+    campaign_file(iso(3600))
+    bot, now = seeker(monkeypatch, [online_bot("amical_seulement")], perfs=stable_perfs)
+    now[0] += 600
+    assert bot.seek() is None  # en campagne : il ne veut que de l'amical
+    campaign_file(iso(-60))  # finie
+    bot, now = seeker(monkeypatch, [online_bot("amical_seulement")], perfs=stable_perfs)
+    now[0] += 600
+    assert bot.seek() == "m1" and bot.api.created[0][1]["rated"] == "false"

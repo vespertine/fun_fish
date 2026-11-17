@@ -400,7 +400,8 @@ class Profile:
 # Refus de nos défis. Certains disent « jamais » (nobot : pas de bots ; variant ; rated : que du classé,
 # alors que nos défis sont amicaux) : on laisse ce bot tranquille longtemps. D'autres visent la cadence :
 # on lui en propose une autre. Les autres (later, generic…) : un jour, comme avant.
-DECLINE_DAYS = {"nobot": 30, "variant": 30, "rated": 30, "generic": 7}
+DECLINE_DAYS = {"nobot": 30, "variant": 30, "rated": 30, "casual": 30, "generic": 7}  # rated, casual : ignorés
+# dans l'autre mode (une campagne classée ignore « rated », l'amical ignore « casual »)
 CLOCK_REASONS = {"timecontrol", "toofast", "tooslow"}
 CLOCK_DAYS = 7
 DEFAULT_DAYS = 1

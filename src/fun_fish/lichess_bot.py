@@ -935,26 +935,30 @@ class Bot:
             else:
                 unmark_bot_games(self.me, game_id)
 
-    def campaign(self) -> Campaign | None:
-        """La campagne en cours pour ce compte (voir `Campaign`), ou None ; le journal note son début et sa fin."""
+    def campaign(self, ask: bool = True) -> Campaign | None:
+        """La campagne en cours pour ce compte (voir `Campaign`), ou None ; le journal note son début et sa fin.
+        `ask=False` (défis reçus, flux d'événements) : jamais de requête à Lichess, la stabilité connue suffit."""
         planned = read_campaign()
-        running = planned is not None and (time.time() < planned.until or (planned.rated and not self.is_stable(planned.rd)))
+        running = planned is not None and (
+            time.time() < planned.until or (planned.rated and not self.is_stable(planned.rd, ask)))
         if running != self.in_campaign:
             self.in_campaign = running
             log("campagne", "en cours" if running else "terminée", "(classée)" if planned and planned.rated else "")
         return planned if running else None
 
-    def is_stable(self, rd: int) -> bool:
-        """Classement stable pour ce seuil : vu à la dernière recherche s'il date de moins de STABLE_FRESH s
-        (et pour ce même seuil), sinon redemandé à Lichess ; injoignable : pas encore stable."""
-        if self.stable is None or self.stable[0] != rd or time.monotonic() - self.stable[2] > STABLE_FRESH:
+    def is_stable(self, rd: int, ask: bool = True) -> bool:
+        """Classement stable pour ce seuil : vu il y a moins de STABLE_FRESH s (et pour ce même seuil), sinon
+        redemandé à Lichess si `ask` ; injoignable ou inconnu : pas encore stable (l'échec est retenu, pour ne
+        pas redemander à chaque appel)."""
+        known = self.stable is not None and self.stable[0] == rd
+        if ask and (not known or time.monotonic() - self.stable[2] > STABLE_FRESH):
             try:
-                perfs = self.api.get("/api/account").get("perfs", {})
+                value = stable(self.api.get("/api/account").get("perfs", {}), rd)
             except (OSError, ValueError) as exc:
                 log("classement inconnu (campagne) :", repr(exc))
-                return False
-            self.stable = (rd, stable(perfs, rd), time.monotonic())
-        return self.stable[1]
+                value = False
+            self.stable, known = (rd, value, time.monotonic()), True
+        return known and self.stable[1]
 
     def decline_reason(self, challenge: dict) -> str | None:
         if DRAIN_PATH.exists():
@@ -962,7 +966,7 @@ class Bot:
         challenger = challenge.get("challenger", {})
         if {challenger.get("id", ""), challenger.get("name", "").lower()} & blocked_players():
             return "generic"
-        if challenger.get("title") == "BOT" and not self.accept_bots and (campaign := self.campaign()) \
+        if challenger.get("title") == "BOT" and not self.accept_bots and (campaign := self.campaign(ask=False)) \
                 and campaign.decline_bots:
             return "later"  # nous menons nos propres parties contre des bots
         if challenge.get("variant", {}).get("key") != "standard":
@@ -1096,8 +1100,8 @@ class Bot:
             if not challenge_id and not declined:  # identifiant jamais connu (réponse de création perdue) : un refus
                 declined = next((r for r, dest in self.early_drops.values() if r and dest == opponent), None)  # reçu
             self.outgoing = None
-            if declined and declined not in opponents.CLOCK_REASONS | {"rated"}:  # une autre cadence reste possible ;
-                # « rated » : la mémoire des refus seule en décide (une campagne classée l'ignore)
+            if declined and declined not in opponents.CLOCK_REASONS | {"rated", "casual"}:  # une autre cadence reste
+                # possible ; « rated », « casual » : la mémoire des refus seule en décide (selon le mode du moment)
                 self.declined[opponent] = time.monotonic()
         unmark_bot_games(self.me, challenge_id or "sortant")
         if declined:
@@ -1176,7 +1180,7 @@ class Bot:
             return bot.get("perfs", {}).get(speed, {}).get("rating", -10**4) - rating
 
         try:
-            refused = opponents.refusals(ignore={"rated"} if rated else ())
+            refused = opponents.refusals(ignore={"rated"} if rated else {"casual"})  # refus du mode d'avant
         except (sqlite3.Error, OSError) as exc:
             log("mémoire des refus illisible :", repr(exc))
             refused = {}
