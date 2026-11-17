@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS highlights (  -- les coups notables de nos parties (n
     explanation TEXT,         -- la justification de la personnalité (début)
     PRIMARY KEY (game, ply, kind)
 );
+CREATE TABLE IF NOT EXISTS analysed (  -- les parties passées par notable.py, avec ou sans coup notable
+    game TEXT PRIMARY KEY,
+    account TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS declines (
     opponent TEXT NOT NULL,   -- le bot qui a refusé l'un de nos défis (tous nos comptes réunis)
     reason TEXT NOT NULL,     -- declineReasonKey de Lichess : nobot, rated, timecontrol…
@@ -177,6 +181,7 @@ def note_highlights(game_id: str, account: str, export: dict, path: Path | None 
              h["explanation"]) for h in notable.highlights(export)]
     with connect(path) as con:
         con.executemany("INSERT OR REPLACE INTO highlights VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        con.execute("INSERT OR IGNORE INTO analysed VALUES (?, ?)", (game_id, account.lower()))
     return len(rows)
 
 
@@ -448,15 +453,17 @@ def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str
 
 
 def notable_report(path: Path | None = None) -> tuple[list[tuple], list[tuple]]:
-    """Coups notables par partie, par compte et sorte ; et les pièges : annoncés contre tenus, humains et bots."""
+    """Coups notables par partie analysée, par compte et sorte ; et les pièges : annoncés contre tenus (parmi
+    ceux dont on connaît la suite ; None si aucun), humains et bots à part."""
     from fun_fish import notable
     with connect(path) as con:
         kinds = con.execute(
-            "SELECT h.account, h.kind, round(1.0 * count(*) / (SELECT count(DISTINCT game) FROM highlights x "
-            "WHERE x.account = h.account), 2) FROM highlights h GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+            "SELECT h.account, h.kind, round(1.0 * count(*) / (SELECT count(*) FROM analysed a "
+            "WHERE a.account = h.account), 2) FROM highlights h GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
         traps = con.execute(
             "SELECT h.account, CASE g.bot WHEN 1 THEN 'bots' ELSE 'humains' END, count(*), round(avg(h.chance)), "
-            "round(100.0 * sum(h.swing >= ?) / count(*)) FROM highlights h JOIN games g ON g.id = h.game "
+            "round(100.0 * sum(h.swing >= ?) / nullif(count(h.swing), 0)) FROM highlights h "
+            "JOIN games g ON g.id = h.game "
             "WHERE h.kind = 'piège' GROUP BY 1, 2 ORDER BY 1, 2", (notable.SWING,)).fetchall()
     return kinds, traps
 

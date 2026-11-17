@@ -355,7 +355,7 @@ def cmd_opponents(args: argparse.Namespace) -> None:
             print(f"{account:<14} {kind:<14} {per_game:>10}")
         print(f"\n{'compte':<14} {'contre':<8} {'pièges':>7} {'annoncé':>8} {'tenu':>6}")
         for account, against, n, chance, held in traps:
-            print(f"{account:<14} {against:<8} {n:>7} {chance:>7}% {held:>5}%")
+            print(f"{account:<14} {against:<8} {n:>7} {chance:>7}% " + ("    —" if held is None else f"{held:>5}%"))
         return
     if args.action == "challenges":
         print(f"{'compte':<14} {'qui':<7} {'décision':<9} {'raison':<45} {'défis':>6}")

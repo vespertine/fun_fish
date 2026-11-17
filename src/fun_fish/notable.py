@@ -15,7 +15,7 @@ import chess
 CLIP = 1000  # cp : au-delà, la partie est jouée
 STYLE_COST = 50  # cp : un coup choisi au moins aussi loin du meilleur candidat, par goût
 SWING = 150  # cp : écart d'éval d'un de nos coups au suivant (erreur de l'un ou de l'autre)
-SAC_DROP = 2  # pions : notre bilan matériel perdu après la réponse adverse, et encore deux demi-coups plus tard
+SAC_DROP = 2  # pions : notre bilan matériel perdu après la réponse adverse, et encore après les deux demi-coups suivants
 SAC_FLOOR = -100  # cp : … sans que notre éval tombe sous ce seuil (sinon c'est une perte, pas un sacrifice)
 TEXT = 200  # caractères gardés de l'explication
 # Un piège notable : annoncé probable et payant, et choisi pour lui (il coûte). Mesuré le 17/11 sur 637 parties :
@@ -64,10 +64,11 @@ def highlights(export: dict) -> list[dict]:
         kinds = []
         if trap and chance >= TRAP_CHANCE and gain >= TRAP_GAIN and best - chosen >= TRAP_COST:
             kinds.append("piège")
-        if i + 4 < len(fens) and all(fens[j] for j in (i, i + 2, i + 4)) and chosen >= SAC_FLOOR and all(
-                material(fens[i], ours) - material(fens[j], ours) >= SAC_DROP for j in (i + 2, i + 4)):
-            # perdu dès la réponse de l'adversaire, et pas repris ensuite (le sacrifice du coup suivant
-            # n'est pas compté à celui-ci)
+        window = (i + 2, i + 3, i + 4)  # après sa réponse, après notre reprise éventuelle, après la sienne
+        if i + 4 < len(fens) and all(fens[j] for j in (i, *window)) and chosen >= SAC_FLOOR and all(
+                material(fens[i], ours) - material(fens[j], ours) >= SAC_DROP for j in window):
+            # perdu dès la réponse de l'adversaire et jamais repris (un échange, ou le sacrifice du coup
+            # suivant, n'est pas compté à celui-ci)
             kinds.append("sacrifice")
         if best - chosen >= STYLE_COST:
             kinds.append("style")
