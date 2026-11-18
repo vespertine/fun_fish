@@ -319,3 +319,41 @@ def test_suspicious_games_are_left_out_of_the_trap_rates():
     assert opponents.notable_report()[1] == [("dubot", "humains", 2, 60.0, 100.0)]
     opponents.note_fairplay("suspecte", "h", "dubot", False, fairplay.Report(moves=20), True)
     assert opponents.notable_report()[1] == [("dubot", "humains", 1, 60.0, 100.0)]
+
+
+def trap_game(game_id, ended_at, swings, opponent="fetacompli", account="sharpdubot"):
+    opponents.record(rec(game_id, "loss", ended_at, opponent=opponent, account=account, title="BOT", bot=True))
+    with opponents.connect() as con:
+        for ply, swing in enumerate(swings):
+            con.execute("INSERT INTO highlights (game, account, ply, kind, san, chance, swing) "
+                        "VALUES (?, ?, ?, 'piège', 'Qh5', 60, ?)", (game_id, account, ply, swing))
+
+
+def test_a_bot_that_ignores_our_traps_is_imagined_stronger_up_to_1900():
+    assert opponents.trap_level("SharpDuBot", "FetaCompli", 1500) == 1500  # jamais réglé
+    trap_game("g1", 100, [0, 0, 0, 0])
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=200) is None  # 4 pièges : trop peu
+    trap_game("g2", 300, [0])
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=400) == (1500, 1600, 0.0)
+    assert opponents.trap_level("sharpdubot", "fetacompli", 1500) == 1600
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=500) is None  # pièges d'avant oubliés
+    assert opponents.trap_level("sharpdubot", "autre_bot", 1500) == 1500  # chaque bot a le sien
+    assert opponents.trap_level("dubot", "fetacompli", 1500) == 1500  # et chaque compte
+    trap_game("h", 1000, [0] * 9 + [160])  # 10 % pile : assez, on ne bouge pas
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=1050) is None
+    for i, level in enumerate((1700, 1800, 1900, 1900)):
+        trap_game(f"h{i}", 2000 + 100 * i, [0] * 10 + [160])  # 1 sur 11 : encore trop peu
+        change = opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=2050 + 100 * i)
+        assert opponents.trap_level("sharpdubot", "fetacompli", 1500) == level
+        assert (change and change[:2]) == (None if i == 3 else (level - 100, level))  # plafond : 1900
+
+
+def test_a_bot_that_falls_for_our_traps_comes_back_down_but_not_below_the_personality():
+    with opponents.connect() as con:
+        con.execute("INSERT INTO trap_levels VALUES ('sharpdubot', 'fetacompli', 1600, 0)")
+    trap_game("g1", 100, [200, 200, 0, 0, 0])  # 40 % pris
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=200) == (1600, 1500, 0.4)
+    trap_game("g2", 300, [200, 200, 0, 0, 0])
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=400) is None  # plancher
+    trap_game("g3", 500, [200, 0, 0, 0, 0])  # 20 % : entre les deux seuils, on ne bouge pas
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1400, now=600) is None
