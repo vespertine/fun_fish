@@ -102,7 +102,7 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   (Fun Fish 2 + théorie), [CrazyFishBot](https://lichess.org/@/CrazyFishBot) (`crazy_fish`),
   [DuBot](https://lichess.org/@/DuBot) (`dubot`, goût des positions d'attaque) et
   [CapaBot](https://lichess.org/@/CapaBot) (`capabot_v2`, goût des positions solides) et
-  [SharpDuBot](https://lichess.org/@/SharpDuBot) (`dubot_v2`, un DuBot plus sûr à l'ouverture).
+  [SharpDuBot](https://lichess.org/@/SharpDuBot) (`dubot_v2`, un DuBot plus sûr à l'ouverture, avec de la théorie dans 70 % des parties contre 35 %).
 - **Les défis acceptés :** à partir de 2+1 et jusqu'à environ 15 minutes estimées (`decline_reason`).
   Les autres bots sont rationnés, pour laisser la place aux humains (voir `BOT_PAUSE`) : après une
   partie contre un bot, une pause de trois fois sa durée ; après une partie contre un humain, deux

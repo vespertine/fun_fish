@@ -15,6 +15,9 @@ def test_registered_with_their_settings():
     specs = {s["name"]: s["default"] for s in personalities.PERSONALITIES["capabot_v2"].param_specs()}
     assert specs["theory_book"] == "solide" and specs["opponent_elo"] == 2000
     assert personalities.create("dubot").opening_tolerance == 0  # DuBot ne change pas
+    assert (v2.theory_rate, personalities.create("dubot").theory_rate) == (0.7, 0.35)  # deux fois plus de théorie
+    specs = {s["name"]: s["default"] for s in personalities.PERSONALITIES["dubot_v2"].param_specs()}
+    assert specs["theory_rate"] == 0.7  # le panneau de réglages aussi
 
 
 def test_opening_tolerance_caps_fun_moves_too_then_restores(monkeypatch):
