@@ -34,6 +34,7 @@ class _V2(Theory):
 class DuBotV2(_V2, DuBot):
     key = "dubot_v2"
     name = "SharpDuBot"
+    adaptive_traps = True  # contre un bot, l'adversaire imaginé monte s'il ne tombe pas dans ses pièges (opponents.py)
     description = "DuBot plus robuste : souvent la théorie des maîtres d'attaque, des pièges pour joueurs plus forts."
     # théorie dans 80 % des parties (DuBot : 35 %), jusqu'à 8 coups, surtout l'arbre des maîtres : au moins 4 coups
     # de théorie prévus une partie sur deux (un peu moins de joués : l'adversaire peut sortir du livre). Sur
