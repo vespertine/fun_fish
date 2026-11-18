@@ -36,9 +36,10 @@ class DuBotV2(_V2, DuBot):
     name = "SharpDuBot"
     description = "DuBot plus robuste : souvent la théorie des maîtres d'attaque, des pièges pour joueurs plus forts."
     # théorie dans 80 % des parties (DuBot : 35 %), jusqu'à 8 coups, surtout l'arbre des maîtres : au moins 4 coups
-    # de théorie prévus une partie sur deux (un peu moins de joués : l'adversaire peut sortir du livre). Sur Lichess, contre des bots, SharpDuBot marquait 78 % avec théorie et 65 %
-    # sans (novembre 2026) ; l'arbre des maîtres tient mieux que nos lignes (3,3 coups joués en moyenne sur 3,5
-    # prévus, contre 2,7). Contre Maia 2000, aucune différence (100 % dans tous les cas).
+    # de théorie prévus une partie sur deux (un peu moins de joués : l'adversaire peut sortir du livre). Sur
+    # Lichess, contre des bots, SharpDuBot marquait 78 % avec théorie et 65 % sans (novembre 2026) ; l'arbre des
+    # maîtres tient mieux que nos lignes (3,3 coups joués en moyenne sur 3,5 prévus, contre 2,7). Contre Maia
+    # 2000, aucune différence (100 % dans tous les cas).
     THEORY = {"theory_rate": 0.8, "theory_moves": 8, "theory_book": "attaque", "theory_mix": 0.8}
     OVERRIDES = {**DuBot.OVERRIDES, "opening_temperature": 0.8, "opponent_elo": 1500, "tolerance": 200, "opening_tolerance": 100, "convert_from": 200,
                  "convert_tolerance": 40, "convert_elo": 2000, "w_mate": 4.0, "mate_within": 5}
