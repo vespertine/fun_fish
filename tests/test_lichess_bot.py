@@ -2042,3 +2042,69 @@ def test_an_account_with_nobody_to_play_gives_up_its_turn(monkeypatch, bot_games
     now[0] += 600
     assert lonely.seek() is None  # aucun bot pour lui
     assert fun.seek() == "m1"
+
+
+class ExportApi:
+    def __init__(self):
+        self.paths = []
+
+    def get(self, path):
+        self.paths.append(path)
+        return {"moves": "e4 e5", "clocks": [60000, 60000], "clock": {"initial": 600, "increment": 0}}
+
+
+def fairplay_game(monkeypatch, human=True, our_rating=2400, their_rating=1500, winner="black", rated=False,
+                  suspect=True):
+    """Une partie finie contre un humain (nous avons les Blancs) ; le moteur et l'analyse sont simulés."""
+    from fun_fish import fairplay
+    analysed = []
+
+    class Engine:
+        def configure(self, options):
+            pass
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(lichess_bot.chess.engine.SimpleEngine, "popen_uci",
+                        lambda command: analysed.append(command) or Engine())
+    report = fairplay.Report(moves=20, near=0.9 if suspect else 0.5, acpl=10, cv=0.2)
+    monkeypatch.setattr(fairplay, "analyse", lambda moves, side, engine, *a: analysed.append(side) or report)
+    game = lichess_bot.BotGame(FakeBot(ExportApi(), "sf"), "g1")
+    opponent = {"id": "humain", "name": "Humain", "rating": their_rating, **({} if human else {"title": "BOT"})}
+    game.facts = {"opponent": opponent, "speed": "rapid", "rated": rated, "color": "white", "our_rating": our_rating}
+    export = {"lichess": {"status": "mate" if winner else "draw", "winner": winner}}
+    return game, export, analysed
+
+
+@pytest.mark.parametrize("change, checked", [
+    ({}, True), ({"winner": None}, True), ({"winner": "white"}, False), ({"their_rating": 2001}, False),
+    ({"human": False}, False)])
+def test_a_big_upset_by_a_human_is_checked_for_cheating(monkeypatch, change, checked):
+    game, export, analysed = fairplay_game(monkeypatch, **change)
+    game.check_fairplay(export)
+    assert bool(analysed) is checked
+    if checked:
+        assert analysed[1] is lichess_bot.chess.BLACK and str(analysed[0][-1]) == "sf"  # le camp de l'humain
+        assert "clocks=true" in game.bot.api.paths[0]
+
+
+def test_a_watched_player_is_checked_every_game_and_a_rated_cheat_is_blocked(monkeypatch):
+    from fun_fish import opponents
+    game, export, analysed = fairplay_game(monkeypatch)
+    game.check_fairplay(export)  # partie amicale suspecte : un avertissement
+    assert opponents.watched("humain") and opponents.cheat_blocked() == set()
+    game, export, analysed = fairplay_game(monkeypatch, winner="white", rated=True)  # nous gagnons : surveillé quand même
+    game.id = "g2"
+    game.check_fairplay(export)
+    assert analysed and opponents.cheat_blocked() == {"humain"}
+    bot, _ = rationed_bot(monkeypatch)
+    assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="humain")) == "generic"
+
+
+def test_a_failed_cheat_check_costs_nothing(monkeypatch):
+    game, export, analysed = fairplay_game(monkeypatch)
+    game.bot.api.get = lambda path: (_ for _ in ()).throw(OSError("Lichess muet"))
+    game.check_fairplay(export)  # pas d'exception
+    from fun_fish import opponents
+    assert opponents.suspects_report() == []

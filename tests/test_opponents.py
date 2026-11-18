@@ -1,3 +1,4 @@
+import time
 import gzip
 import json
 import random
@@ -275,3 +276,45 @@ def test_the_import_notes_the_highlights_of_our_exports(tmp_path, monkeypatch):
     monkeypatch.setattr(opponents, "note_highlights", lambda gid, account, data, path=None: seen.append((gid, data)))
     opponents.import_history(["dubot"], tmp_path, fetch=lambda a: [game, {**game, "id": "g2"}])
     assert seen == [("g1", export)]  # g2 : pas d'export, pas de coups notables
+
+
+def test_three_casual_strikes_in_sixty_days_block_the_player():
+    from fun_fish import fairplay
+    r, day = fairplay.Report(moves=20, near=0.9, acpl=10, cv=0.2), 86400
+    now = 1_800_000_000.0
+    assert not opponents.watched("Tricheur", now=now)
+    assert opponents.note_fairplay("g0", "Tricheur", "dubot", False, r, True, now=now - 61 * day) == (1, False)
+    assert not opponents.watched("tricheur", now=now)  # avertissement trop ancien : plus surveillé
+    assert opponents.note_fairplay("g1", "Tricheur", "dubot", False, r, True, now=now) == (1, False)
+    assert opponents.watched("tricheur", now=now + 59 * day)
+    assert opponents.note_fairplay("g2", "tricheur", "capabot", False, r, False, now=now) == (1, False)  # propre
+    assert opponents.note_fairplay("g3", "tricheur", "capabot", False, r, True, now=now) == (2, False)
+    assert opponents.cheat_blocked() == set()
+    assert opponents.note_fairplay("g4", "tricheur", "dubot", False, r, True, now=now) == (3, True)
+    assert opponents.cheat_blocked() == {"tricheur"}
+    assert opponents.note_fairplay("g5", "tricheur", "dubot", False, r, True, now=now) == (4, False)  # déjà noté
+    (row,) = opponents.suspects_report(now=now)
+    assert row[:4] == ("tricheur", 4, 5, 6) and row[5] == "3 parties suspectes en 60 jours"
+    assert opponents.pardon("Tricheur") and opponents.cheat_blocked() == set()
+    assert not opponents.watched("tricheur", now=now) and opponents.suspects_report(now=now) == []
+
+
+def test_one_suspicious_rated_game_is_enough():
+    from fun_fish import fairplay
+    r = fairplay.Report(moves=20, near=0.9, acpl=10, cv=0.2)
+    assert opponents.note_fairplay("g1", "classe", "dubot", True, r, False) == (0, False)
+    assert opponents.note_fairplay("g2", "classe", "dubot", True, r, True) == (1, True)
+    assert opponents.suspects_report()[0][5] == "partie classée suspecte"
+
+
+def test_suspicious_games_are_left_out_of_the_trap_rates():
+    from fun_fish import fairplay
+    for game in ("propre", "suspecte"):
+        opponents.record(opponents.GameRecord(game, "dubot", "h", None, False, 1500, "blitz", False, "white", "win",
+                                              "mate", 40, time.time(), 20.0, 30.0))
+        with opponents.connect() as con:
+            con.execute("INSERT INTO highlights (game, account, ply, kind, san, chance, swing) "
+                        "VALUES (?, 'dubot', 20, 'piège', 'Qh5', 60, 200)", (game,))
+    assert opponents.notable_report()[1] == [("dubot", "humains", 2, 60.0, 100.0)]
+    opponents.note_fairplay("suspecte", "h", "dubot", False, fairplay.Report(moves=20), True)
+    assert opponents.notable_report()[1] == [("dubot", "humains", 1, 60.0, 100.0)]

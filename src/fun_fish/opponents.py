@@ -79,7 +79,27 @@ CREATE TABLE IF NOT EXISTS declines (
     at REAL NOT NULL          -- horodatage Unix
 );
 CREATE INDEX IF NOT EXISTS declines_opponent ON declines (opponent, at);
+CREATE TABLE IF NOT EXISTS fairplay (  -- les parties d'humains passées au détecteur de triche (fairplay.py)
+    game TEXT PRIMARY KEY,
+    player TEXT NOT NULL,     -- identifiant Lichess de l'humain
+    account TEXT NOT NULL,    -- notre compte
+    rated INTEGER NOT NULL,
+    at REAL NOT NULL,         -- horodatage Unix
+    moves INTEGER, match REAL, near REAL, acpl REAL, cv REAL, obvious_ratio REAL,
+    suspect INTEGER NOT NULL  -- 1 : un avertissement
+);
+CREATE INDEX IF NOT EXISTS fairplay_player ON fairplay (player, at);
+CREATE TABLE IF NOT EXISTS cheat_blocks (  -- liste noire automatique (en plus du fichier `blocked`)
+    player TEXT PRIMARY KEY,
+    at REAL NOT NULL,
+    reason TEXT NOT NULL
+);
 """
+# Surveillance (voir fairplay.py) : un avertissement met le joueur sous surveillance WATCH_DAYS jours (chacune de
+# ses parties contre nous est alors analysée) ; STRIKES avertissements dans cette fenêtre, ou un seul en partie
+# classée (son classement et celui des autres en pâtissent), et il rejoint la liste noire.
+WATCH_DAYS = 60
+STRIKES = 3
 MIGRATIONS = {  # colonnes de `games` ajoutées après coup : (nom, type) ; absentes des parties importées
     "ending": "TEXT",  # fin à notre initiative ou anormale : abandon, tricotage, nulle acceptée, flux perdu
     "min_clock": "REAL",  # notre pendule la plus basse avant l'un de nos coups (s)
@@ -455,6 +475,57 @@ def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str
             for name, (w, points, measured, loss) in sums.items() if w > 0}
 
 
+def watched(player: str, now: float | None = None, path: Path | None = None) -> bool:
+    """Le joueur a-t-il reçu un avertissement depuis moins de WATCH_DAYS jours ?"""
+    since = (now or time.time()) - WATCH_DAYS * 86400
+    with connect(path) as con:
+        return con.execute("SELECT 1 FROM fairplay WHERE player = ? AND suspect = 1 AND at >= ?",
+                           (player.lower(), since)).fetchone() is not None
+
+
+def note_fairplay(game: str, player: str, account: str, rated: bool, report, suspect: bool,
+                  now: float | None = None, path: Path | None = None) -> tuple[int, bool]:
+    """Note l'analyse d'une partie ; renvoie (avertissements dans la fenêtre, joueur mis sur liste noire à
+    l'instant)."""
+    now, player = now or time.time(), player.lower()
+    with connect(path) as con:
+        con.execute("INSERT OR REPLACE INTO fairplay VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (game, player, account, int(bool(rated)), now, report.moves, report.match, report.near, report.acpl,
+                     report.cv, report.obvious_ratio, int(suspect)))
+        strikes = con.execute("SELECT count(*) FROM fairplay WHERE player = ? AND suspect = 1 AND at >= ?",
+                              (player, now - WATCH_DAYS * 86400)).fetchone()[0]
+        reason = ("partie classée suspecte" if suspect and rated
+                  else f"{strikes} parties suspectes en {WATCH_DAYS} jours" if strikes >= STRIKES else None)
+        blocked = reason is not None and con.execute(
+            "INSERT OR IGNORE INTO cheat_blocks VALUES (?, ?, ?)", (player, now, reason)).rowcount == 1
+    return strikes, blocked
+
+
+def cheat_blocked(path: Path | None = None) -> set[str]:
+    with connect(path) as con:
+        return {row[0] for row in con.execute("SELECT player FROM cheat_blocks")}
+
+
+def suspects_report(now: float | None = None, path: Path | None = None) -> list[tuple]:
+    """Par joueur ayant au moins un avertissement : (joueur, avertissements dans la fenêtre, au total, parties
+    analysées, dernier avertissement, motif de la liste noire ou None, parties suspectes)."""
+    since = (now or time.time()) - WATCH_DAYS * 86400
+    with connect(path) as con:
+        return con.execute(
+            "SELECT f.player, sum(f.suspect = 1 AND f.at >= ?), sum(f.suspect), count(*), "
+            "max(CASE f.suspect WHEN 1 THEN f.at END), b.reason, group_concat(CASE f.suspect WHEN 1 THEN f.game END) "
+            "FROM fairplay f LEFT JOIN cheat_blocks b ON b.player = f.player GROUP BY f.player "
+            "HAVING sum(f.suspect) > 0 ORDER BY 5 DESC", (since,)).fetchall()
+
+
+def pardon(player: str, path: Path | None = None) -> bool:
+    """Retire le joueur de la liste noire automatique et efface ses avertissements (sinon le prochain le
+    remettrait aussitôt) ; ses analyses restent, sans avertissement."""
+    with connect(path) as con:
+        con.execute("UPDATE fairplay SET suspect = 0 WHERE player = ?", (player.lower(),))
+        return con.execute("DELETE FROM cheat_blocks WHERE player = ?", (player.lower(),)).rowcount == 1
+
+
 def notable_report(path: Path | None = None) -> tuple[list[tuple], list[tuple]]:
     """Coups notables par partie analysée, par compte et sorte ; et les pièges : annoncés contre tenus (parmi
     ceux dont on connaît la suite ; None si aucun), humains et bots à part."""
@@ -467,7 +538,8 @@ def notable_report(path: Path | None = None) -> tuple[list[tuple], list[tuple]]:
             "SELECT h.account, CASE g.bot WHEN 1 THEN 'bots' ELSE 'humains' END, count(*), round(avg(h.chance)), "
             "round(100.0 * sum(h.swing >= ?) / nullif(count(h.swing), 0)) FROM highlights h "
             "JOIN games g ON g.id = h.game "
-            "WHERE h.kind = 'piège' GROUP BY 1, 2 ORDER BY 1, 2", (notable.SWING,)).fetchall()
+            "WHERE h.kind = 'piège' AND h.game NOT IN (SELECT game FROM fairplay WHERE suspect = 1) "
+            "GROUP BY 1, 2 ORDER BY 1, 2", (notable.SWING,)).fetchall()  # sans les parties suspectes
     return kinds, traps
 
 
