@@ -295,7 +295,8 @@ def test_three_casual_strikes_in_sixty_days_block_the_player():
     assert opponents.note_fairplay("g5", "tricheur", "dubot", False, r, True, now=now) == (4, False)  # déjà noté
     (row,) = opponents.suspects_report(now=now)
     assert row[:4] == ("tricheur", 4, 5, 6) and row[5] == "3 parties suspectes en 60 jours"
-    assert opponents.pardon("Tricheur") and opponents.cheat_blocked() == set()
+    assert opponents.pardon("Tricheur") == (True, 5) and opponents.cheat_blocked() == set()
+    assert opponents.pardon("Inconnu") == (False, 0)
     assert not opponents.watched("tricheur", now=now) and opponents.suspects_report(now=now) == []
 
 

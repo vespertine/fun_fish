@@ -86,7 +86,7 @@ def analyse(moves: list[str], side: chess.Color, engine: chess.engine.SimpleEngi
             matches.append(top)
         spent = times[ply] if ply < len(times) else None
         detail.append((ply, best.score(mate_score=10**4), second, loss, top, spent))
-        if spent is not None and clocks and initial and clocks[ply] >= LOW_CLOCK * initial * 100:
+        if spent is not None and initial and clocks[ply - 2] >= LOW_CLOCK * initial * 100:  # pendule avant le coup
             all_times.append(spent)
             (easy_times if obvious else hard_times).append(spent)
         board.push(move)

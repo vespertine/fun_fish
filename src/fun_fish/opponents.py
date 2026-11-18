@@ -518,12 +518,14 @@ def suspects_report(now: float | None = None, path: Path | None = None) -> list[
             "HAVING sum(f.suspect) > 0 ORDER BY 5 DESC", (since,)).fetchall()
 
 
-def pardon(player: str, path: Path | None = None) -> bool:
+def pardon(player: str, path: Path | None = None) -> tuple[bool, int]:
     """Retire le joueur de la liste noire automatique et efface ses avertissements (sinon le prochain le
-    remettrait aussitôt) ; ses analyses restent, sans avertissement."""
+    remettrait aussitôt) ; ses analyses restent, sans avertissement. Renvoie (retiré de la liste noire,
+    avertissements effacés)."""
     with connect(path) as con:
-        con.execute("UPDATE fairplay SET suspect = 0 WHERE player = ?", (player.lower(),))
-        return con.execute("DELETE FROM cheat_blocks WHERE player = ?", (player.lower(),)).rowcount == 1
+        cleared = con.execute("UPDATE fairplay SET suspect = 0 WHERE player = ? AND suspect = 1",
+                              (player.lower(),)).rowcount
+        return con.execute("DELETE FROM cheat_blocks WHERE player = ?", (player.lower(),)).rowcount == 1, cleared
 
 
 def notable_report(path: Path | None = None) -> tuple[list[tuple], list[tuple]]:

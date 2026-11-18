@@ -85,6 +85,9 @@ def test_moves_in_time_trouble_do_not_count_for_the_rhythm():
     moves = game()
     report = fairplay.analyse(moves, chess.WHITE, StubEngine(), clocks([10], len(moves), initial=200), 200)
     assert report.cv is None  # sous 10 % du temps initial dès le 18e coup : trop peu de temps mesurés
+    # c'est la pendule avant le coup qui compte : à 212 s, le 20e coup part de 22 s (seuil 21,2 s) et fait le 12e temps
+    later = fairplay.analyse(moves, chess.WHITE, StubEngine(), clocks([10], len(moves), initial=212), 212)
+    assert later.cv is not None
 
 
 @pytest.mark.parametrize("change, expected", [

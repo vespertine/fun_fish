@@ -163,7 +163,8 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
 - **La surveillance de la triche (`fairplay.py`, tables `fairplay` et `cheat_blocks`) :** après une partie
   où un humain nous a battus ou tenus en nulle avec au moins 400 points de moins (`FAIRPLAY_GAP`), ou
   contre un joueur déjà surveillé, ses coups sont repassés à Stockfish (profondeur 16, 3 s au plus par
-  position, en basse priorité et une analyse à la fois). Hors ouverture, positions jouées et coups
+  position, en basse priorité et une analyse à la fois par compte ; un redémarrage du service pendant
+  l'analyse la perd). Hors ouverture, positions jouées et coups
   évidents, la partie est **suspecte** si : au moins 10 coups comptés, 60 % à moins de 10 cp du meilleur,
   une perte moyenne d'au plus 25 cp, **et** un rythme de métronome (écart type des temps de réflexion
   ≤ 0,25 fois leur moyenne). Calibrage (novembre 2026, 723 de nos parties) : les moteurs eux-mêmes ne

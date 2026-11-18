@@ -368,8 +368,9 @@ def cmd_opponents(args: argparse.Namespace) -> None:
     if args.action == "pardon":
         if not args.player:
             raise SystemExit("pardon : préciser --player")
-        print("retiré de la liste noire" if opponents.pardon(args.player) else "pas sur la liste noire",
-              "; avertissements effacés")
+        unblocked, cleared = opponents.pardon(args.player)
+        print("retiré de la liste noire" if unblocked else "pas sur la liste noire",
+              f"; {cleared} avertissement(s) effacé(s)")
         return
     if args.action == "challenges":
         print(f"{'compte':<14} {'qui':<7} {'décision':<9} {'raison':<45} {'défis':>6}")
