@@ -1984,6 +1984,25 @@ def test_a_campaign_plays_two_bot_games_at_once(monkeypatch, bot_games_dir):
     assert sharp.seek() is None  # deux places, déjà prises
 
 
+def test_a_campaign_shortens_the_pause_and_the_wait(monkeypatch, bot_games_dir):
+    bot, now = seeker(monkeypatch, [online_bot("rival")])
+    campaign_file(iso(3600))
+    bot.watch()  # la campagne est vue : défi après CAMPAIGN_IDLE
+    now[0] += lichess_bot.CAMPAIGN_IDLE - 1
+    assert bot.seek() is None
+    now[0] += 1
+    assert bot.seek() == "m1"
+    bot.bot_games["m1"] = now[0]  # la partie commence (sans son fil)
+    now[0] += 300
+    bot.finished("m1")  # 5 minutes de partie : 5 minutes de pause, au lieu de 15
+    assert bot.bot_free_at == now[0] + 300
+    bot.in_campaign = False
+    bot.bot_games["m2"] = now[0]
+    now[0] += 300
+    bot.finished("m2")
+    assert bot.bot_free_at == now[0] + 900  # hors campagne : trois fois la durée
+
+
 def test_a_campaign_adds_short_rapid_once_bullet_and_blitz_are_stable(monkeypatch, bot_games_dir):
     rival = online_bot("rival")
     rival["perfs"]["rapid"] = {"rating": 1900}
