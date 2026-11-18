@@ -833,8 +833,8 @@ def wished_bots(account: str) -> set[str]:
             if since.tzinfo is None:
                 raise ValueError(f"heure sans fuseau : {wish['since']} (par exemple +01:00)")
             bot, games = wish["bot"].lower(), wish["games"]
-            if not isinstance(games, int) or isinstance(games, bool):
-                raise ValueError(f"games : un entier ({wish})")
+            if not isinstance(games, int) or isinstance(games, bool) or not isinstance(wish["accounts"], list):
+                raise ValueError(f"games : un entier, accounts : une liste ({wish})")
             if account in {a.lower() for a in wish["accounts"]} and \
                     opponents.games_against(account, bot, since.timestamp()) < games:
                 wanted.add(bot)
@@ -1354,13 +1354,14 @@ class Bot:
             rated_only, refused_rated = set(), {}
 
         def wish_fits(bot: dict) -> bool:
-            """Un bot souhaité (`wished_bots`) : mêmes règles, sans écart de classement maximal, et espacé de
-            WISH_SPACING seulement."""
+            """Un bot souhaité (`wished_bots`) : mêmes règles (jamais l'un des nôtres), sans écart de classement
+            maximal, et espacé de WISH_SPACING seulement."""
             name = bot.get("id", "")
             if (refused_rated if name in rated_only else refused).get(name, opponents.Refusal()).blocked:
                 return False
             last_played, last_declined = self.bot_opponents.get(name), self.declined.get(name)
-            return (name in wanted and bool(clocks(name)) and not bot.get("disabled") and not bot.get("tosViolation")
+            return (name in wanted and name not in OUR_BOTS | {self.me} and bool(clocks(name))
+                    and not bot.get("disabled") and not bot.get("tosViolation")
                     and (last_played is None or now - last_played >= WISH_SPACING)
                     and (last_declined is None or now - last_declined >= MATCH_DECLINED)
                     and name not in blocked_players())
@@ -1368,6 +1369,7 @@ class Bot:
         for speed in speeds:  # un bot souhaité d'abord, dans la vitesse la plus incertaine où il joue
             wishes = [b["id"] for b in online if wish_fits(b)]
             if wishes:
+                rating = reference_rating(perfs, speed)  # pour le journal
                 opponent = random.choice(wishes)
                 rated = rated or opponent in rated_only
                 self.picked = "souhaité"

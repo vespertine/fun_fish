@@ -2160,6 +2160,12 @@ def test_a_wished_bot_comes_first_until_it_has_been_played_enough(monkeypatch, b
                                               False, "white", "aborted", "aborted", 0, time.time(), None, None))
     assert lichess_bot.wished_bots("capabot") == {"fetacompli"}  # les parties annulées ne comptent pas
     assert lichess_bot.wished_bots("dubot") == set()  # pas sur la liste
+    wishlist({"bot": "DuBot", "accounts": ["SharpDuBot"], "games": 2, "since": iso(-3600)})
+    bot.api.online = online + [online_bot("dubot")]
+    bot.drop_outgoing(bot.outgoing[0])
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot.bot_opponents.clear()
+    assert bot.seek() and bot.api.created[-1][0] == "le_bon"  # jamais l'un des nôtres, même souhaité
 
 
 def test_a_wished_bot_that_wants_rated_games_gets_a_rated_challenge(monkeypatch, bot_games_dir):
@@ -2175,7 +2181,8 @@ def test_a_wished_bot_that_wants_rated_games_gets_a_rated_challenge(monkeypatch,
 
 @pytest.mark.parametrize("content", ["{pas du json", '[{"bot": "x", "accounts": ["capabot"], "games": 1}]',
                                      '[{"bot": "x", "accounts": ["capabot"], "games": 1, "since": "2026-11-18T18:00"}]',
-                                     '[{"bot": "x", "accounts": ["capabot"], "games": true, "since": "2026-11-18T18:00+01:00"}]'])
+                                     '[{"bot": "x", "accounts": ["capabot"], "games": true, "since": "2026-11-18T18:00+01:00"}]',
+                                     '[{"bot": "x", "accounts": "capabot", "games": 1, "since": "2026-11-18T18:00+01:00"}]'])
 def test_an_unreadable_wishlist_is_ignored(content):
     lichess_bot.WISHLIST_PATH.write_text(content)
-    assert lichess_bot.wished_bots("capabot") == set()
+    assert lichess_bot.wished_bots("capabot") == set() and lichess_bot.wished_bots("c") == set()
