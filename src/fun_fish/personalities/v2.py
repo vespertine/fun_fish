@@ -35,7 +35,9 @@ class DuBotV2(_V2, DuBot):
     key = "dubot_v2"
     name = "SharpDuBot"
     description = "DuBot plus robuste : un peu de théorie des maîtres d'attaque, des pièges pour joueurs plus forts."
-    THEORY = {"theory_rate": 0.35, "theory_moves": 6, "theory_book": "attaque", "theory_mix": 0.5}
+    # théorie dans 70 % des parties (DuBot : 35 %) : sur Lichess, contre des bots, SharpDuBot marque 78 % avec
+    # théorie et 65 % sans (novembre 2026) ; contre Maia 2000, aucune différence (100 % dans les deux cas)
+    THEORY = {"theory_rate": 0.7, "theory_moves": 6, "theory_book": "attaque", "theory_mix": 0.5}
     OVERRIDES = {**DuBot.OVERRIDES, "opening_temperature": 0.8, "opponent_elo": 1500, "tolerance": 200, "opening_tolerance": 100, "convert_from": 200,
                  "convert_tolerance": 40, "convert_elo": 2000, "w_mate": 4.0, "mate_within": 5}
     EXTRA = {**DuBot.EXTRA, "w_pos": 3.0}
