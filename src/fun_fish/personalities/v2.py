@@ -4,7 +4,7 @@ Les défaites de DuBot contre les bots (30 sur 48 parties, contre 30 victoires s
 se jouaient surtout à l'ouverture, sur ses propres gambits (Englund, Duras) : des pièges évalués contre
 un adversaire imaginé à 600 Elo, admis jusqu'à 3 pions de perte. Ici :
 
-- **théorie** : dans 70 % des parties (DuBotV2) ou un tiers (CapaBotV2), quelques coups d'ouverture, tirés de l'arbre des maîtres-modèles
+- **théorie** : dans 80 % des parties (DuBotV2, jusqu'à 8 coups) ou un tiers (CapaBotV2), quelques coups d'ouverture, tirés de l'arbre des maîtres-modèles
   (`data/books`, voir scripts/model_books.py) ou, pour DuBotV2 seulement, des lignes classiques de Fun Fish ;
   le reste du temps, il joue à sa façon ;
 - **pièges plus fins** : adversaire imaginé à 1500 (DuBotV2) ou 2000, le haut de Maia (CapaBotV2) ;
@@ -35,9 +35,11 @@ class DuBotV2(_V2, DuBot):
     key = "dubot_v2"
     name = "SharpDuBot"
     description = "DuBot plus robuste : souvent la théorie des maîtres d'attaque, des pièges pour joueurs plus forts."
-    # théorie dans 70 % des parties (DuBot : 35 %) : sur Lichess, contre des bots, SharpDuBot marque 78 % avec
-    # théorie et 65 % sans (novembre 2026) ; contre Maia 2000, aucune différence (100 % dans les deux cas)
-    THEORY = {"theory_rate": 0.7, "theory_moves": 6, "theory_book": "attaque", "theory_mix": 0.5}
+    # théorie dans 80 % des parties (DuBot : 35 %), jusqu'à 8 coups, surtout l'arbre des maîtres : au moins 4 coups
+    # de théorie une partie sur deux. Sur Lichess, contre des bots, SharpDuBot marquait 78 % avec théorie et 65 %
+    # sans (novembre 2026) ; l'arbre des maîtres tient mieux que nos lignes (3,3 coups joués en moyenne sur 3,5
+    # prévus, contre 2,7). Contre Maia 2000, aucune différence (100 % dans tous les cas).
+    THEORY = {"theory_rate": 0.8, "theory_moves": 8, "theory_book": "attaque", "theory_mix": 0.8}
     OVERRIDES = {**DuBot.OVERRIDES, "opening_temperature": 0.8, "opponent_elo": 1500, "tolerance": 200, "opening_tolerance": 100, "convert_from": 200,
                  "convert_tolerance": 40, "convert_elo": 2000, "w_mate": 4.0, "mate_within": 5}
     EXTRA = {**DuBot.EXTRA, "w_pos": 3.0}
