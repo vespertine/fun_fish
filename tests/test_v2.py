@@ -16,7 +16,7 @@ def test_registered_with_their_settings():
     assert specs["theory_book"] == "solide" and specs["opponent_elo"] == 2000
     assert personalities.create("dubot").opening_tolerance == 0  # DuBot ne change pas
     dubot = personalities.create("dubot")
-    assert (v2.theory_rate, v2.theory_moves, v2.theory_mix) == (0.8, 8, 0.8)  # au moins 4 coups une fois sur deux
+    assert (v2.theory_rate, v2.theory_moves, v2.theory_mix) == (0.8, 8, 0.8)  # au moins 4 coups prévus une fois sur deux
     assert (dubot.theory_rate, dubot.theory_moves, dubot.theory_mix) == (0.35, 6, 0.5)  # DuBot ne change pas
     specs = {s["name"]: s["default"] for s in personalities.PERSONALITIES["dubot_v2"].param_specs()}
     assert (specs["theory_rate"], specs["theory_moves"], specs["theory_mix"]) == (0.8, 8, 0.8)  # le panneau aussi
