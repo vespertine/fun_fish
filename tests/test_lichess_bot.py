@@ -49,6 +49,7 @@ def no_drain(tmp_path, monkeypatch):
     """Les tests ne dépendent pas d'un drapeau de vidange réel (déploiement en cours sur la machine)."""
     monkeypatch.setattr(lichess_bot, "DRAIN_PATH", tmp_path / "drain")
     monkeypatch.setattr(lichess_bot, "CAMPAIGN_PATH", tmp_path / "campaign")  # ni la campagne de la machine
+    monkeypatch.setattr(lichess_bot, "WISHLIST_PATH", tmp_path / "wishlist")  # ni ses bots souhaités
 
 def _reply(first):
     board = chess.Board()
@@ -2132,6 +2133,79 @@ def test_a_failed_cheat_check_costs_nothing(monkeypatch):
     game.check_fairplay(export)  # pas d'exception
     from fun_fish import opponents
     assert opponents.suspects_report() == []
+
+
+def wishlist(*wishes):
+    lichess_bot.WISHLIST_PATH.write_text(json.dumps(list(wishes)))
+
+
+def test_a_wished_bot_comes_first_until_it_has_been_played_enough(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    online = [online_bot("le_bon"), online_bot("fetacompli", bullet=2700, blitz=2700)]  # bien trop fort, d'habitude
+    bot, now = seeker(monkeypatch, online, me="sharpdubot")
+    wishlist({"bot": "FetaCompli", "accounts": ["SharpDuBot", "CapaBot"], "games": 2, "since": iso(-3600)})
+    now[0] += 600
+    assert bot.seek() and bot.api.created[-1][0] == "fetacompli" and bot.picked == "souhaité"
+    assert bot.api.created[-1][1]["rated"] == "false"  # amical, hors campagne
+    bot.drop_outgoing(bot.outgoing[0])
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    now[0] += lichess_bot.WISH_SPACING - 1  # pas deux fois de suite
+    assert bot.seek() and bot.api.created[-1][0] == "le_bon"
+    bot.drop_outgoing(bot.outgoing[0])
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot.bot_opponents.clear()
+    for i in range(2):  # deux parties jouées : le souhait est exaucé
+        opponents.record(opponents.GameRecord(f"f{i}", "sharpdubot", "fetacompli", "BOT", True, 2700, "blitz", False,
+                                              "white", "loss", "mate", 60, time.time(), 15.0, 15.0))
+    assert lichess_bot.wished_bots("sharpdubot") == set()
+    assert bot.seek() and bot.api.created[-1][0] == "le_bon"  # trop fort : plus jamais choisi
+    assert lichess_bot.wished_bots("capabot") == {"fetacompli"}  # chaque compte compte ses parties
+    for i in range(2):
+        opponents.record(opponents.GameRecord(f"annulee{i}", "capabot", "fetacompli", "BOT", True, 2700, "blitz",
+                                              False, "white", "aborted", "aborted", 0, time.time(), None, None))
+    assert lichess_bot.wished_bots("capabot") == {"fetacompli"}  # les parties annulées ne comptent pas
+    assert lichess_bot.wished_bots("dubot") == set()  # pas sur la liste
+    wishlist({"bot": "DuBot", "accounts": ["SharpDuBot"], "games": 2, "since": iso(-3600)})
+    bot.api.online = online + [online_bot("dubot")]
+    bot.drop_outgoing(bot.outgoing[0])
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot.bot_opponents.clear()
+    assert bot.seek() and bot.api.created[-1][0] == "le_bon"  # jamais l'un des nôtres, même souhaité
+
+
+def test_a_wished_bot_that_wants_rated_games_gets_a_rated_challenge(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("fetacompli", "rated", "180+0")  # « envoyez-moi du classé »
+    opponents.decline("le_bon", "later", None, at=time.time() - 2 * 86400)  # un vieux refus d'une autre sorte
+    bot, now = seeker(monkeypatch, [online_bot("le_bon"), online_bot("fetacompli")], me="capabot")
+    wishlist({"bot": "fetacompli", "accounts": ["capabot"], "games": 5, "since": iso(-60)})
+    now[0] += 600
+    assert bot.seek() and bot.api.created[-1][0] == "fetacompli" and bot.api.created[-1][1]["rated"] == "true"
+    assert opponents.wants_rated() == {"fetacompli"}
+
+
+def test_a_wished_bot_is_played_casual_even_during_a_rated_campaign(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("le_bon", "casual", "180+0")  # « envoyez-moi de l'amical » : écarté d'une campagne classée
+    bot, now = seeker(monkeypatch, [online_bot("le_bon"), online_bot("fetacompli")], me="capabot")
+    campaign_file(iso(3600))  # classée
+    wishlist({"bot": "le_bon", "accounts": ["capabot"], "games": 5, "since": iso(-60)})
+    now[0] += 600
+    assert bot.seek() and bot.api.created[-1][0] == "le_bon" and bot.api.created[-1][1]["rated"] == "false"
+    bot.drop_outgoing(bot.outgoing[0])
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot.bot_opponents.clear()
+    wishlist()  # plus de souhait : la campagne reprend ses droits
+    assert bot.seek() and bot.api.created[-1][0] == "fetacompli" and bot.api.created[-1][1]["rated"] == "true"
+
+
+@pytest.mark.parametrize("content", ["{pas du json", '[{"bot": "x", "accounts": ["capabot"], "games": 1}]',
+                                     '[{"bot": "x", "accounts": ["capabot"], "games": 1, "since": "2026-11-18T18:00"}]',
+                                     '[{"bot": "x", "accounts": ["capabot"], "games": true, "since": "2026-11-18T18:00+01:00"}]',
+                                     '[{"bot": "x", "accounts": "capabot", "games": 1, "since": "2026-11-18T18:00+01:00"}]'])
+def test_an_unreadable_wishlist_is_ignored(content):
+    lichess_bot.WISHLIST_PATH.write_text(content)
+    assert lichess_bot.wished_bots("capabot") == set() and lichess_bot.wished_bots("c") == set()
 
 
 class TrapAgent:

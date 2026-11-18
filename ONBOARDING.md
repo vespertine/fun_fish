@@ -121,6 +121,13 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   du classé est laissé tranquille 30 jours, `generic` 7 jours, les autres raisons un jour ; un refus
   de cadence (`timecontrol`, `toofast`, `tooslow`) écarte seulement cette cadence pendant 7 jours. Un humain
   qui arrive passe devant : notre défi en attente est annulé (`seek`, `MATCH_*`).
+- **Les bots souhaités :** le fichier `~/.config/fun_fish/wishlist` (JSON, relu à chaque recherche, sans
+  redémarrage) liste des bots à jouer en priorité, pour observer nos personnalités contre eux :
+  `[{"bot": "FetaCompli", "accounts": ["SharpDuBot", "CapaBot"], "games": 10, "since": "2026-11-18T18:00:00+01:00"}]`.
+  Tant qu'un compte a joué moins de `games` parties (non annulées) contre ce bot depuis `since`, la recherche
+  d'adversaires le défie d'abord s'il est en ligne : dans la vitesse la plus incertaine où il joue, sans écart de
+  classement maximal, au plus toutes les 30 minutes (`WISH_SPACING`), en amical sauf s'il a demandé du classé
+  (refus « rated »), même pendant une campagne classée. Les autres règles (pauses, place commune, refus) restent.
 - **Les campagnes (`Campaign`) :** le fichier `~/.config/fun_fish/campaign` (JSON, relu sans redémarrage),
   par exemple `{"until": "2026-11-17T21:00:00+01:00", "rated": true, "decline_bots": true, "rd": 75}` :
   jusqu'à `until`, et pour une campagne classée tant que le compte n'est pas stable (rd ≤ `rd` en bullet

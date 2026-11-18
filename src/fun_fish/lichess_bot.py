@@ -32,6 +32,8 @@ LICHESS = "https://lichess.org"
 TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
 GAMES_DIR = Path("~/.local/share/fun_fish/bot_games").expanduser()
 DRAIN_PATH = Path("~/.config/fun_fish/drain").expanduser()  # présent : on finit ses parties sans en accepter (déploiement)
+WISHLIST_PATH = Path("~/.config/fun_fish/wishlist").expanduser()  # JSON : des bots à jouer en priorité (`wished_bots`)
+WISH_SPACING = 1800  # s entre deux parties contre un même bot souhaité (au lieu de BOT_SAME_OPPONENT)
 BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lichess par ligne : défis toujours refusés
 CAMPAIGN_PATH = Path("~/.config/fun_fish/campaign").expanduser()  # JSON : une campagne contre des bots (`Campaign`)
 STABLE_FRESH = 600  # s : au-delà, la stabilité du classement est redemandée à Lichess
@@ -846,6 +848,35 @@ def stable(perfs: dict, rd: int) -> bool:
                for speed in MATCH_CLOCKS)
 
 
+def wished_bots(account: str) -> set[str]:
+    """Les bots que ce compte doit encore jouer, d'après WISHLIST_PATH (relu à chaque recherche) : une liste de
+    {"bot": "FetaCompli", "accounts": ["SharpDuBot", "CapaBot"], "games": 10, "since": "2026-11-18T18:00+01:00"},
+    soit `games` parties (non annulées) par compte depuis `since`. Absente ou illisible : aucun."""
+    try:
+        wishes = json.loads(WISHLIST_PATH.read_text())
+    except FileNotFoundError:
+        return set()
+    except (OSError, ValueError) as exc:
+        log("liste de bots souhaités illisible, ignorée :", repr(exc))
+        return set()
+    wanted = set()
+    try:
+        for wish in wishes:
+            since = datetime.datetime.fromisoformat(wish["since"])
+            if since.tzinfo is None:
+                raise ValueError(f"heure sans fuseau : {wish['since']} (par exemple +01:00)")
+            bot, games = wish["bot"].lower(), wish["games"]
+            if not isinstance(games, int) or isinstance(games, bool) or not isinstance(wish["accounts"], list):
+                raise ValueError(f"games : un entier, accounts : une liste ({wish})")
+            if account in {a.lower() for a in wish["accounts"]} and \
+                    opponents.games_against(account, bot, since.timestamp()) < games:
+                wanted.add(bot)
+    except (sqlite3.Error, OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
+        log("liste de bots souhaités illisible, ignorée :", repr(exc))
+        return set()
+    return wanted
+
+
 def blocked_players() -> set[str]:
     """Les comptes dont on refuse les défis (triche, farming...), relus à chaque défi : sans redémarrage."""
     try:  # un octet invalide ne doit pas bloquer tous les défis : on garde les noms lisibles
@@ -1347,16 +1378,47 @@ class Bot:
                     and (last_declined is None or now - last_declined >= MATCH_DECLINED)
                     and name not in blocked_players())
         online = list(self.api.lines("/api/bot/online?nb=200"))
-        for speed in speeds:
-            rating = reference_rating(perfs, speed)
-            candidates = [(b["id"], gap(b)) for b in online if fits(b)]
-            if candidates:
+        wanted = wished_bots(self.me) if online else set()
+        try:  # un bot souhaité est défié en amical, même en campagne classée, sauf s'il demande du classé
+            rated_only = opponents.wants_rated() & wanted if wanted else set()
+            refused_casual = opponents.refusals(ignore={"casual"}) if wanted and rated else refused
+            refused_rated = refused if rated else opponents.refusals(ignore={"rated"}) if rated_only else {}
+        except (sqlite3.Error, OSError) as exc:
+            log("mémoire des refus illisible :", repr(exc))
+            rated_only, refused_casual, refused_rated = set(), refused, {}
+
+        def wish_fits(bot: dict) -> bool:
+            """Un bot souhaité (`wished_bots`) : mêmes règles (jamais l'un des nôtres), sans écart de classement
+            maximal, et espacé de WISH_SPACING seulement."""
+            name = bot.get("id", "")
+            if (refused_rated if name in rated_only else refused_casual).get(name, opponents.Refusal()).blocked:
+                return False
+            last_played, last_declined = self.bot_opponents.get(name), self.declined.get(name)
+            return (name in wanted and name not in OUR_BOTS | {self.me} and bool(clocks(name))
+                    and not bot.get("disabled") and not bot.get("tosViolation")
+                    and (last_played is None or now - last_played >= WISH_SPACING)
+                    and (last_declined is None or now - last_declined >= MATCH_DECLINED)
+                    and name not in blocked_players())
+        opponent = None
+        for speed in speeds:  # un bot souhaité d'abord, dans la vitesse la plus incertaine où il joue
+            wishes = [b["id"] for b in online if wish_fits(b)]
+            if wishes:
+                rating = reference_rating(perfs, speed)  # pour le journal
+                opponent = random.choice(wishes)
+                rated = opponent in rated_only
+                self.picked = "souhaité"
                 break
         else:
-            log(f"recherche d'adversaire ({'/'.join(speeds)}) : aucun bot disponible")
-            withdraw(self.me)  # rien à jouer : on ne retient pas le tour des autres
-            return None
-        opponent = self.pick(band(candidates))
+            for speed in speeds:
+                rating = reference_rating(perfs, speed)
+                candidates = [(b["id"], gap(b)) for b in online if fits(b)]
+                if candidates:
+                    break
+            else:
+                log(f"recherche d'adversaire ({'/'.join(speeds)}) : aucun bot disponible")
+                withdraw(self.me)  # rien à jouer : on ne retient pas le tour des autres
+                return None
+        opponent = opponent or self.pick(band(candidates))
         now = time.monotonic()
         with self.lock:  # l'état a pu changer pendant les lectures (humain accepté, vidange) : on revérifie
             ready = self.ready_to_seek(now)

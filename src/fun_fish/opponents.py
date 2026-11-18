@@ -502,6 +502,21 @@ def refusals(now: float | None = None, path: Path | None = None, ignore=()) -> d
     return {name: Refusal(name in blocked, frozenset(clocks.get(name, ()))) for name in blocked | set(clocks)}
 
 
+def wants_rated(now: float | None = None, path: Path | None = None) -> set[str]:
+    """Les bots qui ont refusé un défi amical en demandant du classé (raison « rated »), récemment."""
+    since = (time.time() if now is None else now) - 86400 * DECLINE_DAYS["rated"]
+    with connect(path) as con:
+        return {o for (o,) in con.execute("SELECT DISTINCT opponent FROM declines WHERE reason = 'rated' AND at >= ?",
+                                          (since,))}
+
+
+def games_against(account: str, opponent: str, since: float, path: Path | None = None) -> int:
+    """Les parties jouées (non annulées) par ce compte contre cet adversaire depuis `since`."""
+    with connect(path) as con:
+        return con.execute("SELECT count(*) FROM games WHERE account = ? AND opponent = ? AND result != 'aborted' "
+                           "AND ended_at >= ?", (account.lower(), opponent.lower(), since)).fetchone()[0]
+
+
 def bot_profiles(now: float | None = None, path: Path | None = None) -> dict[str, Profile]:
     now = time.time() if now is None else now
     with connect(path) as con:
