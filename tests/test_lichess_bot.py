@@ -6,6 +6,7 @@ import io
 import json
 import os
 import random
+import sqlite3
 import time
 import urllib.error
 
@@ -14,7 +15,7 @@ import pytest
 
 from fun_fish.engines import StockfishNotFound, find_stockfish
 
-from fun_fish import lichess_bot
+from fun_fish import lichess_bot, opponents
 
 
 class FakeApi:
@@ -75,10 +76,14 @@ def test_bot_game_plays_and_saves(tmp_path, monkeypatch):
     api = FakeApi()
     bot = FakeBot(api, stockfish_path)
     game = lichess_bot.BotGame(bot, "abc")
+    order = []  # le niveau des pièges est revu après les coups notables de la partie
+    monkeypatch.setattr(lichess_bot.opponents, "note_highlights", lambda *a: order.append("coups notables"))
+    monkeypatch.setattr(lichess_bot.BotGame, "readjust_traps", lambda self: order.append("pièges"))
     game.run()
     assert bot.done == ["abc"]
     assert sum("/move/" in p for p in api.posts) == 2
     assert len(list(tmp_path.glob("*abc.json.gz"))) == 1
+    assert order == ["coups notables", "pièges"]
 
 
 class ChatApi(FakeApi):
@@ -2186,3 +2191,53 @@ def test_a_wished_bot_that_wants_rated_games_gets_a_rated_challenge(monkeypatch,
 def test_an_unreadable_wishlist_is_ignored(content):
     lichess_bot.WISHLIST_PATH.write_text(content)
     assert lichess_bot.wished_bots("capabot") == set() and lichess_bot.wished_bots("c") == set()
+
+
+class TrapAgent:
+    def __init__(self, adaptive=True):
+        self.opponent_elo = self._elo_now = 1500
+        if adaptive:
+            self.adaptive_traps = True
+
+
+def test_against_a_bot_sharpdubot_imagines_the_opponent_at_its_trap_level():
+    with opponents.connect() as con:
+        con.execute("INSERT INTO trap_levels VALUES ('bot', 'fetacompli', 1700, 0)")
+    game = lichess_bot.BotGame(FakeBot(None, "sf"), "g1")
+    feta = {"id": "fetacompli", "name": "FetaCompli", "title": "BOT"}
+    agent = TrapAgent()
+    game.adapt_traps(agent, feta)
+    assert (agent.opponent_elo, agent._elo_now, game.trap_base) == (1700, 1700, 1500)
+    for agent, opponent in ((TrapAgent(), {"id": "fetacompli", "name": "FetaCompli"}),  # un humain du même nom
+                            (TrapAgent(adaptive=False), feta)):  # une autre personnalité
+        game.adapt_traps(agent, opponent)
+        assert (agent.opponent_elo, game.trap_base) == (1500, None)
+
+
+def test_the_real_sharpdubot_adapts_and_other_personalities_do_not():
+    from fun_fish import personalities
+    with opponents.connect() as con:
+        con.execute("INSERT INTO trap_levels VALUES ('bot', 'fetacompli', 1700, 0)")
+    game, feta = lichess_bot.BotGame(FakeBot(None, "sf"), "g1"), {"id": "fetacompli", "title": "BOT"}
+    sharp = personalities.create("dubot_v2")
+    game.adapt_traps(sharp, feta)
+    assert sharp.imagined_elo(0) == 1700 and sharp.imagined_elo(1) == 2000  # la conversion monte toujours à 2000
+    for key in ("dubot", "capabot_v2"):
+        agent = personalities.create(key)
+        before = agent.opponent_elo
+        game.adapt_traps(agent, feta)
+        assert agent.opponent_elo == before and game.trap_base is None
+
+
+def test_after_the_game_the_trap_level_is_revised_never_at_the_cost_of_the_bot(monkeypatch):
+    game = lichess_bot.BotGame(FakeBot(None, "sf"), "g1")
+    game.facts = {"opponent": {"id": "fetacompli", "name": "FetaCompli", "title": "BOT"}}
+    calls = []
+    monkeypatch.setattr(opponents, "adjust_trap_level", lambda *a: calls.append(a) or (1500, 1600, 0.0))
+    game.readjust_traps()
+    assert calls == []  # pas de niveau de départ : pas une partie à pièges adaptés
+    game.trap_base = 1500
+    game.readjust_traps()
+    assert calls == [("bot", "fetacompli", 1500)]
+    monkeypatch.setattr(opponents, "adjust_trap_level", lambda *a: (_ for _ in ()).throw(sqlite3.OperationalError()))
+    game.readjust_traps()  # base indisponible : rien ne casse

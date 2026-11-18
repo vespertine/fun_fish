@@ -519,6 +519,7 @@ class BotGame(threading.Thread):
                     self.facts = {"opponent": opponent, "speed": event.get("speed"), "rated": event.get("rated"),
                                   "color": "white" if ours == chess.WHITE else "black",
                                   "our_rating": event["white" if ours == chess.WHITE else "black"].get("rating")}
+                    self.adapt_traps(agent, opponent)
                     resigns = ResignSense(is_program(opponent))
                     shuffle = ShuffleSense(is_program(opponent) and not event.get("rated"))
                     self.session = (game, ours, pace, draws, resigns, shuffle)
@@ -680,6 +681,37 @@ class BotGame(threading.Thread):
         except (sqlite3.Error, OSError) as exc:
             log(self.id, "partie absente de la mémoire des adversaires :", repr(exc))
 
+    def adapt_traps(self, agent, opponent: dict) -> None:
+        """Contre un bot, l'adversaire imaginé réglé d'après ses réponses passées à nos pièges (personnalités
+        `adaptive_traps`, voir opponents.TRAP_LOW) ; jamais au prix de la partie."""
+        self.trap_base = None
+        if not getattr(agent, "adaptive_traps", False) or not is_program(opponent) or not opponent.get("id"):
+            return
+        self.trap_base = agent.opponent_elo
+        try:
+            level = opponents.trap_level(self.bot.me, opponent["id"], agent.opponent_elo)
+        except (sqlite3.Error, OSError) as exc:
+            log(self.id, "niveau des pièges illisible :", repr(exc))
+            return
+        if level != agent.opponent_elo:
+            agent.opponent_elo = agent._elo_now = level
+            log(self.id, "pièges : adversaire imaginé à", level, "Elo")
+
+    def readjust_traps(self) -> None:
+        """Après la partie (coups notables déjà notés) : le niveau des pièges contre ce bot, revu."""
+        opponent = (getattr(self, "facts", None) or {}).get("opponent", {})
+        if getattr(self, "trap_base", None) is None or not opponent.get("id"):
+            return
+        try:
+            change = opponents.adjust_trap_level(self.bot.me, opponent["id"], self.trap_base)
+        except (sqlite3.Error, OSError) as exc:
+            log(self.id, "niveau des pièges non revu :", repr(exc))
+            return
+        if change:
+            before, after, taken = change
+            log(self.id, f"pièges : {opponent.get('name', opponent['id'])} en a pris {taken:.0%}, "
+                         f"adversaire imaginé de {before} à {after} Elo")
+
     def save(self, game, state: dict, analyser) -> None:
         GAMES_DIR.mkdir(parents=True, exist_ok=True)
         export = game.debug_export(engine=analyser.engine_name)
@@ -696,6 +728,7 @@ class BotGame(threading.Thread):
             opponents.note_highlights(self.id, self.bot.me, export)
         except (sqlite3.Error, OSError, ValueError, KeyError) as exc:  # jamais au prix de la fin de partie
             log(self.id, "coups notables non notés :", repr(exc))
+        self.readjust_traps()
         threading.Thread(target=self.check_fairplay, args=(export,), daemon=True).start()
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
         self.chat_lock = threading.Lock()  # la lecture immédiate et la relecture tardive n'écrivent pas ensemble

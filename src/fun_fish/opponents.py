@@ -89,6 +89,13 @@ CREATE TABLE IF NOT EXISTS fairplay (  -- les parties d'humains passées au dét
     suspect INTEGER NOT NULL  -- 1 : un avertissement
 );
 CREATE INDEX IF NOT EXISTS fairplay_player ON fairplay (player, at);
+CREATE TABLE IF NOT EXISTS trap_levels (  -- l'adversaire imaginé contre un bot (voir TRAP_LOW)
+    account TEXT NOT NULL,
+    opponent TEXT NOT NULL,
+    level INTEGER NOT NULL,   -- Elo de l'adversaire imaginé par Maia
+    since REAL NOT NULL,      -- horodatage Unix du dernier réglage : seuls les pièges d'après comptent
+    PRIMARY KEY (account, opponent)
+);
 CREATE TABLE IF NOT EXISTS cheat_blocks (  -- liste noire automatique (en plus du fichier `blocked`)
     player TEXT PRIMARY KEY,
     at REAL NOT NULL,
@@ -100,6 +107,11 @@ CREATE TABLE IF NOT EXISTS cheat_blocks (  -- liste noire automatique (en plus d
 # classée (son classement et celui des autres en pâtissent), et il rejoint la liste noire.
 WATCH_DAYS = 60
 STRIKES = 3
+# Pièges adaptés à un bot adverse (personnalités `adaptive_traps`, SharpDuBot) : l'adversaire imaginé par Maia
+# monte d'un cran (TRAP_STEP) quand ce bot a pris moins de TRAP_LOW de ses TRAP_WINDOW derniers pièges depuis le
+# dernier réglage (au moins TRAP_SAMPLE), et redescend au-delà de TRAP_HIGH ; entre le niveau de la personnalité et
+# TRAP_MAX (la tranche 1900-1999 de Maia). Un piège est pris si l'éval bascule de notable.SWING en notre faveur.
+TRAP_LOW, TRAP_HIGH, TRAP_SAMPLE, TRAP_WINDOW, TRAP_STEP, TRAP_MAX = 0.10, 0.30, 5, 20, 100, 1900
 MIGRATIONS = {  # colonnes de `games` ajoutées après coup : (nom, type) ; absentes des parties importées
     "ending": "TEXT",  # fin à notre initiative ou anormale : abandon, tricotage, nulle acceptée, flux perdu
     "min_clock": "REAL",  # notre pendule la plus basse avant l'un de nos coups (s)
@@ -203,6 +215,39 @@ def note_highlights(game_id: str, account: str, export: dict, path: Path | None 
         con.executemany("INSERT OR REPLACE INTO highlights VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
         con.execute("INSERT OR IGNORE INTO analysed VALUES (?, ?)", (game_id, account.lower()))
     return len(rows)
+
+
+def trap_level(account: str, opponent: str, base: int, path: Path | None = None) -> int:
+    """L'Elo de l'adversaire imaginé contre ce bot (voir TRAP_LOW) : `base` tant qu'il n'a pas été réglé."""
+    with connect(path) as con:
+        row = con.execute("SELECT level FROM trap_levels WHERE account = ? AND opponent = ?",
+                          (account.lower(), opponent.lower())).fetchone()
+    return max(base, min(row[0], max(base, TRAP_MAX))) if row else base
+
+
+def adjust_trap_level(account: str, opponent: str, base: int, now: float | None = None,
+                      path: Path | None = None) -> tuple[int, int, float] | None:
+    """Après une partie contre ce bot : règle l'adversaire imaginé d'après ses réponses à nos pièges depuis le
+    dernier réglage. Renvoie (ancien niveau, nouveau, part des pièges pris) s'il change, sinon None."""
+    from fun_fish import notable
+    account, opponent, now = account.lower(), opponent.lower(), time.time() if now is None else now
+    with connect(path) as con:
+        row = con.execute("SELECT level, since FROM trap_levels WHERE account = ? AND opponent = ?",
+                          (account, opponent)).fetchone()
+        level, since = row if row else (base, 0.0)
+        swings = [s for (s,) in con.execute(
+            "SELECT h.swing FROM highlights h JOIN games g ON g.id = h.game WHERE g.account = ? AND g.opponent = ? "
+            "AND h.kind = 'piège' AND h.swing IS NOT NULL AND g.ended_at > ? ORDER BY g.ended_at DESC, h.ply DESC "
+            "LIMIT ?", (account, opponent, since, TRAP_WINDOW))]  # les derniers : un bot qui change est vite suivi
+        if len(swings) < TRAP_SAMPLE:
+            return None
+        taken = sum(s >= notable.SWING for s in swings) / len(swings)
+        step = TRAP_STEP if taken < TRAP_LOW else -TRAP_STEP if taken > TRAP_HIGH else 0
+        new = max(base, min(level + step, max(base, TRAP_MAX)))
+        if new == level:
+            return None
+        con.execute("INSERT OR REPLACE INTO trap_levels VALUES (?, ?, ?, ?)", (account, opponent, new, now))
+    return level, new, taken
 
 
 def challenge(account: str, c: dict, decision: str, reason: str | None, at: float | None = None,
