@@ -127,7 +127,9 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   et en blitz), nos défis aux bots sont classés (les refus « rated » ne comptent plus) et les défis reçus
   de bots refusés. Pendant une campagne, deux parties contre des bots à la fois (`CAMPAIGN_BOT_GAMES`) ;
   un compte déjà stable en bullet et en blitz joue aussi du rapide 10+0 (`CAMPAIGN_CLOCKS`), toujours
-  dans la vitesse la plus incertaine. Les humains passent toujours en priorité. Pour l'arrêter :
+  dans la vitesse la plus incertaine. Pour stabiliser plus vite, la pause après une partie contre un
+  bot n'est que d'une fois sa durée (`CAMPAIGN_BOT_PAUSE`), et un compte libre lance son défi après
+  2 minutes au lieu de 10 (`CAMPAIGN_IDLE`). Les humains passent toujours en priorité. Pour l'arrêter :
   supprimer le fichier.
 - **Contre les bots, en amical seulement (`BOT_RATED`) :** nos défis aux bots ne sont pas classés, et
   un défi classé d'un bot est refusé (« casual »). L'échelle des bots sur Lichess est sans rapport avec

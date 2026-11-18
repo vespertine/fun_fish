@@ -45,6 +45,10 @@ MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 
 # - Jusqu'à 10+0 (BOT_MAX_ESTIMATE, même estimation que MAX_ESTIMATE) ; au-delà, « tooSlow ».
 BOT_MAX_ESTIMATE = 600  # s
 BOT_PAUSE = 3
+# Pendant une campagne (voir `Campaign`), on veut stabiliser le classement vite : pause d'une fois la durée
+# de la partie, et défi lancé après CAMPAIGN_IDLE au lieu de MATCH_IDLE. Les humains gardent HUMAN_GRACE.
+CAMPAIGN_BOT_PAUSE = 1
+CAMPAIGN_IDLE = 120  # s
 HUMAN_GRACE = 120  # s
 BOT_SAME_OPPONENT = 7200  # s
 # Jamais deux parties contre des bots en même temps, tous nos comptes réunis (des services distincts) :
@@ -1015,7 +1019,7 @@ class Bot:
                 return
             start = self.bot_games.pop(game_id, None)
             if start is not None:
-                self.bot_free_at = now + BOT_PAUSE * (now - start)
+                self.bot_free_at = now + (CAMPAIGN_BOT_PAUSE if self.in_campaign else BOT_PAUSE) * (now - start)
             else:  # un humain : il a le temps d'enchaîner avant qu'un bot prenne la place
                 self.bot_free_at = max(self.bot_free_at, now + HUMAN_GRACE)
         unmark_bot_games(self.me, game_id)
@@ -1244,7 +1248,8 @@ class Bot:
     def ready_to_seek(self, now: float) -> bool:
         """Compte libre depuis assez longtemps, sans défi en cours ni pause (sous verrou)."""
         return (not self.games and not self.accepting_now() and self.outgoing is None
-                and not DRAIN_PATH.exists() and now >= self.bot_free_at and now - self.idle_since >= MATCH_IDLE)
+                and not DRAIN_PATH.exists() and now >= self.bot_free_at
+                and now - self.idle_since >= (CAMPAIGN_IDLE if self.in_campaign else MATCH_IDLE))
 
     def pick(self, candidates: list[str]) -> str:
         """Tirage d'un adversaire, pondéré par l'intérêt de nos parties passées (`opponents.Profile`) : un bot
