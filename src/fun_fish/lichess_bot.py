@@ -24,8 +24,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import chess
+import chess.engine
 
-from fun_fish import opponents
+from fun_fish import fairplay, opponents
 
 LICHESS = "https://lichess.org"
 TOKEN_PATH = Path("~/.config/fun_fish/lichess_bot_token").expanduser()
@@ -510,7 +511,8 @@ class BotGame(threading.Thread):
                     game = Game(agent, human_color=not ours)
                     opponent = event["black" if ours == chess.WHITE else "white"]
                     self.facts = {"opponent": opponent, "speed": event.get("speed"), "rated": event.get("rated"),
-                                  "color": "white" if ours == chess.WHITE else "black"}
+                                  "color": "white" if ours == chess.WHITE else "black",
+                                  "our_rating": event["white" if ours == chess.WHITE else "black"].get("rating")}
                     resigns = ResignSense(is_program(opponent))
                     shuffle = ShuffleSense(is_program(opponent) and not event.get("rated"))
                     self.session = (game, ours, pace, draws, resigns, shuffle)
@@ -688,6 +690,7 @@ class BotGame(threading.Thread):
             opponents.note_highlights(self.id, self.bot.me, export)
         except (sqlite3.Error, OSError, ValueError, KeyError) as exc:  # jamais au prix de la fin de partie
             log(self.id, "coups notables non notés :", repr(exc))
+        threading.Thread(target=self.check_fairplay, args=(export,), daemon=True).start()
         log(self.id, "terminée :", state.get("status"), "gagnant :", state.get("winner", "aucun"))
         self.chat_lock = threading.Lock()  # la lecture immédiate et la relecture tardive n'écrivent pas ensemble
         self.chat_now = threading.Thread(target=self.late_chat, args=(path, export, False), daemon=True)
@@ -695,6 +698,39 @@ class BotGame(threading.Thread):
         later = threading.Timer(CHAT_LATE, self.late_chat, (path, export))  # le « gg » vient souvent après
         later.daemon = True
         later.start()
+
+    def check_fairplay(self, export: dict) -> None:
+        """Contrôle de triche de l'humain, si la partie le demande (voir FAIRPLAY_GAP) ; jamais au prix du bot."""
+        facts = getattr(self, "facts", None) or {}
+        opponent = facts.get("opponent", {})
+        if not opponent.get("id") or is_program(opponent):
+            return
+        player = opponent["id"]
+        result = opponents.result_for(facts["color"], export["lichess"].get("status"), export["lichess"].get("winner"))
+        gap = (facts.get("our_rating") or 0) - (opponent.get("rating") or 0)
+        try:
+            if not opponents.watched(player) and not (result in ("loss", "draw") and gap >= FAIRPLAY_GAP):
+                return
+            with FAIRPLAY_LOCK:
+                game = self.bot.api.get(f"/game/export/{self.id}?moves=true&clocks=true&evals=false")
+                clock = game.get("clock") or {}
+                command = [str(self.bot.stockfish)]
+                if os.name == "posix":
+                    command = ["nice", "-n", "19", *command]
+                engine = chess.engine.SimpleEngine.popen_uci(command)
+                try:
+                    engine.configure({"Threads": 1, "Hash": 64})
+                    report = fairplay.analyse(game.get("moves", "").split(), facts["color"] != "white", engine,
+                                              game.get("clocks"), clock.get("initial", 0), clock.get("increment", 0))
+                finally:
+                    engine.quit()
+            suspect = fairplay.suspicious(report)
+            strikes, blocked = opponents.note_fairplay(self.id, player, self.bot.me, bool(facts.get("rated")),
+                                                       report, suspect)
+            log(self.id, f"contrôle de triche de {player} :", "SUSPECTE" if suspect else "rien à signaler",
+                f"({report.summary()}) ; avertissements : {strikes}" + (" ; liste noire" if blocked else ""))
+        except Exception as exc:  # réseau, moteur, base : on n'en saura pas plus, la partie est déjà finie
+            log(self.id, "contrôle de triche impossible :", repr(exc))
 
     def chat(self) -> list | None:
         """Le chat de la partie (les retours des joueurs), relu chez Lichess ; None s'il est injoignable."""
@@ -780,6 +816,22 @@ def blocked_players() -> set[str]:
     except OSError:
         return set()
     return {name.lower() for line in text.splitlines() if (name := line.split("#", 1)[0].strip())}
+
+
+def refused_players() -> set[str]:
+    """Les défis refusés : le fichier `blocked`, plus la liste noire automatique (triche, voir fairplay.py)."""
+    try:
+        return blocked_players() | opponents.cheat_blocked()
+    except (sqlite3.Error, OSError) as exc:
+        log("liste noire automatique illisible :", repr(exc))
+        return blocked_players()
+
+
+# Contrôle de triche (fairplay.py) après une partie contre un humain : s'il est surveillé, ou s'il nous a
+# battus ou tenus en nulle avec au moins FAIRPLAY_GAP points de moins. Une analyse à la fois par compte, en
+# basse priorité et sur un seul fil : les parties en cours passent avant.
+FAIRPLAY_GAP = 400
+FAIRPLAY_LOCK = threading.Lock()
 
 
 def bot_games_count() -> int:
@@ -1016,7 +1068,7 @@ class Bot:
         if DRAIN_PATH.exists():
             return "later"
         challenger = challenge.get("challenger", {})
-        if {challenger.get("id", ""), challenger.get("name", "").lower()} & blocked_players():
+        if {challenger.get("id", ""), challenger.get("name", "").lower()} & refused_players():
             return "generic"
         if challenger.get("title") == "BOT" and not self.accept_bots and (campaign := self.campaign(ask=False)) \
                 and campaign.decline_bots:

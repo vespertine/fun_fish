@@ -357,6 +357,21 @@ def cmd_opponents(args: argparse.Namespace) -> None:
         for account, against, n, chance, held in traps:
             print(f"{account:<14} {against:<8} {n:>7} {chance:>7}% " + ("    —" if held is None else f"{held:>5}%"))
         return
+    if args.action == "suspects":
+        import datetime
+        print(f"{'joueur':<24} {'avert. (60 j)':>13} {'total':>6} {'analysées':>9} {'dernier':<11} liste noire / parties")
+        for player, recent, total, n, last, reason, games in opponents.suspects_report():
+            day = datetime.date.fromtimestamp(last).isoformat() if last else "—"
+            links = " ".join(f"https://lichess.org/{g}" for g in (games or "").split(",") if g)
+            print(f"{player:<24} {recent:>13} {total:>6} {n:>9} {day:<11} {reason or 'surveillé'} : {links}")
+        return
+    if args.action == "pardon":
+        if not args.player:
+            raise SystemExit("pardon : préciser --player")
+        unblocked, cleared = opponents.pardon(args.player)
+        print("retiré de la liste noire" if unblocked else "pas sur la liste noire",
+              f"; {cleared} avertissement(s) effacé(s)")
+        return
     if args.action == "challenges":
         print(f"{'compte':<14} {'qui':<7} {'décision':<9} {'raison':<45} {'défis':>6}")
         for account, who, decision, reason, n in opponents.challenge_report(days=args.days):
@@ -489,11 +504,13 @@ def build_parser() -> argparse.ArgumentParser:
     bot.add_argument("--accept-bots", action="store_true", help="accepter sans limite les défis d'autres bots (sinon : pauses proportionnelles au temps de jeu, jusqu'à 10+0)")
     bot.set_defaults(func=cmd_lichess_bot)
     opp = sub.add_parser("opponents", help="mémoire des adversaires du bot Lichess : import de l'historique, bilans")
-    opp.add_argument("action", choices=["import", "bots", "humans", "challenges", "notable"],
+    opp.add_argument("action", choices=["import", "bots", "humans", "challenges", "notable", "suspects", "pardon"],
                      help="import : verser les parties passées de nos comptes ; bots, humans : bilan par adversaire ; "
-                          "challenges : défis reçus et leur sort, par compte ; notable : coups notables et pièges")
+                          "challenges : défis reçus et leur sort, par compte ; notable : coups notables et pièges ; "
+                          "suspects : contrôles de triche, surveillés et liste noire ; pardon : lever la liste noire de --player")
     opp.add_argument("--days", type=float, default=7, help="challenges : sur les N derniers jours (défaut : 7)")
     opp.add_argument("--account", action="append", help="compte à importer (défaut : tous les nôtres)")
+    opp.add_argument("--player", help="pardon : le joueur à retirer de la liste noire automatique")
     opp.set_defaults(func=cmd_opponents)
     stockfish = sub.add_parser("stockfish", parents=[common], help="afficher (et télécharger si besoin) Stockfish")
     stockfish.set_defaults(func=cmd_stockfish)
