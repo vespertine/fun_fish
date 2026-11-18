@@ -2155,6 +2155,21 @@ def test_against_a_bot_sharpdubot_imagines_the_opponent_at_its_trap_level():
         assert (agent.opponent_elo, game.trap_base) == (1500, None)
 
 
+def test_the_real_sharpdubot_adapts_and_other_personalities_do_not():
+    from fun_fish import personalities
+    with opponents.connect() as con:
+        con.execute("INSERT INTO trap_levels VALUES ('bot', 'fetacompli', 1700, 0)")
+    game, feta = lichess_bot.BotGame(FakeBot(None, "sf"), "g1"), {"id": "fetacompli", "title": "BOT"}
+    sharp = personalities.create("dubot_v2")
+    game.adapt_traps(sharp, feta)
+    assert sharp.imagined_elo(0) == 1700 and sharp.imagined_elo(1) == 2000  # la conversion monte toujours à 2000
+    for key in ("dubot", "capabot_v2"):
+        agent = personalities.create(key)
+        before = agent.opponent_elo
+        game.adapt_traps(agent, feta)
+        assert agent.opponent_elo == before and game.trap_base is None
+
+
 def test_after_the_game_the_trap_level_is_revised_never_at_the_cost_of_the_bot(monkeypatch):
     game = lichess_bot.BotGame(FakeBot(None, "sf"), "g1")
     game.facts = {"opponent": {"id": "fetacompli", "name": "FetaCompli", "title": "BOT"}}

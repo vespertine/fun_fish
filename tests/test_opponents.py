@@ -339,7 +339,7 @@ def test_a_bot_that_ignores_our_traps_is_imagined_stronger_up_to_1900():
     assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=500) is None  # pièges d'avant oubliés
     assert opponents.trap_level("sharpdubot", "autre_bot", 1500) == 1500  # chaque bot a le sien
     assert opponents.trap_level("dubot", "fetacompli", 1500) == 1500  # et chaque compte
-    trap_game("h", 1000, [0] * 9 + [160])  # 10 % pile : assez, on ne bouge pas
+    trap_game("h", 1000, [160] + [0] * 9)  # 10 % pile : assez, on ne bouge pas
     assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=1050) is None
     for i, level in enumerate((1700, 1800, 1900, 1900)):
         trap_game(f"h{i}", 2000 + 100 * i, [0] * 10 + [160])  # 1 sur 11 : encore trop peu
@@ -357,3 +357,12 @@ def test_a_bot_that_falls_for_our_traps_comes_back_down_but_not_below_the_person
     assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=400) is None  # plancher
     trap_game("g3", 500, [200, 0, 0, 0, 0])  # 20 % : entre les deux seuils, on ne bouge pas
     assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1400, now=600) is None
+
+
+def test_only_the_last_traps_count_so_a_bot_that_changes_is_followed_quickly():
+    with opponents.connect() as con:
+        con.execute("INSERT INTO trap_levels VALUES ('sharpdubot', 'fetacompli', 1900, 0)")
+    trap_game("vieux", 100, [0] * 100)  # au plafond, 100 pièges ignorés
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=200) is None
+    trap_game("nouveau", 300, [200] * 7)  # une nouvelle version : 7 sur ses 20 derniers, 35 %
+    assert opponents.adjust_trap_level("sharpdubot", "fetacompli", 1500, now=400) == (1900, 1800, 0.35)

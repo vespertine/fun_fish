@@ -108,10 +108,10 @@ CREATE TABLE IF NOT EXISTS cheat_blocks (  -- liste noire automatique (en plus d
 WATCH_DAYS = 60
 STRIKES = 3
 # Pièges adaptés à un bot adverse (personnalités `adaptive_traps`, SharpDuBot) : l'adversaire imaginé par Maia
-# monte d'un cran (TRAP_STEP) quand ce bot a pris moins de TRAP_LOW de nos pièges depuis le dernier réglage (au
-# moins TRAP_SAMPLE pièges), et redescend au-delà de TRAP_HIGH ; entre le niveau de la personnalité et TRAP_MAX
-# (la tranche 1900-1999 de Maia). Un piège est pris si l'éval bascule de notable.SWING en notre faveur.
-TRAP_LOW, TRAP_HIGH, TRAP_SAMPLE, TRAP_STEP, TRAP_MAX = 0.10, 0.30, 5, 100, 1900
+# monte d'un cran (TRAP_STEP) quand ce bot a pris moins de TRAP_LOW de ses TRAP_WINDOW derniers pièges depuis le
+# dernier réglage (au moins TRAP_SAMPLE), et redescend au-delà de TRAP_HIGH ; entre le niveau de la personnalité et
+# TRAP_MAX (la tranche 1900-1999 de Maia). Un piège est pris si l'éval bascule de notable.SWING en notre faveur.
+TRAP_LOW, TRAP_HIGH, TRAP_SAMPLE, TRAP_WINDOW, TRAP_STEP, TRAP_MAX = 0.10, 0.30, 5, 20, 100, 1900
 MIGRATIONS = {  # colonnes de `games` ajoutées après coup : (nom, type) ; absentes des parties importées
     "ending": "TEXT",  # fin à notre initiative ou anormale : abandon, tricotage, nulle acceptée, flux perdu
     "min_clock": "REAL",  # notre pendule la plus basse avant l'un de nos coups (s)
@@ -237,7 +237,8 @@ def adjust_trap_level(account: str, opponent: str, base: int, now: float | None 
         level, since = row if row else (base, 0.0)
         swings = [s for (s,) in con.execute(
             "SELECT h.swing FROM highlights h JOIN games g ON g.id = h.game WHERE g.account = ? AND g.opponent = ? "
-            "AND h.kind = 'piège' AND h.swing IS NOT NULL AND g.ended_at > ?", (account, opponent, since))]
+            "AND h.kind = 'piège' AND h.swing IS NOT NULL AND g.ended_at > ? ORDER BY g.ended_at DESC, h.ply DESC "
+            "LIMIT ?", (account, opponent, since, TRAP_WINDOW))]  # les derniers : un bot qui change est vite suivi
         if len(swings) < TRAP_SAMPLE:
             return None
         taken = sum(s >= notable.SWING for s in swings) / len(swings)

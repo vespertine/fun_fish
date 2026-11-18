@@ -164,7 +164,7 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   notable` : leur fréquence, et les pièges annoncés contre ceux qui ont pris, humains et bots à part.
 - **Les pièges adaptés à chaque bot (SharpDuBot, `adaptive_traps`) :** contre un bot, l'adversaire
   imaginé par Maia part de celui de la personnalité (1500) et se règle bot par bot (table `trap_levels`) :
-  après une partie, si ce bot a pris moins de 10 % de nos pièges depuis le dernier réglage (au moins 5
+  après une partie, si ce bot a pris moins de 10 % de ses 20 derniers pièges depuis le dernier réglage (au moins 5
   pièges), on monte d'un cran (+100) ; au-delà de 30 %, on redescend ; jusqu'à 1900 (la dernière tranche
   de Maia avant « 2000 et plus »). Un piège est pris si l'éval bascule d'au moins 1,5 pion en notre faveur.
   En novembre 2026, les bots prenaient 9 % de nos pièges (66 % annoncés), les humains 27 %. Le journal note
