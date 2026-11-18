@@ -1379,18 +1379,19 @@ class Bot:
                     and name not in blocked_players())
         online = list(self.api.lines("/api/bot/online?nb=200"))
         wanted = wished_bots(self.me) if online else set()
-        try:  # un bot souhaité qui n'accepte que du classé est défié en classé
-            rated_only = opponents.wants_rated() & wanted if wanted and not rated else set()
-            refused_rated = opponents.refusals(ignore={"rated"}) if rated_only else {}
+        try:  # un bot souhaité est défié en amical, même en campagne classée, sauf s'il demande du classé
+            rated_only = opponents.wants_rated() & wanted if wanted else set()
+            refused_casual = opponents.refusals(ignore={"casual"}) if wanted and rated else refused
+            refused_rated = refused if rated else opponents.refusals(ignore={"rated"}) if rated_only else {}
         except (sqlite3.Error, OSError) as exc:
             log("mémoire des refus illisible :", repr(exc))
-            rated_only, refused_rated = set(), {}
+            rated_only, refused_casual, refused_rated = set(), refused, {}
 
         def wish_fits(bot: dict) -> bool:
             """Un bot souhaité (`wished_bots`) : mêmes règles (jamais l'un des nôtres), sans écart de classement
             maximal, et espacé de WISH_SPACING seulement."""
             name = bot.get("id", "")
-            if (refused_rated if name in rated_only else refused).get(name, opponents.Refusal()).blocked:
+            if (refused_rated if name in rated_only else refused_casual).get(name, opponents.Refusal()).blocked:
                 return False
             last_played, last_declined = self.bot_opponents.get(name), self.declined.get(name)
             return (name in wanted and name not in OUR_BOTS | {self.me} and bool(clocks(name))
@@ -1404,7 +1405,7 @@ class Bot:
             if wishes:
                 rating = reference_rating(perfs, speed)  # pour le journal
                 opponent = random.choice(wishes)
-                rated = rated or opponent in rated_only
+                rated = opponent in rated_only
                 self.picked = "souhaité"
                 break
         else:

@@ -127,7 +127,7 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   Tant qu'un compte a joué moins de `games` parties (non annulées) contre ce bot depuis `since`, la recherche
   d'adversaires le défie d'abord s'il est en ligne : dans la vitesse la plus incertaine où il joue, sans écart de
   classement maximal, au plus toutes les 30 minutes (`WISH_SPACING`), en amical sauf s'il a demandé du classé
-  (refus « rated ») ou pendant une campagne classée. Les autres règles (pauses, place commune, refus) restent.
+  (refus « rated »), même pendant une campagne classée. Les autres règles (pauses, place commune, refus) restent.
 - **Les campagnes (`Campaign`) :** le fichier `~/.config/fun_fish/campaign` (JSON, relu sans redémarrage),
   par exemple `{"until": "2026-11-17T21:00:00+01:00", "rated": true, "decline_bots": true, "rd": 75}` :
   jusqu'à `until`, et pour une campagne classée tant que le compte n'est pas stable (rd ≤ `rd` en bullet

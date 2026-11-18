@@ -2184,6 +2184,21 @@ def test_a_wished_bot_that_wants_rated_games_gets_a_rated_challenge(monkeypatch,
     assert opponents.wants_rated() == {"fetacompli"}
 
 
+def test_a_wished_bot_is_played_casual_even_during_a_rated_campaign(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("le_bon", "casual", "180+0")  # « envoyez-moi de l'amical » : écarté d'une campagne classée
+    bot, now = seeker(monkeypatch, [online_bot("le_bon"), online_bot("fetacompli")], me="capabot")
+    campaign_file(iso(3600))  # classée
+    wishlist({"bot": "le_bon", "accounts": ["capabot"], "games": 5, "since": iso(-60)})
+    now[0] += 600
+    assert bot.seek() and bot.api.created[-1][0] == "le_bon" and bot.api.created[-1][1]["rated"] == "false"
+    bot.drop_outgoing(bot.outgoing[0])
+    os.utime(lichess_bot.BOT_GAMES_DIR / "dernier-defi", (0, 0))
+    bot.bot_opponents.clear()
+    wishlist()  # plus de souhait : la campagne reprend ses droits
+    assert bot.seek() and bot.api.created[-1][0] == "fetacompli" and bot.api.created[-1][1]["rated"] == "true"
+
+
 @pytest.mark.parametrize("content", ["{pas du json", '[{"bot": "x", "accounts": ["capabot"], "games": 1}]',
                                      '[{"bot": "x", "accounts": ["capabot"], "games": 1, "since": "2026-11-18T18:00"}]',
                                      '[{"bot": "x", "accounts": ["capabot"], "games": true, "since": "2026-11-18T18:00+01:00"}]',
