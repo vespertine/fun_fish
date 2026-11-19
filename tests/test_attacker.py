@@ -4,7 +4,8 @@ import chess
 import pytest
 
 from fun_fish import personalities
-from fun_fish.personalities.attacker import Attacker, settled_material
+from fun_fish.analysis import Line
+from fun_fish.personalities.attacker import Attacker, CandidateEval, Outcome, settled_material
 
 
 def test_registered_with_params():
@@ -91,3 +92,45 @@ def test_short_mate_is_always_played_and_prettily(stockfish_analyser):
     two = chess.Board("6rk/6pp/8/6N1/8/8/8/1Q4K1 w - - 0 1")
     mate = lambda uci: Line(chess.Move.from_uci(uci), 99999, 1, None, (), 8)  # noqa: E731
     assert pretty(two, mate("g5f7")) > pretty(two, mate("b1h7"))
+
+
+class _Revérifie:
+    """Analyseur de test : la liste a noté Dxe5 +7,95, la revérification seule le voit à −4,17."""
+
+    def __init__(self, bad, good, others_score=716):
+        self.bad, self.good, self.others_score, self.searches = bad, good, others_score, []
+
+    def analyse(self, board, *, multipv=1, depth=None, nodes=None, time=None, moves=None):
+        moves = list(moves or [])
+        self.searches.append(moves)
+        if moves == [self.bad]:
+            return [Line(self.bad, -417, None, None, (self.bad,), depth or 6)]
+        assert self.bad not in moves
+        return [Line(self.good, self.others_score, None, None, (self.good,), depth or 6)]
+
+
+def _seul_candidat(fen="1q4k1/p1r3p1/7p/4p3/4Q3/5P2/PP3B2/1K4R1 w - - 8 37"):
+    board = chess.Board(fen)
+    bad = board.parse_san("Qxe5")
+    listed = Line(bad, 795, None, None, (bad,), 6)
+    return board, bad, listed, CandidateEval(listed, 0, Outcome())
+
+
+def test_garde_fou_se_replie_hors_liste_quand_le_coup_refuse_est_seul_candidat():
+    # 37.Dxe5?? (0DwIicXu) : seul candidat en conversion, refusé par le garde-fou mais joué faute d'autre coup
+    agent = personalities.create("capabot_v2", rng=random.Random(0))
+    board, bad, listed, chosen = _seul_candidat()
+    good = board.parse_san("Be3")
+    analyser = _Revérifie(bad, good)
+    result = agent.verified(board, analyser, chosen, [chosen], [1.0], listed)
+    assert result.line.move == good
+    assert agent.anomalies[-1]["move"] == bad.uci()
+    assert len(analyser.searches[-1]) == board.legal_moves.count() - 1  # tous les autres coups légaux
+
+
+def test_garde_fou_garde_le_coup_si_le_repli_est_pire():
+    agent = personalities.create("capabot_v2", rng=random.Random(0))
+    board, bad, listed, chosen = _seul_candidat()
+    result = agent.verified(board, _Revérifie(bad, board.parse_san("Be3"), others_score=-900), chosen, [chosen],
+                            [1.0], listed)
+    assert result is chosen

@@ -354,9 +354,27 @@ class Attacker(Personality):
             rest = [i for _, i in order if evals[i] is not chosen and evals[i].line.move.uci() not in
                     {a["move"] for a in self.anomalies[-3:]}]
             if not rest:
-                return chosen
+                return self.fallback(board, analyser, chosen, check[0], best)
             chosen, tried = evals[rest[0]], tried + 1
         return chosen
+
+    def fallback(self, board: chess.Board, analyser: Analyser, chosen: CandidateEval, checked: Line,
+                 best: Line) -> CandidateEval:
+        """Repli du garde-fou quand la liste n'offre aucun autre coup : en conversion, la tolérance
+        étroite ne garde parfois que le coup mal noté (37.Dxe5?? noté +7,95, revérifié −4,17 : seul
+        candidat, joué quand même, partie perdue). Il cherche alors le meilleur des autres coups légaux,
+        hors ceux que le garde-fou a déjà refusés dans cette position, et le joue s'il vaut mieux."""
+        fen = board.fen()
+        refused = {a["move"] for a in self.anomalies if a["fen"] == fen}
+        others = [m for m in board.legal_moves if m.uci() not in refused and m != chosen.line.move]
+        if not others:
+            return chosen
+        lines = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=others)
+        if not lines or lines[0].score <= checked.score:
+            return chosen
+        line = lines[0]
+        print(f"garde-fou : repli sur {board.san(line.move)} ({line.score})", file=sys.stderr, flush=True)
+        return CandidateEval(line, regret(best, line), Outcome())
 
     def urge(self) -> float:
         """Impatience : 1 au début, puis exponentielle (plate au départ) avec les coups joués."""
