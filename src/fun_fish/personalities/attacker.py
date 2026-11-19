@@ -48,6 +48,9 @@ CLIP = 1000  # évals bornées à ±10 pions
 
 
 
+RESCUE = "Garde-fou : le coup prévu ne tenait pas à la revérification ; joue {}, le meilleur des autres coups."
+
+
 @dataclass
 class Outcome:
     """Bilan d'un sous-arbre, pondéré par les probabilités de l'adversaire. Point de vue : nous."""
@@ -74,6 +77,7 @@ class CandidateEval:
     outcome: Outcome
     score: float = 0.0
     style: float = 0.0
+    rescue: bool = False  # repli du garde-fou : pris hors de la liste, faute d'autre candidat
 
     @property
     def note(self) -> str:
@@ -342,6 +346,7 @@ class Attacker(Personality):
         if chosen.line.score <= -1000:  # déjà perdu : rien à sauver, et les mats rendraient l'écart trompeur
             return chosen
         order = sorted(zip(probabilities, range(len(evals))), reverse=True)
+        refused: dict[chess.Move, tuple[int, CandidateEval]] = {}  # coup refusé ici -> (vraie éval, candidat)
         tried = 0
         while tried < 3:
             check = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=[chosen.line.move])
@@ -351,12 +356,28 @@ class Attacker(Personality):
                                    "listed": chosen.line.score, "checked": check[0].score})
             print(f"garde-fou : {board.san(chosen.line.move)} noté {chosen.line.score} mais vaut {check[0].score} "
                   f"({board.fen()})", file=sys.stderr, flush=True)
-            rest = [i for _, i in order if evals[i] is not chosen and evals[i].line.move.uci() not in
-                    {a["move"] for a in self.anomalies[-3:]}]
+            refused[chosen.line.move] = (check[0].score, chosen)
+            rest = [i for _, i in order if evals[i].line.move not in refused]
             if not rest:
-                return chosen
+                return self.fallback(board, analyser, refused, best)
             chosen, tried = evals[rest[0]], tried + 1
         return chosen
+
+    def fallback(self, board: chess.Board, analyser: Analyser,
+                 refused: dict[chess.Move, tuple[int, CandidateEval]], best: Line) -> CandidateEval:
+        """Repli du garde-fou quand la liste n'offre plus d'autre coup : en conversion, la tolérance
+        étroite ne garde parfois que le coup mal noté (37.Dxe5?? noté +7,95, revérifié −4,17 : seul
+        candidat, joué quand même, partie perdue). Il cherche alors le meilleur des autres coups (ceux
+        d'un conseil s'il est restreint), et le joue s'il vaut mieux que le moins mauvais des refusés."""
+        least, kept = max(refused.values(), key=lambda r: r[0])
+        others = [m for m in (self.restrict or board.legal_moves) if m not in refused]
+        lines = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=others) if others else []
+        if not lines or lines[0].score <= least:
+            return kept
+        line = lines[0]
+        self.anomalies[-1]["fallback"] = line.move.uci()
+        print(f"garde-fou : repli sur {board.san(line.move)} ({line.score})", file=sys.stderr, flush=True)
+        return CandidateEval(line, regret(best, line), Outcome(value=max(-CLIP, min(CLIP, line.score))), rescue=True)
 
     def urge(self) -> float:
         """Impatience : 1 au début, puis exponentielle (plate au départ) avec les coups joués."""
@@ -538,6 +559,8 @@ class Attacker(Personality):
         kept = planned is not None and chosen.line.move == planned
         self.plan_stats["kept"] += kept
         self.remember_plan(board, chosen)
+        if chosen.rescue:  # le coup joué figure parmi les candidats (export, mesures, conseil), et lui seul compte
+            evals, probabilities = [*evals, chosen], [0.0] * len(evals) + [1.0]
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,
                       probability=p, note=e.note)
@@ -546,8 +569,9 @@ class Attacker(Personality):
         san = board.san(chosen.line.move)
         return Decision(move=chosen.line.move, san=san, color=board.turn,
                         explanation=converting_note(degree) + ("Il poursuit son plan. " if kept else "")
-                        + ("En difficulté, il cherche du contre-jeu. " if trouble >= 0.5 else "") + self.explain(san, chosen,
-                                                                                      style.reasons.get(chosen.line.move)),
+                        + ("En difficulté, il cherche du contre-jeu. " if trouble >= 0.5 else "")
+                        + (RESCUE.format(san) if chosen.rescue else self.explain(san, chosen,
+                                                                                 style.reasons.get(chosen.line.move))),
                         candidates=candidates,
                         reality=self.cost(board, chosen, best, soundness.truth))
 
@@ -591,6 +615,8 @@ class Attacker(Personality):
             return (f"Il ne voit pas {board.san(truth.move)} ({fmt(truth)}), trop peu naturel à "
                     f"{self.vision_elo} Elo ; parmi ce qu'il voit, le meilleur est {board.san(best.move)} "
                     f"({fmt(best)}), il joue {board.san(chosen.line.move)} ({fmt(chosen.line)}).")
+        if chosen.rescue:
+            return f"Repli du garde-fou : {board.san(chosen.line.move)} vaut {fmt(chosen.line)} selon Stockfish."
         if chosen.line.move == best.move:
             return f"C'est aussi le meilleur coup selon Stockfish ({fmt(best)})."
         return (f"Prix de l'attaque : {chosen.loss / 100:.2f} si l'adversaire se défend bien "
