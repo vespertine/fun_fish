@@ -377,7 +377,7 @@ class Attacker(Personality):
         line = lines[0]
         self.anomalies[-1]["fallback"] = line.move.uci()
         print(f"garde-fou : repli sur {board.san(line.move)} ({line.score})", file=sys.stderr, flush=True)
-        return CandidateEval(line, regret(best, line), Outcome(), rescue=True)
+        return CandidateEval(line, regret(best, line), Outcome(value=max(-CLIP, min(CLIP, line.score))), rescue=True)
 
     def urge(self) -> float:
         """Impatience : 1 au début, puis exponentielle (plate au départ) avec les coups joués."""
@@ -559,8 +559,8 @@ class Attacker(Personality):
         kept = planned is not None and chosen.line.move == planned
         self.plan_stats["kept"] += kept
         self.remember_plan(board, chosen)
-        if chosen.rescue:  # le coup joué figure parmi les candidats, pour l'export et les mesures
-            evals, probabilities = [*evals, chosen], [*probabilities, 0.0]
+        if chosen.rescue:  # le coup joué figure parmi les candidats (export, mesures, conseil), et lui seul compte
+            evals, probabilities = [*evals, chosen], [0.0] * len(evals) + [1.0]
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,
                       probability=p, note=e.note)

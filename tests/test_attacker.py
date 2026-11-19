@@ -130,7 +130,7 @@ def test_garde_fou_se_replie_hors_liste_quand_le_coup_refuse_est_seul_candidat()
     # 37.Dxe5?? (0DwIicXu) : seul candidat en conversion, refusé par le garde-fou mais joué faute d'autre coup
     board = chess.Board(QXE5)
     agent, board, analyser, result = _verified(QXE5, [_eval(board, "Qxe5", 795)], {"Qxe5": -417, "Be3": 716}, 0)
-    assert result.rescue and board.san(result.line.move) == "Be3"
+    assert result.rescue and board.san(result.line.move) == "Be3" and result.outcome.value == 716  # note juste
     assert agent.anomalies[-1] == {"fen": QXE5, "move": "e4e5", "listed": 795, "checked": -417, "fallback": "f2e3"}
     assert len(analyser.searches[-1]) == board.legal_moves.count() - 1  # tous les autres coups légaux
 
@@ -164,9 +164,22 @@ def test_le_repli_figure_dans_la_decision(stockfish_analyser, monkeypatch):
     board = chess.Board(QXE5)
     agent = personalities.create("capabot_v2", rng=random.Random(0))
     move = board.parse_san("Qh7+")  # hors de toute liste : un repli n'y est jamais (tous ses coups sont refusés)
-    rescue = CandidateEval(Line(move, 716, None, None, (move,), 6), 0, Outcome(), rescue=True)
+    rescue = CandidateEval(Line(move, 716, None, None, (move,), 6), 0, Outcome(value=716), rescue=True)
     monkeypatch.setattr(agent, "verified", lambda *a: rescue)
     decision = agent.choose_move(board, stockfish_analyser)
     assert decision.move == move and decision.explanation.endswith(RESCUE.format("Qh7+"))
     assert "garde-fou" in decision.reality.lower()
-    assert [c.probability for c in decision.candidates if c.move == move] == [0.0]
+    assert [c.probability for c in decision.candidates if c.move == move] == [1.0]
+    assert sum(c.probability for c in decision.candidates) == 1.0
+    assert "éval +7.2" in decision.candidates[0].note
+
+
+def test_garde_fou_d_un_membre_de_conseil_se_replie_parmi_les_coups_du_conseil():
+    board = chess.Board(QXE5)
+    agent = personalities.create("capabot_v2", rng=random.Random(0))
+    agent.restrict = [board.parse_san(s) for s in ("Qxe5", "Rd1", "Ka1")]
+    analyser = _Revérifie({board.parse_san("Qxe5"): -417, board.parse_san("Be3"): 716}, 0)
+    chosen = _eval(board, "Qxe5", 795)
+    result = agent.verified(board, analyser, chosen, [chosen], [1.0], chosen.line)
+    assert analyser.searches[-1] == agent.restrict[1:]
+    assert result.rescue and board.san(result.line.move) in ("Rd1", "Ka1")
