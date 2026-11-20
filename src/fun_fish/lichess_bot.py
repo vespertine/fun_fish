@@ -516,7 +516,12 @@ class BotGame(threading.Thread):
                 state = event["state"]
                 if game is None:
                     ours = chess.WHITE if event["white"].get("id") == self.bot.me else chess.BLACK
-                    agent = personalities.create(self.bot.personality, rng=random.Random(), **self.bot.params)
+                    tuned = personalities.speed_params(self.bot.personality, event.get("speed"))
+                    agent = personalities.create(self.bot.personality, rng=random.Random(),
+                                                 **{**tuned, **self.bot.params})
+                    if tuned:
+                        log(self.id, f"réglages du {event.get('speed')} :",
+                            ", ".join(f"{k}={v}" for k, v in sorted(tuned.items())))
                     if not calm_clock(event.get("clock")) and hasattr(agent, "endgame_attack_depth"):
                         agent.endgame_attack_depth = 0  # 3+0 : des coups de finale plus lents ont déjà frôlé la chute
                     game = Game(agent, human_color=not ours)

@@ -54,3 +54,11 @@ def test_luxury_pays_part_of_the_price_for_the_corsair_too():
     full = c.scored(e, line).score
     c._luxury = 200  # gagnant, il s'autorise à lâcher 2 pions pour un coup de style : il en paie la moitié
     assert c.scored(e, line).score == full + 1.0
+
+
+def test_a_trap_the_opponent_almost_always_answers_is_no_trap():
+    """trap_min_error (CapaBot en rapide) : un piège où l'adversaire trouve la bonne réponse 4 fois sur 5 ne compte pas."""
+    strict, plain = Corsair(trap_min_error=0.2), Corsair()
+    assert strict.motives(SlyOutcome(value=300, error=0.1), 0)["piège"] == 0.0
+    assert strict.motives(SlyOutcome(value=300, error=0.2), 0)["piège"] == plain.motives(SlyOutcome(value=300, error=0.2), 0)["piège"] > 0
+    assert plain.motives(SlyOutcome(value=300, error=0.0), 0)["piège"] > 0  # sans seuil : rien ne change

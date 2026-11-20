@@ -54,14 +54,16 @@ class Corsair(Romantic):
         "safe_margin": "Fusion : nos coups rusés restent à moins de tant (cp) du meilleur",
         "our_options": "Fusion : nos réponses envisagées pour refermer un piège (1 = le meilleur coup seul)",
         "lead_share": "Fusion : part des motifs secondaires (0 = seul le meilleur motif compte, 1 = somme)",
+        "trap_min_error": "Fusion : un piège ne compte que si l'adversaire s'y trompe au moins dans cette part des cas",
     }
 
     def __init__(self, w_trap: float = 0.5, trap_cap: float = 3.0, w_sharp: float = 1.0, error_margin: int = 150,
-                 safe_margin: int = 60, our_options: int = 2, lead_share: float = 0.3, **kwargs):
+                 safe_margin: int = 60, our_options: int = 2, lead_share: float = 0.3, trap_min_error: float = 0.0,
+                 **kwargs):
         super().__init__(**kwargs)
         self.w_trap, self.trap_cap, self.w_sharp = w_trap, trap_cap, w_sharp
         self.error_margin, self.safe_margin, self.our_options = error_margin, safe_margin, our_options
-        self.lead_share = lead_share
+        self.lead_share, self.trap_min_error = lead_share, trap_min_error
 
     @classmethod
     def param_specs(cls) -> list[dict]:
@@ -156,6 +158,8 @@ class Corsair(Romantic):
 
     def motives(self, o: Outcome, own: int) -> dict[str, float]:
         trap = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, own))) / 100
+        if getattr(o, "error", 0.0) < self.trap_min_error:
+            trap = 0.0  # l'adversaire trouve la bonne réponse presque toujours : pas un piège
         urge = self.urge()
         greed = self.greed()  # panache : gagnant, le matériel en plus (gain, piège) compte moins
         return {"mat": urge * self.w_mate * o.mate, "gain": greed * urge * self.w_win * max(0.0, o.win - o.mate),

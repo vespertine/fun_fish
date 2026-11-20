@@ -2314,3 +2314,38 @@ def test_no_cheat_check_below_two_minutes(monkeypatch):
                                                            "clock": {"initial": 60, "increment": 1}})
     game.check_fairplay(export)
     assert not analysed  # 1+1 : contrôle non calibré
+
+
+
+class RapidApi(FakeApi):
+    def __init__(self, speed):
+        super().__init__()
+        self.speed = speed
+
+    def stream(self, path):
+        for event in super().stream(path):
+            yield {**event, "speed": self.speed} if event["type"] == "gameFull" else event
+
+
+@pytest.mark.parametrize("speed", ["rapid", "blitz"])
+def test_the_personality_gets_its_settings_for_the_speed(tmp_path, monkeypatch, speed):
+    """CapaBot en rapide : ses réglages de la cadence, sous les réglages explicites du bot."""
+    try:
+        stockfish_path = find_stockfish(download=False)
+    except StockfishNotFound:
+        pytest.skip("Stockfish absent")
+    monkeypatch.setattr(lichess_bot, "GAMES_DIR", tmp_path)
+    from fun_fish import personalities
+
+    made, real = [], personalities.create
+
+    def spy(key, rng=None, **params):
+        made.append((key, params))
+        return real("stockfish", rng=rng, depth=4)  # joue vite : seuls les réglages demandés comptent ici
+
+    monkeypatch.setattr(personalities, "create", spy)
+    bot = FakeBot(RapidApi(speed), stockfish_path)
+    bot.personality, bot.params = "capabot_v2", {"theory_spread": 0.8}
+    lichess_bot.BotGame(bot, "abc").run()
+    expected = {"theory_rate": 0.7, "theory_spread": 0.8, "trap_min_error": 0.2} if speed == "rapid" else {"theory_spread": 0.8}
+    assert made == [("capabot_v2", expected)]
