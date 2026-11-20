@@ -63,3 +63,48 @@ def test_a_theory_game_follows_the_model_book_then_plays_freely(monkeypatch):
         board.push(move)
         board.push(next(iter(board.legal_moves)))
     assert played == ["ouverture des maîtres-modèles", None, None]
+
+
+def test_a_flatter_draw_varies_the_model_book_lines():
+    """theory_spread < 1 : moins de Gambit Dame après 1. d4 d5, et jamais un coup joué moins de BOOK_MIN fois."""
+    board = chess.Board()
+    for san in ("d4", "d5"):
+        board.push_san(san)
+    counts = theory.model_book("solide")[board.epd()]
+    rare = {board.san(chess.Move.from_uci(u)) for u, n in counts.items() if n < theory.BOOK_MIN}
+
+    def draws(spread):
+        rng = random.Random(0)
+        return [board.san(theory.book_move(board, "solide", rng, spread)) for _ in range(2000)]
+
+    usual, varied = draws(1.0), draws(0.5)
+    assert varied.count("c4") < usual.count("c4") - 200 and varied.count("Nf3") > usual.count("Nf3") + 200
+    assert rare and not rare & set(varied)
+
+
+def test_capabot_has_its_own_rapid_settings():
+    tuned = personalities.speed_params("capabot_v2", "rapid")
+    assert tuned == {"theory_rate": 0.7, "theory_spread": 0.5, "trap_min_error": 0.2}
+    capa = personalities.create("capabot_v2", **tuned)
+    assert (capa.theory_rate, capa.theory_spread, capa.trap_min_error) == (0.7, 0.5, 0.2)
+    assert personalities.speed_params("capabot_v2", "blitz") == {}
+    assert personalities.speed_params("dubot_v2", "rapid") == {} and personalities.speed_params("capabot_v2", None) == {}
+    default = personalities.create("capabot_v2")
+    assert (default.theory_rate, default.theory_spread, default.trap_min_error) == (0.35, 1.0, 0.0)
+
+
+def test_the_personality_draws_from_the_book_with_its_spread(monkeypatch):
+    seen = []
+    monkeypatch.setattr(theory, "book_move", lambda board, name, rng, spread=1.0: seen.append(spread))
+    bot = personalities.create("capabot_v2", rng=random.Random(3), theory_rate=1.0, theory_spread=0.5)
+    bot.theory_move(chess.Board())
+    assert seen == [0.5]
+
+
+def test_a_flatter_draw_stays_in_the_book_when_no_move_dominates():
+    """1. d4 d5 2. c4 c6 3. e3 Nf6 : aucun coup joué BOOK_MIN fois, mais la position compte assez de parties."""
+    board = chess.Board("rnbqkb1r/pp2pppp/2p2n2/3p4/2PP4/4P3/PP3PPP/RNBQKBNR w KQkq - 1 4")
+    counts = theory.model_book("solide")[board.epd()]
+    assert max(counts.values()) < theory.BOOK_MIN <= sum(counts.values())
+    rng = random.Random(0)
+    assert {theory.book_move(board, "solide", rng, 0.5).uci() for _ in range(50)} <= set(counts)

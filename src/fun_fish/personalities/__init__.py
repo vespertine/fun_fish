@@ -25,6 +25,11 @@ DEFAULT_PERSONALITY = Blitz.key
 PUBLIC_PERSONALITIES = (FunFish2Theory.key, FunFish2.key, FunFish.key, CrazyFish.key)
 
 
+def speed_params(key: str, speed: str | None) -> dict:
+    """Les réglages propres à une cadence de Lichess (« rapid »…) que la personnalité déclare (`SPEED`)."""
+    return dict(getattr(PERSONALITIES.get(key), "SPEED", {}).get(speed or "", {}))
+
+
 def create(key: str, rng: random.Random | None = None, **params) -> Personality:
     """Instancie une personnalité ; `params` surcharge ses réglages (tolerance=150, depth=6...)."""
     try:

@@ -53,3 +53,6 @@ class CapaBotV2(_V2, CapaBot):
     description = "CapaBot plus exigeant : l'ouverture des maîtres positionnels, des pièges pour joueurs forts."
     THEORY = {"theory_rate": 0.35, "theory_moves": 6, "theory_book": "solide", "theory_mix": 1.0}
     OVERRIDES = {**CapaBot.OVERRIDES, "opponent_elo": 2000, "tolerance": 150, "opening_tolerance": 100, "convert_elo": 2000}
+    # en rapide : plus souvent l'ouverture des maîtres, en variant les lignes ; pas de piège que l'adversaire
+    # déjoue presque toujours (partie Z0XKM1QY, novembre 2026)
+    SPEED = {"rapid": {"theory_rate": 0.7, "theory_spread": 0.5, "trap_min_error": 0.2}}

@@ -214,13 +214,19 @@ def model_book(name: str) -> dict:
     return _books[name]
 
 
-def book_move(board: chess.Board, name: str, rng) -> chess.Move | None:
-    """Un coup des maîtres-modèles dans cette position, tiré selon leur fréquence (None hors de l'arbre)."""
+def book_move(board: chess.Board, name: str, rng, spread: float = 1.0) -> chess.Move | None:
+    """Un coup des maîtres-modèles dans cette position, tiré selon leur fréquence (None hors de l'arbre).
+
+    `spread` < 1 aplatit le tirage (poids : parties ** spread) pour varier les lignes ; les coups joués moins de
+    BOOK_MIN fois sont alors écartés, pour ne pas donner de poids à une curiosité (sauf s'il ne reste rien)."""
     counts = model_book(name).get(board.epd(), {})
     legal = {m.uci(): m for m in board.legal_moves}
     counts = {u: n for u, n in counts.items() if u in legal}
     if sum(counts.values()) < BOOK_MIN:
         return None
+    if spread != 1.0:  # sans coup joué BOOK_MIN fois (aucun ne domine), on tire parmi tous
+        usual = {u: n for u, n in counts.items() if n >= BOOK_MIN} or counts
+        counts = {u: n ** spread for u, n in usual.items()}
     return legal[rng.choices(list(counts), weights=list(counts.values()))[0]]
 
 
@@ -229,6 +235,7 @@ THEORY_HELP = {
     "theory_moves": "au plus combien de ses coups suivent la théorie (tiré au sort de 1 à ce nombre à chaque partie)",
     "theory_book": "arbre des maîtres-modèles (data/books : attaque, solide ; vide : aucun)",
     "theory_mix": "dans les parties avec théorie, part où il suit l'arbre des maîtres-modèles plutôt que les lignes classiques",
+    "theory_spread": "tirage dans l'arbre des maîtres-modèles : 1 selon la fréquence des coups, moins pour varier les lignes",
 }
 
 
@@ -236,10 +243,10 @@ class Theory:
     """À mettre en tête des bases d'une personnalité : elle joue d'abord quelques coups classiques."""
 
     def __init__(self, theory_rate: float = 0.25, theory_moves: int = 4, theory_book: str = "", theory_mix: float = 0.0,
-                 **kwargs):
+                 theory_spread: float = 1.0, **kwargs):
         super().__init__(**kwargs)
         self.theory_rate, self.theory_moves = theory_rate, theory_moves
-        self.theory_book, self.theory_mix = theory_book, theory_mix
+        self.theory_book, self.theory_mix, self.theory_spread = theory_book, theory_mix, theory_spread
         self._from_book = False
         self._theory_left = 0
         self._theory_line: Opening | None = None
@@ -249,7 +256,8 @@ class Theory:
         own = [{"name": "theory_rate", "default": 0.25, "type": "float", "help": THEORY_HELP["theory_rate"]},
                {"name": "theory_moves", "default": 4, "type": "int", "help": THEORY_HELP["theory_moves"]},
                {"name": "theory_book", "default": "", "type": "str", "help": THEORY_HELP["theory_book"]},
-               {"name": "theory_mix", "default": 0.0, "type": "float", "help": THEORY_HELP["theory_mix"]}]
+               {"name": "theory_mix", "default": 0.0, "type": "float", "help": THEORY_HELP["theory_mix"]},
+               {"name": "theory_spread", "default": 1.0, "type": "float", "help": THEORY_HELP["theory_spread"]}]
         return own + super().param_specs()
 
     def theory_move(self, board: chess.Board) -> tuple[chess.Move, str] | None:
@@ -265,7 +273,7 @@ class Theory:
         if self._theory_left <= 0:
             return None
         if self._from_book:  # l'arbre des maîtres-modèles, tant qu'on y reste
-            move = book_move(board, self.theory_book, self.rng)
+            move = book_move(board, self.theory_book, self.rng, self.theory_spread)
             if move is None:
                 self._theory_left = 0
                 return None
