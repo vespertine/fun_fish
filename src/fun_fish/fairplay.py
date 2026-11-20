@@ -20,15 +20,15 @@ import chess
 import chess.engine
 
 DEPTH = 16
-OPENING = 8  # coups du joueur ignorés au début (théorie)
+OPENING = 6  # coups du joueur ignorés au début (théorie)
 DECIDED = 800  # cp : au-delà, la partie est jouée, tout coup gagne
 OBVIOUS = 150  # cp : écart entre le meilleur coup et le deuxième qui rend le meilleur évident
 NEAR = 10  # cp : un coup à moins de NEAR du meilleur vaut le meilleur
-MIN_MOVES = 10  # coups comptés (ni évidents, ni position jouée) pour juger
+MIN_MOVES = 8  # coups comptés (ni évidents, ni position jouée) pour juger
 MIN_TIMES = 12  # temps de réflexion mesurés pour juger du rythme
 LOW_CLOCK = 0.1  # part du temps initial : en dessous, on joue vite par force, le rythme ne dit rien
 MOVE_TIME = 3  # s : plafond d'une analyse (Stockfish dépasse parfois de loin la profondeur dans les mats)
-NEAR_SHARE, ACPL, CV = 0.6, 25, 0.25  # seuils de `suspicious`
+NEAR_SHARE, ACPL, CV = 0.6, 25, 0.45  # seuils de `suspicious` (recalibrés le 20/11/2026, voir ONBOARDING.md)
 
 
 @dataclass

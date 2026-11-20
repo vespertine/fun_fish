@@ -83,16 +83,17 @@ def test_decided_positions_and_obvious_moves_are_not_counted():
 
 def test_moves_in_time_trouble_do_not_count_for_the_rhythm():
     moves = game()
-    report = fairplay.analyse(moves, chess.WHITE, StubEngine(), clocks([10], len(moves), initial=200), 200)
+    report = fairplay.analyse(moves, chess.WHITE, StubEngine(), clocks([10], len(moves), initial=180), 180)
     assert report.cv is None  # sous 10 % du temps initial dès le 18e coup : trop peu de temps mesurés
-    # c'est la pendule avant le coup qui compte : à 212 s, le 20e coup part de 22 s (seuil 21,2 s) et fait le 12e temps
-    later = fairplay.analyse(moves, chess.WHITE, StubEngine(), clocks([10], len(moves), initial=212), 212)
+    # c'est la pendule avant le coup qui compte : à 189 s, le 18e coup part de 19 s (seuil 18,9 s) et fait le 12e temps
+    later = fairplay.analyse(moves, chess.WHITE, StubEngine(), clocks([10], len(moves), initial=189), 189)
     assert later.cv is not None
 
 
 @pytest.mark.parametrize("change, expected", [
-    ({}, True), ({"moves": 9}, False), ({"near": 0.59}, False), ({"acpl": 26}, False), ({"cv": 0.26}, False),
-    ({"cv": 0.26, "obvious_ratio": 2.0}, False), ({"cv": None}, False), ({"match": 0}, True)])
+    ({}, True), ({"moves": 7}, False), ({"near": 0.59}, False), ({"acpl": 26}, False), ({"cv": 0.46}, False),
+    ({"cv": 0.46, "obvious_ratio": 2.0}, False), ({"cv": None}, False), ({"match": 0}, True)])
 def test_precision_and_rhythm_must_agree(change, expected):
-    report = fairplay.Report(**{"moves": 10, "match": 0.6, "near": 0.6, "acpl": 25, "cv": 0.25, **change})
+    """Seuils recalibrés le 20/11/2026 : 8 coups, 60 % proches du meilleur, 25 cp, rythme cv 0,45."""
+    report = fairplay.Report(**{"moves": 8, "match": 0.6, "near": 0.6, "acpl": 25, "cv": 0.45, **change})
     assert fairplay.suspicious(report) is expected
