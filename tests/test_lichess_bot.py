@@ -50,6 +50,7 @@ def no_drain(tmp_path, monkeypatch):
     monkeypatch.setattr(lichess_bot, "DRAIN_PATH", tmp_path / "drain")
     monkeypatch.setattr(lichess_bot, "CAMPAIGN_PATH", tmp_path / "campaign")  # ni la campagne de la machine
     monkeypatch.setattr(lichess_bot, "WISHLIST_PATH", tmp_path / "wishlist")  # ni ses bots souhaités
+    monkeypatch.setattr(lichess_bot, "FAST_SHARE", 0)  # ni ses amicales en 1+1 (tirées au hasard)
 
 def _reply(first):
     board = chess.Board()
@@ -242,7 +243,7 @@ def test_decline_reasons():
     assert bot.decline_reason({**ok, "speed": "rapid", "timeControl": {"type": "clock", "limit": 900, "increment": 10}}) == "tooSlow"
     assert bot.decline_reason({**ok, "speed": "correspondence", "timeControl": {"type": "unlimited"}}) == "tooSlow"
     assert bot.decline_reason(ok) is None
-    for limit, inc, reason in ((120, 1, None), (120, 0, "tooFast"), (60, 1, "tooFast"), (60, 0, "tooFast"),
+    for limit, inc, reason in ((120, 1, None), (120, 0, "tooFast"), (60, 1, None), (60, 0, "tooFast"), (30, 1, "tooFast"),
                                (180, 0, None), (15, 0, "tooFast")):
         bullet = {**ok, "timeControl": {"type": "clock", "limit": limit, "increment": inc}}
         assert bot.decline_reason(bullet) == reason, (limit, inc)
@@ -2256,3 +2257,18 @@ def test_after_the_game_the_trap_level_is_revised_never_at_the_cost_of_the_bot(m
     assert calls == [("bot", "fetacompli", 1500)]
     monkeypatch.setattr(opponents, "adjust_trap_level", lambda *a: (_ for _ in ()).throw(sqlite3.OperationalError()))
     game.readjust_traps()  # base indisponible : rien ne casse
+
+
+def test_a_share_of_searches_plays_a_casual_one_plus_one_even_in_a_rated_campaign(monkeypatch, bot_games_dir):
+    rival = online_bot("rival")
+    settled = {"bullet": {"rating": 1800, "rd": 60, "games": 90}, "blitz": {"rating": 1700, "rd": 70, "games": 40},
+               "rapid": {"rating": 1900, "rd": 300, "games": 2}}
+    campaign_file(iso(3600))
+    wishlist({"bot": "rival", "accounts": ["FunFishBot"], "games": 3, "since": iso(-3600)})  # même souhaité : 1+1
+    monkeypatch.setattr(lichess_bot, "FAST_SHARE", 1)
+    bot, now = seeker(monkeypatch, [rival], perfs=settled)
+    now[0] += 600
+    assert bot.seek() == "m1"
+    sent = bot.api.created[0][1]
+    assert (sent["clock.limit"], sent["clock.increment"], sent["rated"]) == (60, 1, "false")
+    assert bot.picked.startswith("amicale rapide") and "souhaité" not in bot.picked

@@ -1,6 +1,6 @@
 """Passerelle Lichess : une personnalité joue sur un compte BOT (API bot de Lichess).
 
-Accepte les défis de parties standard d'humains (bullet 2+1, blitz, rapides courtes), au plus `max_games`
+Accepte les défis de parties standard d'humains (bullet 1+1 et 2+1, blitz, rapides courtes), au plus `max_games`
 à la fois, joue chaque partie dans son propre fil avec son propre Stockfish, et garde un export
 de debug compressé de chaque partie (même format que le bouton « Export debug »).
 Bibliothèque standard seulement : pas de dépendance en plus.
@@ -38,7 +38,7 @@ BLOCKED_PATH = Path("~/.config/fun_fish/blocked").expanduser()  # un compte Lich
 CAMPAIGN_PATH = Path("~/.config/fun_fish/campaign").expanduser()  # JSON : une campagne contre des bots (`Campaign`)
 STABLE_FRESH = 600  # s : au-delà, la stabilité du classement est redemandée à Lichess
 MAX_ESTIMATE = 900  # durée estimée par Lichess (base + 40 × incrément, en s) : blitz et rapides courtes
-MIN_LIMIT = 120  # bullet à partir de 2+1 (≈ 1,7 s de réflexion par coup) ; 1+0, 1+1, 2+0 refusés
+MIN_LIMIT = 60  # bullet à partir de 1+1 (essai du 20/11/2026) ; sans incrément, 3 min au moins : 1+0, 2+0 refusés
 # Défis d'autres bots : le bot ne joue qu'une partie à la fois, il doit rester libre pour les humains.
 # - Après une partie contre un bot, pause de BOT_PAUSE × sa durée réelle : au plus un quart du temps
 #   contre des bots, et une partie courte coûte moins qu'une longue (2+1 : ~15 min ; 5+2 : ~35 min).
@@ -76,6 +76,11 @@ MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
 # Pendant une campagne classée, un compte stable en bullet et en blitz joue aussi du rapide, le plus court
 # (10+0, la limite de BOT_MAX_ESTIMATE) : la vitesse reste celle où le classement est le plus incertain.
 CAMPAIGN_CLOCKS = {**MATCH_CLOCKS, "rapid": [(600, 0)]}
+# Essai du 20/11/2026 : une recherche sur FAST_SHARE lance une partie amicale en 1+1 (FAST_CLOCKS), même en
+# campagne classée, pour voir comment nos bots tiennent une cadence plus rapide (en 2+1, ~1,4 à 2 s par coup
+# en médiane, sans perte au temps). Parties courtes : un large échantillon pour peu de temps.
+FAST_SHARE = 0.25
+FAST_CLOCKS = {"bullet": [(60, 1)]}
 # Pendant une campagne, CAMPAIGN_BOT_GAMES parties contre des bots en même temps, nos comptes réunis (une
 # seule sinon) : le test de charge du 17/11 a tenu cinq parties de blitz sans perte au temps.
 CAMPAIGN_BOT_GAMES = 2
@@ -1351,6 +1356,9 @@ class Bot:
         table = CAMPAIGN_CLOCKS if rated and campaign and stable(perfs, campaign.rd) else MATCH_CLOCKS
         # la vitesse la plus incertaine d'abord ; sans adversaire possible, la suivante
         speeds = sorted(table, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()), reverse=True)
+        fast = random.random() < FAST_SHARE
+        if fast:  # une amicale en 1+1, hors classement et hors bots souhaités
+            rated, table, speeds = False, FAST_CLOCKS, list(FAST_CLOCKS)
         speed, rating = speeds[0], 0
 
         def gap(bot: dict) -> int:
@@ -1378,7 +1386,7 @@ class Bot:
                     and (last_declined is None or now - last_declined >= MATCH_DECLINED)
                     and name not in blocked_players())
         online = list(self.api.lines("/api/bot/online?nb=200"))
-        wanted = wished_bots(self.me) if online else set()
+        wanted = wished_bots(self.me) if online and not fast else set()
         try:  # un bot souhaité est défié en amical, même en campagne classée, sauf s'il demande du classé
             rated_only = opponents.wants_rated() & wanted if wanted else set()
             refused_casual = opponents.refusals(ignore={"casual"}) if wanted and rated else refused
@@ -1419,6 +1427,8 @@ class Bot:
                 withdraw(self.me)  # rien à jouer : on ne retient pas le tour des autres
                 return None
         opponent = opponent or self.pick(band(candidates))
+        if fast:
+            self.picked = f"amicale rapide, {self.picked}"
         now = time.monotonic()
         with self.lock:  # l'état a pu changer pendant les lectures (humain accepté, vidange) : on revérifie
             ready = self.ready_to_seek(now)

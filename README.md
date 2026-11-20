@@ -12,7 +12,7 @@ Two ways:
 
 1. **On Lichess, nothing to install** (the easiest): challenge
    [FunFishBot](https://lichess.org/@/FunFishBot) or [CrazyFishBot](https://lichess.org/@/CrazyFishBot),
-   its wilder cousin. Bullet 2+1, blitz and short rapid; games against humans.
+   its wilder cousin. Bullet 1+1 and 2+1, blitz and short rapid; games against humans.
 2. **On your own machine**, with every personality and its move-by-move reasoning: see
    [Installation](#installation).
 
