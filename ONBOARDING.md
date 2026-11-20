@@ -104,12 +104,12 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   [CapaBot](https://lichess.org/@/CapaBot) (`capabot_v2`, goût des positions solides) et
   [SharpDuBot](https://lichess.org/@/SharpDuBot) (`dubot_v2`, un DuBot plus sûr à l'ouverture, avec de la théorie dans 80 % des parties contre 35 %, jusqu'à 8 coups, surtout tirés de l'arbre des maîtres).
 - **Les défis acceptés :** à partir de 1+1 (sans incrément, 3 minutes au moins) et jusqu'à environ 15 minutes estimées (`decline_reason`).
-- **Amicales en 1+1 :** une recherche d'adversaire sur quatre (`FAST_SHARE`) lance une partie amicale en 1+1 contre un bot, même en campagne classée, pour voir comment nos bots tiennent une cadence plus rapide.
   Les autres bots sont rationnés, pour laisser la place aux humains (voir `BOT_PAUSE`) : après une
   partie contre un bot, une pause de trois fois sa durée ; après une partie contre un humain, deux
   minutes pour qu'il enchaîne ; le même bot au plus toutes les deux heures ; jusqu'à 10+0 ; et jamais
   deux parties contre des bots en même temps, tous nos comptes réunis (marqueurs dans `BOT_GAMES_DIR`).
   Le journal note la cadence de chaque défi, accepté ou refusé.
+- **Amicales en 1+1 :** une recherche d'adversaire sur quatre (`FAST_SHARE`) lance une partie amicale en 1+1 contre un bot, même en campagne classée, pour voir comment nos bots tiennent une cadence plus rapide.
 - **La recherche d'adversaires (`--matchmaking`, activée dans tous les services) :** un compte libre
   depuis 10 minutes défie un bot en ligne à ±600 points, dans la cadence où son classement est le
   plus incertain, pour le mesurer face à des adversaires variés : on tire d'abord une tranche (plus
