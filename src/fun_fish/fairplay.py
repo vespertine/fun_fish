@@ -102,7 +102,7 @@ def analyse(moves: list[str], side: chess.Color, engine: chess.engine.SimpleEngi
 
 
 def suspicious(report: Report) -> bool:
-    """Assez de coups, une précision de moteur et un rythme de métronome. Sans pendule, la précision seule
-    ne suffit pas : de bons humains l'atteignent (calibrage : aucun humain sauf un copiste avéré)."""
+    """Assez de coups, une précision de moteur et un rythme régulier. Sans pendule, la précision seule ne
+    suffit pas : de bons humains l'atteignent, avec un rythme bien plus variable (recalibrage du 20/11/2026)."""
     return (report.moves >= MIN_MOVES and report.near >= NEAR_SHARE and report.acpl <= ACPL
             and report.cv is not None and report.cv <= CV)
