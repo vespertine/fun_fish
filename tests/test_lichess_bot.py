@@ -2259,16 +2259,58 @@ def test_after_the_game_the_trap_level_is_revised_never_at_the_cost_of_the_bot(m
     game.readjust_traps()  # base indisponible : rien ne casse
 
 
-def test_a_share_of_searches_plays_a_casual_one_plus_one_even_in_a_rated_campaign(monkeypatch, bot_games_dir):
-    rival = online_bot("rival")
-    settled = {"bullet": {"rating": 1800, "rd": 60, "games": 90}, "blitz": {"rating": 1700, "rd": 70, "games": 40},
-               "rapid": {"rating": 1900, "rd": 300, "games": 2}}
-    campaign_file(iso(3600))
-    wishlist({"bot": "rival", "accounts": ["FunFishBot"], "games": 3, "since": iso(-3600)})  # même souhaité : 1+1
+
+SETTLED = {"bullet": {"rating": 1800, "rd": 60, "games": 90}, "blitz": {"rating": 1700, "rd": 70, "games": 40},
+           "rapid": {"rating": 1900, "rd": 300, "games": 2}}
+
+
+def fast_seek(monkeypatch, online, campaign=True):
+    if campaign:
+        campaign_file(iso(3600))
     monkeypatch.setattr(lichess_bot, "FAST_SHARE", 1)
-    bot, now = seeker(monkeypatch, [rival], perfs=settled)
+    bot, now = seeker(monkeypatch, online, perfs=SETTLED)
     now[0] += 600
     assert bot.seek() == "m1"
     sent = bot.api.created[0][1]
-    assert (sent["clock.limit"], sent["clock.increment"], sent["rated"]) == (60, 1, "false")
-    assert bot.picked.startswith("amicale rapide") and "souhaité" not in bot.picked
+    return bot, bot.api.created[0][0], (sent["clock.limit"], sent["clock.increment"], sent["rated"])
+
+
+def test_a_share_of_searches_plays_a_casual_one_plus_one_even_in_a_rated_campaign(monkeypatch, bot_games_dir):
+    wishlist({"bot": "souhaite", "accounts": ["FunFishBot"], "games": 3, "since": iso(-3600)})
+    for _ in range(10):  # l'adversaire est tiré au hasard
+        bot, to, sent = fast_seek(monkeypatch, [online_bot("souhaite"), online_bot("rival")])
+        assert sent == (60, 1, "false") and to == "rival"  # jamais un bot souhaité : ses parties comptent
+        assert bot.picked.startswith("amicale rapide")
+        os.utime(bot_games_dir / "dernier-defi", (0, 0))
+
+
+def test_without_a_one_plus_one_opponent_the_usual_search_goes_on(monkeypatch, bot_games_dir):
+    from fun_fish import opponents
+    opponents.decline("rival", "toofast", "60+1")  # refuse le 1+1
+    bot, to, sent = fast_seek(monkeypatch, [online_bot("rival")])
+    assert sent[0] > 60 and sent[2] == "true" and not bot.picked.startswith("amicale")  # campagne : du classé
+    wishlist({"bot": "rival", "accounts": ["FunFishBot"], "games": 3, "since": iso(-3600)})
+    os.utime(bot_games_dir / "dernier-defi", (0, 0))
+    bot, to, sent = fast_seek(monkeypatch, [online_bot("rival")])
+    assert bot.picked == "souhaité"  # les souhaits reviennent avec la recherche habituelle
+
+
+@pytest.mark.parametrize("reason, plays", [("casual", True), ("rated", False)])
+def test_a_one_plus_one_follows_the_casual_refusals(monkeypatch, bot_games_dir, reason, plays):
+    from fun_fish import opponents
+    opponents.decline("rival", reason, "120+1")  # « casual » : il veut de l'amical ; « rated » : du classé
+    campaign_file(iso(3600))
+    monkeypatch.setattr(lichess_bot, "FAST_SHARE", 1)
+    bot, now = seeker(monkeypatch, [online_bot("rival")], perfs=SETTLED)
+    now[0] += 600
+    assert bot.seek() == "m1"
+    sent = bot.api.created[0][1]
+    assert ((sent["clock.limit"], sent["rated"]) == (60, "false")) is plays
+
+
+def test_no_cheat_check_below_two_minutes(monkeypatch):
+    game, export, analysed = fairplay_game(monkeypatch)
+    monkeypatch.setattr(game.bot.api, "get", lambda path: {"moves": "e4 e5", "clocks": [6000, 6000],
+                                                           "clock": {"initial": 60, "increment": 1}})
+    game.check_fairplay(export)
+    assert not analysed  # 1+1 : contrôle non calibré

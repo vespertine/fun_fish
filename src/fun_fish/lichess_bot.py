@@ -758,6 +758,8 @@ class BotGame(threading.Thread):
             with FAIRPLAY_LOCK:
                 game = self.bot.api.get(f"/game/export/{self.id}?moves=true&clocks=true&evals=false")
                 clock = game.get("clock") or {}
+                if clock.get("initial", 0) < FAIRPLAY_MIN_LIMIT:
+                    return
                 command = [str(self.bot.stockfish)]
                 if os.name == "posix":
                     command = ["nice", "-n", "19", *command]
@@ -904,6 +906,7 @@ def refused_players() -> set[str]:
 # battus ou tenus en nulle avec au moins FAIRPLAY_GAP points de moins. Une analyse à la fois par compte, en
 # basse priorité et sur un seul fil : les parties en cours passent avant.
 FAIRPLAY_GAP = 400
+FAIRPLAY_MIN_LIMIT = 120  # s : contrôle calibré à partir de 2+1 ; en 1+1, pas de contrôle (rythme dicté par l'incrément)
 FAIRPLAY_LOCK = threading.Lock()
 
 
@@ -1356,19 +1359,22 @@ class Bot:
         table = CAMPAIGN_CLOCKS if rated and campaign and stable(perfs, campaign.rd) else MATCH_CLOCKS
         # la vitesse la plus incertaine d'abord ; sans adversaire possible, la suivante
         speeds = sorted(table, key=lambda k: (perfs.get(k, {}).get("rd", 500), random.random()), reverse=True)
+        normal = rated, table, speeds
         fast = random.random() < FAST_SHARE
-        if fast:  # une amicale en 1+1, hors classement et hors bots souhaités
+        if fast:  # une amicale en 1+1, hors classement ; sans adversaire possible, la recherche habituelle
             rated, table, speeds = False, FAST_CLOCKS, list(FAST_CLOCKS)
         speed, rating = speeds[0], 0
 
         def gap(bot: dict) -> int:
             return bot.get("perfs", {}).get(speed, {}).get("rating", -10**4) - rating
 
-        try:
-            refused = opponents.refusals(ignore={"rated"} if rated else {"casual"})  # refus du mode d'avant
-        except (sqlite3.Error, OSError) as exc:
-            log("mémoire des refus illisible :", repr(exc))
-            refused = {}
+        def refusals() -> dict[str, opponents.Refusal]:
+            try:
+                return opponents.refusals(ignore={"rated"} if rated else {"casual"})  # refus du mode d'avant
+            except (sqlite3.Error, OSError) as exc:
+                log("mémoire des refus illisible :", repr(exc))
+                return {}
+        refused = refusals()
 
         def clocks(name: str) -> list[tuple[int, int]]:
             """Les cadences de cette vitesse que ce bot n'a pas refusées récemment."""
@@ -1386,7 +1392,14 @@ class Bot:
                     and (last_declined is None or now - last_declined >= MATCH_DECLINED)
                     and name not in blocked_players())
         online = list(self.api.lines("/api/bot/online?nb=200"))
-        wanted = wished_bots(self.me) if online and not fast else set()
+        wished = wished_bots(self.me) if online else set()
+        if fast:  # jamais un bot souhaité : ses parties comptent, quelle que soit la cadence (games_against)
+            rating = reference_rating(perfs, speed)
+            if not any(fits(b) and b["id"] not in wished for b in online):
+                fast, (rated, table, speeds) = False, normal
+                speed, rating = speeds[0], 0
+                refused = refusals()
+        wanted = set() if fast else wished
         try:  # un bot souhaité est défié en amical, même en campagne classée, sauf s'il demande du classé
             rated_only = opponents.wants_rated() & wanted if wanted else set()
             refused_casual = opponents.refusals(ignore={"casual"}) if wanted and rated else refused
@@ -1419,7 +1432,7 @@ class Bot:
         else:
             for speed in speeds:
                 rating = reference_rating(perfs, speed)
-                candidates = [(b["id"], gap(b)) for b in online if fits(b)]
+                candidates = [(b["id"], gap(b)) for b in online if fits(b) and not (fast and b["id"] in wished)]
                 if candidates:
                     break
             else:
