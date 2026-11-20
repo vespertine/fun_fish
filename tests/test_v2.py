@@ -99,3 +99,12 @@ def test_the_personality_draws_from_the_book_with_its_spread(monkeypatch):
     bot = personalities.create("capabot_v2", rng=random.Random(3), theory_rate=1.0, theory_spread=0.5)
     bot.theory_move(chess.Board())
     assert seen == [0.5]
+
+
+def test_a_flatter_draw_stays_in_the_book_when_no_move_dominates():
+    """1. d4 d5 2. c4 c6 3. e3 Nf6 : aucun coup joué BOOK_MIN fois, mais la position compte assez de parties."""
+    board = chess.Board("rnbqkb1r/pp2pppp/2p2n2/3p4/2PP4/4P3/PP3PPP/RNBQKBNR w KQkq - 1 4")
+    counts = theory.model_book("solide")[board.epd()]
+    assert max(counts.values()) < theory.BOOK_MIN <= sum(counts.values())
+    rng = random.Random(0)
+    assert {theory.book_move(board, "solide", rng, 0.5).uci() for _ in range(50)} <= set(counts)

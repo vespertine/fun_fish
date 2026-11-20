@@ -218,14 +218,15 @@ def book_move(board: chess.Board, name: str, rng, spread: float = 1.0) -> chess.
     """Un coup des maîtres-modèles dans cette position, tiré selon leur fréquence (None hors de l'arbre).
 
     `spread` < 1 aplatit le tirage (poids : parties ** spread) pour varier les lignes ; les coups joués moins de
-    BOOK_MIN fois sont alors écartés, pour ne pas donner de poids à une curiosité."""
+    BOOK_MIN fois sont alors écartés, pour ne pas donner de poids à une curiosité (sauf s'il ne reste rien)."""
     counts = model_book(name).get(board.epd(), {})
     legal = {m.uci(): m for m in board.legal_moves}
     counts = {u: n for u, n in counts.items() if u in legal}
     if sum(counts.values()) < BOOK_MIN:
         return None
-    if spread != 1.0:
-        counts = {u: n ** spread for u, n in counts.items() if n >= BOOK_MIN}
+    if spread != 1.0:  # sans coup joué BOOK_MIN fois (aucun ne domine), on tire parmi tous
+        usual = {u: n for u, n in counts.items() if n >= BOOK_MIN} or counts
+        counts = {u: n ** spread for u, n in usual.items()}
     return legal[rng.choices(list(counts), weights=list(counts.values()))[0]]
 
 

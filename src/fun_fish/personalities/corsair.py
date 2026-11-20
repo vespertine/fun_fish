@@ -159,7 +159,8 @@ class Corsair(Romantic):
     def motives(self, o: Outcome, own: int) -> dict[str, float]:
         trap = max(0.0, max(-CLIP, min(CLIP, o.value)) - max(-CLIP, min(CLIP, own))) / 100
         if getattr(o, "error", 0.0) < self.trap_min_error:
-            trap = 0.0  # l'adversaire trouve la bonne réponse presque toujours : pas un piège
+            trap = 0.0  # l'adversaire trouve la bonne réponse presque toujours : pas un piège (l'étroitesse,
+            # w_sharp × error, reste alors faible d'elle-même)
         urge = self.urge()
         greed = self.greed()  # panache : gagnant, le matériel en plus (gain, piège) compte moins
         return {"mat": urge * self.w_mate * o.mate, "gain": greed * urge * self.w_win * max(0.0, o.win - o.mate),
