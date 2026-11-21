@@ -300,12 +300,16 @@ def test_three_casual_strikes_in_sixty_days_block_the_player():
     assert not opponents.watched("tricheur", now=now) and opponents.suspects_report(now=now) == []
 
 
-def test_one_suspicious_rated_game_is_enough():
+def test_a_rated_game_is_never_enough_on_its_own():
+    """Même en classé : la liste noire attend STRIKES parties suspectes, pour être sûr de ne pas se tromper."""
     from fun_fish import fairplay
     r = fairplay.Report(moves=20, near=0.9, acpl=10, cv=0.2)
     assert opponents.note_fairplay("g1", "classe", "dubot", True, r, False) == (0, False)
-    assert opponents.note_fairplay("g2", "classe", "dubot", True, r, True) == (1, True)
-    assert opponents.suspects_report()[0][5] == "partie classée suspecte"
+    assert opponents.note_fairplay("g2", "classe", "dubot", True, r, True) == (1, False)
+    assert opponents.note_fairplay("g3", "classe", "dubot", True, r, True) == (2, False)
+    assert opponents.cheat_blocked() == set()
+    assert opponents.note_fairplay("g4", "classe", "dubot", True, r, True) == (3, True)
+    assert opponents.suspects_report()[0][5] == f"3 parties suspectes en {opponents.WATCH_DAYS} jours"
 
 
 def test_suspicious_games_are_left_out_of_the_trap_rates():

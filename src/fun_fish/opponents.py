@@ -103,8 +103,8 @@ CREATE TABLE IF NOT EXISTS cheat_blocks (  -- liste noire automatique (en plus d
 );
 """
 # Surveillance (voir fairplay.py) : un avertissement met le joueur sous surveillance WATCH_DAYS jours (chacune de
-# ses parties contre nous est alors analysée) ; STRIKES avertissements dans cette fenêtre, ou un seul en partie
-# classée (son classement et celui des autres en pâtissent), et il rejoint la liste noire.
+# ses parties contre nous est alors analysée) ; STRIKES avertissements dans cette fenêtre, et il rejoint la liste
+# noire. Jamais sur une seule partie, même classée : on veut que ça se répète pour être sûr de ne pas se tromper.
 WATCH_DAYS = 60
 STRIKES = 3
 # Pièges adaptés à un bot adverse (personnalités `adaptive_traps`, SharpDuBot) : l'adversaire imaginé par Maia
@@ -554,8 +554,7 @@ def note_fairplay(game: str, player: str, account: str, rated: bool, report, sus
                      report.cv, report.obvious_ratio, int(suspect)))
         strikes = con.execute("SELECT count(*) FROM fairplay WHERE player = ? AND suspect = 1 AND at >= ?",
                               (player, now - WATCH_DAYS * 86400)).fetchone()[0]
-        reason = ("partie classée suspecte" if suspect and rated
-                  else f"{strikes} parties suspectes en {WATCH_DAYS} jours" if strikes >= STRIKES else None)
+        reason = f"{strikes} parties suspectes en {WATCH_DAYS} jours" if strikes >= STRIKES else None
         blocked = reason is not None and con.execute(
             "INSERT OR IGNORE INTO cheat_blocks VALUES (?, ?, ?)", (player, now, reason)).rowcount == 1
     return strikes, blocked

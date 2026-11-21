@@ -191,10 +191,11 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   seulement : l'ancienne règle, à 8 coups d'ouverture, 10 coups comptés et un rythme ≤ 0,25, ne jugeait
   pas) : 4 parties retenues, 2 de ce joueur et 2 de comptes fermés depuis ; les bons joueurs honnêtes ont
   un rythme bien plus variable (écart type de 0,9 à 1,2 fois la moyenne). La règle laisse passer bien des
-  moteurs ; elle est plus large qu'avant, sur un échantillon limité, et ce risque d'accuser un humain
-  honnête est accepté. Une partie suspecte en amicale vaut un avertissement et 60 jours de surveillance
-  (chaque partie est analysée) ; 3 avertissements en 60 jours, ou une seule partie classée suspecte, et le
-  joueur rejoint la liste noire automatique (en plus du fichier `blocked`). Ses parties suspectes sortent
+  moteurs ; elle est plus large qu'avant, sur un échantillon limité, d'où la liste noire seulement après
+  plusieurs parties. Une partie suspecte vaut un avertissement et 60 jours de surveillance
+  (chaque partie est analysée), en classé comme en amical ; 3 avertissements en 60 jours, et le joueur
+  rejoint la liste noire automatique (en plus du fichier `blocked`). Jamais sur une seule partie : le but
+  n'est pas de bloquer vite, mais d'être sûr, si ça se répète, de ne pas se tromper. Ses parties suspectes sortent
   des statistiques des pièges. `fun-fish opponents suspects` les liste, `fun-fish opponents pardon --player
   NOM` efface ses avertissements et le retire de la liste noire.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par

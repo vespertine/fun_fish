@@ -2115,7 +2115,7 @@ def test_a_big_upset_by_a_human_is_checked_for_cheating(monkeypatch, change, che
         assert "clocks=true" in game.bot.api.paths[0]
 
 
-def test_a_watched_player_is_checked_every_game_and_a_rated_cheat_is_blocked(monkeypatch):
+def test_a_watched_player_is_checked_every_game_and_blocked_after_repeated_cheats(monkeypatch):
     from fun_fish import opponents
     game, export, analysed = fairplay_game(monkeypatch)
     game.check_fairplay(export)  # partie amicale suspecte : un avertissement
@@ -2123,7 +2123,11 @@ def test_a_watched_player_is_checked_every_game_and_a_rated_cheat_is_blocked(mon
     game, export, analysed = fairplay_game(monkeypatch, winner="white", rated=True)  # nous gagnons : surveillé quand même
     game.id = "g2"
     game.check_fairplay(export)
-    assert analysed and opponents.cheat_blocked() == {"humain"}
+    assert analysed and opponents.cheat_blocked() == set()  # même classée, une partie ne suffit pas
+    game, export, analysed = fairplay_game(monkeypatch, winner="white", rated=True)
+    game.id = "g3"
+    game.check_fairplay(export)
+    assert analysed and opponents.cheat_blocked() == {"humain"}  # la troisième en 60 jours
     bot, _ = rationed_bot(monkeypatch)
     assert bot.decline_reason(challenge("blitz", 180, 2, title=None, who="humain")) == "generic"
 
