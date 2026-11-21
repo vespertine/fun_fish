@@ -236,6 +236,10 @@ THEORY_HELP = {
     "theory_book": "arbre des maîtres-modèles (data/books : attaque, solide ; vide : aucun)",
     "theory_mix": "dans les parties avec théorie, part où il suit l'arbre des maîtres-modèles plutôt que les lignes classiques",
     "theory_spread": "tirage dans l'arbre des maîtres-modèles : 1 selon la fréquence des coups, moins pour varier les lignes",
+    "theory_min_moves": "au moins combien de ses coups suivent la théorie quand il en joue (hors de l'arbre, les coups dominants "
+                        "des joueurs forts prennent le relais ; 0 : aucun minimum)",
+    "theory_favorite": "arbre du maître préféré (data/books), suivi dans certaines des parties avec l'arbre des maîtres-modèles",
+    "theory_favorite_rate": "part des parties avec l'arbre des maîtres-modèles où il suit d'abord celui du maître préféré",
 }
 
 
@@ -243,12 +247,15 @@ class Theory:
     """À mettre en tête des bases d'une personnalité : elle joue d'abord quelques coups classiques."""
 
     def __init__(self, theory_rate: float = 0.25, theory_moves: int = 4, theory_book: str = "", theory_mix: float = 0.0,
-                 theory_spread: float = 1.0, **kwargs):
+                 theory_spread: float = 1.0, theory_min_moves: int = 0, theory_favorite: str = "",
+                 theory_favorite_rate: float = 0.0, **kwargs):
         super().__init__(**kwargs)
-        self.theory_rate, self.theory_moves = theory_rate, theory_moves
+        self.theory_rate, self.theory_moves, self.theory_min_moves = theory_rate, theory_moves, theory_min_moves
         self.theory_book, self.theory_mix, self.theory_spread = theory_book, theory_mix, theory_spread
+        self.theory_favorite, self.theory_favorite_rate = theory_favorite, theory_favorite_rate
         self._from_book = False
-        self._theory_left = 0
+        self._book = theory_book
+        self._theory_left = self._theory_done = 0
         self._theory_line: Opening | None = None
 
     @classmethod
@@ -257,7 +264,11 @@ class Theory:
                {"name": "theory_moves", "default": 4, "type": "int", "help": THEORY_HELP["theory_moves"]},
                {"name": "theory_book", "default": "", "type": "str", "help": THEORY_HELP["theory_book"]},
                {"name": "theory_mix", "default": 0.0, "type": "float", "help": THEORY_HELP["theory_mix"]},
-               {"name": "theory_spread", "default": 1.0, "type": "float", "help": THEORY_HELP["theory_spread"]}]
+               {"name": "theory_spread", "default": 1.0, "type": "float", "help": THEORY_HELP["theory_spread"]},
+               {"name": "theory_min_moves", "default": 0, "type": "int", "help": THEORY_HELP["theory_min_moves"]},
+               {"name": "theory_favorite", "default": "", "type": "str", "help": THEORY_HELP["theory_favorite"]},
+               {"name": "theory_favorite_rate", "default": 0.0, "type": "float",
+                "help": THEORY_HELP["theory_favorite_rate"]}]
         return own + super().param_specs()
 
     def theory_move(self, board: chess.Board) -> tuple[chess.Move, str] | None:
@@ -268,35 +279,50 @@ class Theory:
         if n < 2:  # nouvelle partie : nouveau tirage
             self._theory_line = None
             active = self.rng.random() < self.theory_rate
-            self._theory_left = self.rng.randint(1, max(1, self.theory_moves)) if active else 0
+            most = max(1, self.theory_moves)
+            self._theory_left = self.rng.randint(min(max(1, self.theory_min_moves), most), most) if active else 0
+            self._theory_done = 0
             self._from_book = active and bool(self.theory_book) and self.rng.random() < self.theory_mix
+            self._book = self.theory_book
+            if self._from_book and self.theory_favorite and self.theory_favorite_rate > 0 \
+                    and self.rng.random() < self.theory_favorite_rate:
+                self._book = self.theory_favorite
         if self._theory_left <= 0:
             return None
-        if self._from_book:  # l'arbre des maîtres-modèles, tant qu'on y reste
-            move = book_move(board, self.theory_book, self.rng, self.theory_spread)
-            if move is None:
+        if self._from_book:  # l'arbre des maîtres-modèles (ou du préféré, puis du groupe), tant qu'on y reste
+            move = book_move(board, self._book, self.rng, self.theory_spread)
+            if move is not None:
+                return self._theory_played(move, "ouverture préférée des maîtres-modèles"
+                                           if self._book != self.theory_book else "ouverture des maîtres-modèles")
+            if self._book != self.theory_book:  # le préféré n'a plus rien : l'arbre du groupe prend le relais
+                self._book = self.theory_book
+                move = book_move(board, self._book, self.rng, self.theory_spread)
+                if move is not None:
+                    return self._theory_played(move, "ouverture des maîtres-modèles")
+            if self._theory_done >= self.theory_min_moves:
                 self._theory_left = 0
                 return None
-            self._theory_left -= 1
-            return move, "ouverture des maîtres-modèles"
+        else:
+            def fits(o: Opening) -> bool:
+                return len(o.moves) > n and o.moves[:n] == played
 
-        def fits(o: Opening) -> bool:
-            return len(o.moves) > n and o.moves[:n] == played
-
-        if self._theory_line is None or not fits(self._theory_line):
-            pool = [o for o in THEORY[board.turn] if fits(o)]
-            self._theory_line = self.rng.choices(pool, weights=[o.weight for o in pool])[0] if pool else None
-        if self._theory_line is not None:
-            self._theory_left -= 1
-            return self._theory_line.moves[n], self._theory_line.name
-        # plus de ligne écrite : le coup dominant des joueurs forts, s'il y en a un
+            if self._theory_line is None or not fits(self._theory_line):
+                pool = [o for o in THEORY[board.turn] if fits(o)]
+                self._theory_line = self.rng.choices(pool, weights=[o.weight for o in pool])[0] if pool else None
+            if self._theory_line is not None:
+                return self._theory_played(self._theory_line.moves[n], self._theory_line.name)
+        # plus de ligne écrite (ou hors de l'arbre avant le minimum) : le coup dominant des joueurs forts, s'il y en a un
         strong = strong_moves(board)
         if not strong:
             self._theory_left = 0
             return None
-        self._theory_left -= 1
         move = self.rng.choices(list(strong), weights=list(strong.values()))[0]
-        return move, "théorie des maîtres et des joueurs forts"
+        return self._theory_played(move, "théorie des maîtres et des joueurs forts")
+
+    def _theory_played(self, move: chess.Move, reason: str) -> tuple[chess.Move, str]:
+        self._theory_left -= 1
+        self._theory_done += 1
+        return move, reason
 
     def choose_move(self, board: chess.Board, analyser):
         from fun_fish.personalities.base import Candidate, Decision  # (import circulaire sinon)

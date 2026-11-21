@@ -1,4 +1,4 @@
-"""Construit les arbres d'ouvertures des maîtres-modèles (DuBotV2, CapaBotV2) à partir des PGN de runs/styles.
+"""Construit les arbres d'ouvertures des maîtres-modèles (DuBotV2, CapaBotV2, et le préféré de CapaBotV2) à partir des PGN de runs/styles.
 
 Pour chaque position des `PLIES` premiers demi-coups : les coups joués par le maître-modèle lui-même (jamais
 par son adversaire), avec leur nombre de parties. On ne garde que les positions où il a joué au moins
@@ -25,6 +25,7 @@ BOOKS = {
                 "pgn/Morozevich", "pgn/Rapport", "pgn/Mamedyarov", "pgn/Marshall", "pgn/Nezhmetdinov", "pgn/Velimirovic"],
     "solide": ["pgn_contre/Capablanca", "pgn_contre/Karpov", "pgn_contre/Petrosian", "pgn_contre/Kramnik",
                "pgn_contre/Andersson", "pgn_test/Smyslov", "pgn_test/Carlsen"],
+    "capablanca": ["pgn_contre/Capablanca"],  # le préféré de CapaBotV2 (theory_favorite), seul
 }
 
 

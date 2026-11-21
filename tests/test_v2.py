@@ -84,19 +84,70 @@ def test_a_flatter_draw_varies_the_model_book_lines():
 
 def test_capabot_has_its_own_rapid_settings():
     tuned = personalities.speed_params("capabot_v2", "rapid")
-    assert tuned == {"theory_rate": 0.7, "theory_spread": 0.5, "trap_min_error": 0.2}
+    assert tuned == {"theory_rate": 0.7, "theory_spread": 0.5, "theory_min_moves": 4, "trap_min_error": 0.2}
     capa = personalities.create("capabot_v2", **tuned)
-    assert (capa.theory_rate, capa.theory_spread, capa.trap_min_error) == (0.7, 0.5, 0.2)
+    assert (capa.theory_rate, capa.theory_spread, capa.theory_min_moves, capa.trap_min_error) == (0.7, 0.5, 4, 0.2)
     assert personalities.speed_params("capabot_v2", "blitz") == {}
     assert personalities.speed_params("dubot_v2", "rapid") == {} and personalities.speed_params("capabot_v2", None) == {}
     default = personalities.create("capabot_v2")
-    assert (default.theory_rate, default.theory_spread, default.trap_min_error) == (0.35, 1.0, 0.0)
+    assert (default.theory_rate, default.theory_spread, default.theory_min_moves, default.trap_min_error) == (0.35, 1.0, 0, 0.0)
+    assert (default.theory_favorite, default.theory_favorite_rate) == ("capablanca", 0.3)
+
+
+def _opening(bot, plies=12):
+    """Les raisons des coups de théorie de `bot` (Blancs) ; les Noirs répondent par le coup dominant des maîtres."""
+    board, reasons = chess.Board(), []
+    for _ in range(plies // 2):
+        found = bot.theory_move(board)
+        reasons.append(found and found[1])
+        board.push(found[0] if found else next(iter(board.legal_moves)))
+        strong = theory.strong_moves(board)
+        board.push(max(strong, key=strong.get) if strong else next(iter(board.legal_moves)))
+    return [r for r in reasons if r]
+
+
+def test_once_in_theory_it_plays_at_least_the_minimum(monkeypatch):
+    """Hors de l'arbre des maîtres-modèles avant le minimum, les coups dominants des joueurs forts prennent le relais."""
+    monkeypatch.setattr(theory, "book_move", lambda *args: None)
+    for least, expected in ((0, []), (4, ["théorie des maîtres et des joueurs forts"] * 4)):
+        bot = personalities.create("capabot_v2", rng=random.Random(5), theory_rate=1.0, theory_moves=4,
+                                   theory_min_moves=least)
+        assert _opening(bot) == expected
+
+
+def test_the_minimum_never_exceeds_the_drawn_count():
+    """Avec le minimum, le nombre de coups tirés va de theory_min_moves à theory_moves (jamais plus)."""
+    counts = set()
+    for seed in range(60):
+        bot = personalities.create("capabot_v2", rng=random.Random(seed), theory_rate=1.0, theory_moves=6,
+                                   theory_min_moves=4, theory_favorite_rate=0.0)
+        bot.theory_move(chess.Board())
+        counts.add(bot._theory_left + 1)
+    assert counts == {4, 5, 6}
+
+
+def test_the_favorite_master_opens_some_of_the_games():
+    reasons = []
+    for seed in range(300):
+        bot = personalities.create("capabot_v2", rng=random.Random(seed), theory_rate=1.0)
+        reasons.append(bot.theory_move(chess.Board())[1])
+    share = reasons.count("ouverture préférée des maîtres-modèles") / len(reasons)
+    assert 0.2 < share < 0.4 and set(reasons) == {"ouverture préférée des maîtres-modèles", "ouverture des maîtres-modèles"}
+
+
+def test_without_a_line_of_the_favorite_the_group_book_takes_over():
+    bot = personalities.create("capabot_v2", rng=random.Random(1), theory_rate=1.0, theory_moves=6, theory_min_moves=6,
+                               theory_favorite="absent", theory_favorite_rate=1.0)
+    assert _opening(bot)[0] == "ouverture des maîtres-modèles"
+    bot = personalities.create("capabot_v2", rng=random.Random(1), theory_rate=1.0, theory_favorite_rate=1.0)
+    assert _opening(bot)[0] == "ouverture préférée des maîtres-modèles"
 
 
 def test_the_personality_draws_from_the_book_with_its_spread(monkeypatch):
     seen = []
     monkeypatch.setattr(theory, "book_move", lambda board, name, rng, spread=1.0: seen.append(spread))
-    bot = personalities.create("capabot_v2", rng=random.Random(3), theory_rate=1.0, theory_spread=0.5)
+    bot = personalities.create("capabot_v2", rng=random.Random(3), theory_rate=1.0, theory_spread=0.5,
+                               theory_favorite_rate=0.0)
     bot.theory_move(chess.Board())
     assert seen == [0.5]
 
