@@ -113,6 +113,10 @@ def test_once_in_theory_it_plays_at_least_the_minimum(monkeypatch):
         bot = personalities.create("capabot_v2", rng=random.Random(5), theory_rate=1.0, theory_moves=4,
                                    theory_min_moves=least)
         assert _opening(bot) == expected
+    for seed in range(10):  # 4 à 8 coups tirés : le relais s'arrête au minimum
+        bot = personalities.create("capabot_v2", rng=random.Random(seed), theory_rate=1.0, theory_moves=8,
+                                   theory_min_moves=4)
+        assert len(_opening(bot, plies=20)) == 4
 
 
 def test_the_minimum_never_exceeds_the_drawn_count():

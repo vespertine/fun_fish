@@ -51,8 +51,9 @@ class CapaBotV2(_V2, CapaBot):
     key = "capabot_v2"
     name = "CapaBot"  # le compte Lichess CapaBot joue cette version depuis la 0.4.8
     description = "CapaBot plus exigeant : l'ouverture des maîtres positionnels, des pièges pour joueurs forts."
-    # une partie sur trois avec l'arbre des maîtres, d'abord les lignes du préféré du groupe (4 % des parties de
-    # l'arbre « solide » seulement) : Espagnole, Gambit Dame refusé, Nimzo-indienne, Petroff…
+    # theory_favorite_rate : dans 30 % des parties avec l'arbre des maîtres (à toutes les cadences), d'abord les
+    # lignes du préféré du groupe (4 % seulement des parties de l'arbre « solide ») : Espagnole, Gambit Dame
+    # refusé, Nimzo-indienne, Petroff…
     THEORY = {"theory_rate": 0.35, "theory_moves": 6, "theory_book": "solide", "theory_mix": 1.0,
               "theory_favorite": "capablanca", "theory_favorite_rate": 0.3}
     OVERRIDES = {**CapaBot.OVERRIDES, "opponent_elo": 2000, "tolerance": 150, "opening_tolerance": 100, "convert_elo": 2000}

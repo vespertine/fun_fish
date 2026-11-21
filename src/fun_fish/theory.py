@@ -233,11 +233,11 @@ def book_move(board: chess.Board, name: str, rng, spread: float = 1.0) -> chess.
 THEORY_HELP = {
     "theory_rate": "part des parties où il commence par quelques coups de théorie classique (0 : jamais)",
     "theory_moves": "au plus combien de ses coups suivent la théorie (tiré au sort de 1 à ce nombre à chaque partie)",
-    "theory_book": "arbre des maîtres-modèles (data/books : attaque, solide ; vide : aucun)",
+    "theory_book": "arbre des maîtres-modèles (data/books : attaque, solide, capablanca ; vide : aucun)",
     "theory_mix": "dans les parties avec théorie, part où il suit l'arbre des maîtres-modèles plutôt que les lignes classiques",
     "theory_spread": "tirage dans l'arbre des maîtres-modèles : 1 selon la fréquence des coups, moins pour varier les lignes",
     "theory_min_moves": "au moins combien de ses coups suivent la théorie quand il en joue (hors de l'arbre, les coups dominants "
-                        "des joueurs forts prennent le relais ; 0 : aucun minimum)",
+                        "des joueurs forts prennent le relais, s'il y en a ; seulement avec l'arbre des maîtres-modèles ; 0 : aucun)",
     "theory_favorite": "arbre du maître préféré (data/books), suivi dans certaines des parties avec l'arbre des maîtres-modèles",
     "theory_favorite_rate": "part des parties avec l'arbre des maîtres-modèles où il suit d'abord celui du maître préféré",
 }
@@ -295,6 +295,7 @@ class Theory:
                 return self._theory_played(move, "ouverture préférée des maîtres-modèles"
                                            if self._book != self.theory_book else "ouverture des maîtres-modèles")
             if self._book != self.theory_book:  # le préféré n'a plus rien : l'arbre du groupe prend le relais
+                # jusqu'à la fin de la théorie (même si une transposition ramène dans l'arbre du préféré)
                 self._book = self.theory_book
                 move = book_move(board, self._book, self.rng, self.theory_spread)
                 if move is not None:
