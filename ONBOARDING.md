@@ -177,23 +177,27 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   de Maia avant « 2000 et plus »). Un piège est pris si l'éval bascule d'au moins 1,5 pion en notre faveur.
   En novembre 2026, les bots prenaient 9 % de nos pièges (66 % annoncés), les humains 27 %. Le journal note
   « pièges : adversaire imaginé à … » et chaque changement de niveau.
-- **La surveillance de la triche (`fairplay.py`, tables `fairplay` et `cheat_blocks`) :** après une partie
-  où un humain nous a battus ou tenus en nulle avec au moins 400 points de moins (`FAIRPLAY_GAP`), ou
-  contre un joueur déjà surveillé, ses coups sont repassés à Stockfish (profondeur 16, 3 s au plus par
-  position, en basse priorité et une analyse à la fois par compte ; un redémarrage du service pendant
-  l'analyse la perd). Hors ouverture, positions jouées et coups
-  évidents, la partie est **suspecte** si : au moins 10 coups comptés, 60 % à moins de 10 cp du meilleur,
-  une perte moyenne d'au plus 25 cp, **et** un rythme de métronome (écart type des temps de réflexion
-  ≤ 0,25 fois leur moyenne). Calibrage (novembre 2026, 723 de nos parties) : les moteurs eux-mêmes ne
-  jouent le premier choix de Stockfish qu'une fois sur deux environ, et de bons humains atteignent la
-  précision d'un moteur sur une partie, d'où le rythme obligatoire ; sur 89 parties contre des humains,
-  seul un copiste avéré est retenu. La règle est volontairement prudente : elle laisse passer la plupart
-  des moteurs (2 % des bots retenus), mais n'accuse pas un humain honnête. Une partie suspecte en amicale
-  vaut un avertissement et 60 jours de surveillance (chaque partie est analysée) ; 3 avertissements en
-  60 jours, ou une seule partie classée suspecte, et le joueur rejoint la liste noire automatique (en
-  plus du fichier `blocked`). Ses parties suspectes sortent des statistiques des pièges.
-  `fun-fish opponents suspects` les liste, `fun-fish opponents pardon --player NOM` efface ses
-  avertissements et le retire de la liste noire.
+- **La surveillance de la triche (`fairplay.py`, tables `fairplay` et `cheat_blocks`) :** après une partie où
+  un humain nous a battus ou tenus en nulle avec au moins 400 points de moins (`FAIRPLAY_GAP`), ou contre un
+  joueur déjà surveillé, ses coups sont repassés à Stockfish (profondeur 16, 3 s au plus par position, en
+  basse priorité et une analyse à la fois par compte ; un redémarrage du service pendant l'analyse la perd).
+  Hors ouverture (les 6 premiers coups du joueur), positions jouées et coups évidents, la partie est
+  **suspecte** si : au moins 8 coups comptés, 60 % à moins de 10 cp du meilleur, une perte moyenne d'au plus
+  25 cp, **et** un rythme régulier (écart type des temps de réflexion ≤ 0,45 fois leur moyenne). Premier
+  calibrage (novembre 2026, 723 de nos parties) : les moteurs eux-mêmes ne jouent le premier choix de
+  Stockfish qu'une fois sur deux environ, et de bons humains atteignent la précision d'un moteur sur une
+  partie, d'où le rythme obligatoire. Recalibrage du 20/11/2026 (81 parties humaines d'au moins 20
+  demi-coups), après la partie sexk9p9G (98 % de précision selon Lichess, mais 6 coups comptés seulement :
+  l'ancienne règle, à 8 coups d'ouverture, 10 coups comptés et un rythme ≤ 0,25, ne jugeait pas) : 4 parties
+  retenues, 2 de ce joueur et 2 de comptes fermés depuis ; les bons joueurs honnêtes ont un rythme bien plus
+  variable (écart type de 0,9 à 1,2 fois la moyenne). La règle laisse passer bien des moteurs ; elle est plus
+  large qu'avant, sur un échantillon limité, d'où la liste noire seulement après plusieurs parties. Une
+  partie suspecte vaut un avertissement et 60 jours de surveillance (chaque partie est analysée), en classé
+  comme en amical ; 3 avertissements en 60 jours, et le joueur rejoint la liste noire automatique (en plus du
+  fichier `blocked`). Jamais sur une seule partie : le but n'est pas de bloquer vite, mais d'être sûr, si ça
+  se répète, de ne pas se tromper. Ses parties suspectes sortent des statistiques des pièges. `fun-fish
+  opponents suspects` les liste, `fun-fish opponents pardon --player NOM` efface ses avertissements et le
+  retire de la liste noire.
 - **Le serveur :** il tourne sur un serveur Hetzner (ARM) en service systemd, installé par
   `deploy/setup.sh`. Voir [deploy/README.md](deploy/README.md).
 - **Les données :** chaque partie laisse un export de debug compressé dans
