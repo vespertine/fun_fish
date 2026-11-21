@@ -2351,5 +2351,6 @@ def test_the_personality_gets_its_settings_for_the_speed(tmp_path, monkeypatch, 
     bot = FakeBot(RapidApi(speed), stockfish_path)
     bot.personality, bot.params = "capabot_v2", {"theory_spread": 0.8}
     lichess_bot.BotGame(bot, "abc").run()
-    expected = {"theory_rate": 0.7, "theory_spread": 0.8, "trap_min_error": 0.2} if speed == "rapid" else {"theory_spread": 0.8}
+    expected = {"theory_rate": 0.7, "theory_spread": 0.8, "theory_min_moves": 4, "trap_min_error": 0.2}\
+        if speed == "rapid" else {"theory_spread": 0.8}
     assert made == [("capabot_v2", expected)]
