@@ -76,10 +76,11 @@ MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
 # Pendant une campagne classée, un compte stable en bullet et en blitz joue aussi du rapide, le plus court
 # (10+0, la limite de BOT_MAX_ESTIMATE) : la vitesse reste celle où le classement est le plus incertain.
 CAMPAIGN_CLOCKS = {**MATCH_CLOCKS, "rapid": [(600, 0)]}
-# Essai du 20/11/2026 : une recherche sur FAST_SHARE lance une partie amicale en 1+1 (FAST_CLOCKS), même en
-# campagne classée, pour voir comment nos bots tiennent une cadence plus rapide (en 2+1, ~1,4 à 2 s par coup
-# en médiane, sans perte au temps). Parties courtes : un large échantillon pour peu de temps.
-FAST_SHARE = 0.25
+# Une recherche sur FAST_SHARE lance une partie amicale en 1+1 (FAST_CLOCKS), même en campagne classée. Essai
+# du 20/11/2026 à une sur quatre, concluant au bilan du 22/11 (87 parties : 59 % contre des bots à 2147 en
+# moyenne, aucune perte au temps, 33 s au plus bas de la pendule) : une sur deux depuis, le reste en 2+1 et
+# en blitz, pour garder un repère.
+FAST_SHARE = 0.5
 FAST_CLOCKS = {"bullet": [(60, 1)]}
 # Pendant une campagne, CAMPAIGN_BOT_GAMES parties contre des bots en même temps, nos comptes réunis (une
 # seule sinon) : le test de charge du 17/11 a tenu cinq parties de blitz sans perte au temps.

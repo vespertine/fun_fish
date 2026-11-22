@@ -109,7 +109,7 @@ et `truth.json`, que `perfbench.py positions` et `truth` reconstruisent.
   minutes pour qu'il enchaîne ; le même bot au plus toutes les deux heures ; jusqu'à 10+0 ; et jamais
   deux parties contre des bots en même temps, tous nos comptes réunis (marqueurs dans `BOT_GAMES_DIR`).
   Le journal note la cadence de chaque défi, accepté ou refusé.
-- **Amicales en 1+1 :** une recherche d'adversaire sur quatre (`FAST_SHARE`) lance une partie amicale en 1+1 contre un bot, même en campagne classée, pour voir comment nos bots tiennent une cadence plus rapide.
+- **Amicales en 1+1 :** une recherche d'adversaire sur deux (`FAST_SHARE`) lance une partie amicale en 1+1 contre un bot, même en campagne classée. Essai à une sur quatre du 20 au 22/11/2026, concluant (59 %, aucune perte au temps).
 - **La recherche d'adversaires (`--matchmaking`, activée dans tous les services) :** un compte libre
   depuis 10 minutes défie un bot en ligne à ±600 points, dans la cadence où son classement est le
   plus incertain, pour le mesurer face à des adversaires variés : on tire d'abord une tranche (plus
