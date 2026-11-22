@@ -78,8 +78,9 @@ MATCH_CLOCKS = {"bullet": [(120, 1)], "blitz": [(180, 0), (180, 2), (300, 0)]}
 CAMPAIGN_CLOCKS = {**MATCH_CLOCKS, "rapid": [(600, 0)]}
 # Une recherche sur FAST_SHARE lance une partie amicale en 1+1 (FAST_CLOCKS), même en campagne classée. Essai
 # du 20/11/2026 à une sur quatre, concluant au bilan du 22/11 (87 parties : 59 % contre des bots à 2147 en
-# moyenne, aucune perte au temps, 33 s au plus bas de la pendule) : une sur deux depuis, le reste en 2+1 et
-# en blitz, pour garder un repère.
+# moyenne, aucune perte au temps, 33 s au plus bas de la pendule) : une sur deux depuis, le reste dans les
+# cadences habituelles (MATCH_CLOCKS, ou CAMPAIGN_CLOCKS en campagne), pour garder un repère. Une recherche en
+# 1+1 ne défie jamais un bot souhaité : la liste de souhaits n'est servie qu'une recherche sur deux.
 FAST_SHARE = 0.5
 FAST_CLOCKS = {"bullet": [(60, 1)]}
 # Pendant une campagne, CAMPAIGN_BOT_GAMES parties contre des bots en même temps, nos comptes réunis (une
