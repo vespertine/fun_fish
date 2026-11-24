@@ -154,13 +154,23 @@ def test_garde_fou_rend_le_moins_mauvais_des_refuses():
 
 
 def test_garde_fou_laisse_passer_un_coup_encore_gagnant():
-    # MnwvVVL5 : tour et pion contre roi, 63.Th8+ noté « mat » mais revérifié à +11,62 : rien à rattraper
+    # MnwvVVL5 : finale de tour contre deux pions, 63.Th8+ noté « mat en 8 » mais revérifié à +11,62
     fen = "4k3/8/7R/5p1p/5K1P/8/8/8 w - - 6 63"
     board = chess.Board(fen)
     for checked, kept in ((1162, True), (attacker.GUARD_WON, True), (attacker.GUARD_WON - 1, False)):
-        chosen = _eval(board, "Rh8+", 99992)
+        move = board.parse_san("Rh8+")
+        chosen = CandidateEval(Line(move, 99992, 8, None, (move,), 6), 0, Outcome())
         agent, board, _, result = _verified(fen, [chosen, _eval(board, "Kxf5", 1400)], {"Rh8+": checked, "Kxf5": 1400})
         assert (result is chosen) == kept and bool(agent.anomalies) != kept
+
+
+def test_garde_fou_ne_joue_jamais_un_quatrieme_candidat_sans_le_verifier():
+    # trois refus : le repli prend le meilleur des autres coups revérifiés, pas le 4e candidat (−9) à l'aveugle
+    board = chess.Board(QXE5)
+    evals = [_eval(board, san, 795) for san in ("Qxe5", "Be3", "Rh1", "Rg2")]
+    agent, board, analyser, result = _verified(QXE5, evals, {"Qxe5": -417, "Be3": -500, "Rh1": -600, "Rg2": -900}, -100)
+    assert result.rescue and result.line.score == -100 and board.san(result.line.move) not in ("Qxe5", "Be3", "Rh1", "Rg2")
+    assert len(agent.anomalies) == 3
 
 
 def test_garde_fou_sans_autre_coup_legal_garde_le_coup():

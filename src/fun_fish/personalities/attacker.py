@@ -45,8 +45,8 @@ from fun_fish.style import STYLE_HELP, STYLE_WEIGHTS, Style, material, settled_m
 
 CLIP = 1000  # évals bornées à ±10 pions
 # Garde-fou : un coup qui vaut encore GUARD_WON à la revérification gagne toujours, il n'y a rien à rattraper
-# (MnwvVVL5, novembre 2026 : tour et pion contre roi, chaque coup noté « mat » puis revérifié à +10 était
-# refusé, et le mat a pris 20 coups)
+# (MnwvVVL5, novembre 2026 : finale de tour contre deux pions, gagnée ; chaque coup noté « mat » puis
+# revérifié à +10 était refusé, et le mat a pris 20 coups)
 GUARD_WON = 500
 
 
@@ -352,8 +352,7 @@ class Attacker(Personality):
             return chosen
         order = sorted(zip(probabilities, range(len(evals))), reverse=True)
         refused: dict[chess.Move, tuple[int, CandidateEval]] = {}  # coup refusé ici -> (vraie éval, candidat)
-        tried = 0
-        while tried < 3:
+        for tried in range(3):
             check = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=[chosen.line.move])
             if not check or check[0].score >= chosen.line.score - 200 or regret(best, check[0]) <= self.tolerance \
                     or check[0].score >= GUARD_WON:
@@ -364,10 +363,10 @@ class Attacker(Personality):
                   f"({board.fen()})", file=sys.stderr, flush=True)
             refused[chosen.line.move] = (check[0].score, chosen)
             rest = [i for _, i in order if evals[i].line.move not in refused]
-            if not rest:
+            if not rest or tried == 2:  # au 3e refus, le meilleur des autres coups revérifié, jamais un 4e à l'aveugle
                 return self.fallback(board, analyser, refused, best)
-            chosen, tried = evals[rest[0]], tried + 1
-        return chosen
+            chosen = evals[rest[0]]
+        raise AssertionError("inatteignable : le 3e refus passe par le repli")
 
     def fallback(self, board: chess.Board, analyser: Analyser,
                  refused: dict[chess.Move, tuple[int, CandidateEval]], best: Line) -> CandidateEval:
