@@ -44,6 +44,10 @@ from fun_fish.style import STYLE_HELP, STYLE_WEIGHTS, Style, material, settled_m
 
 
 CLIP = 1000  # évals bornées à ±10 pions
+# Garde-fou : un coup qui vaut encore GUARD_WON à la revérification gagne toujours, il n'y a rien à rattraper
+# (MnwvVVL5, novembre 2026 : finale de tour contre deux pions, gagnée ; chaque coup noté « mat » puis
+# revérifié à +10 était refusé, et le mat a pris 20 coups)
+GUARD_WON = 500
 
 
 
@@ -342,15 +346,16 @@ class Attacker(Personality):
                  probabilities: list[float], best: Line) -> CandidateEval:
         """Garde-fou : le coup choisi est revérifié seul. Si sa vraie éval est bien pire que celle de
         la liste (analyse incohérente, vu une fois en partie : 12.Fc5?? noté −1,19 au lieu de −8) et
-        sort de la tolérance, il prend le plus probable des autres coups."""
+        sort de la tolérance, il prend le plus probable des autres coups. Un coup encore gagnant (GUARD_WON)
+        passe : comparer « mat » et +10 n'aurait pas de sens."""
         if chosen.line.score <= -1000:  # déjà perdu : rien à sauver, et les mats rendraient l'écart trompeur
             return chosen
         order = sorted(zip(probabilities, range(len(evals))), reverse=True)
         refused: dict[chess.Move, tuple[int, CandidateEval]] = {}  # coup refusé ici -> (vraie éval, candidat)
-        tried = 0
-        while tried < 3:
+        for tried in range(3):
             check = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=[chosen.line.move])
-            if not check or check[0].score >= chosen.line.score - 200 or regret(best, check[0]) <= self.tolerance:
+            if not check or check[0].score >= chosen.line.score - 200 or regret(best, check[0]) <= self.tolerance \
+                    or check[0].score >= GUARD_WON:
                 return chosen
             self.anomalies.append({"fen": board.fen(), "move": chosen.line.move.uci(),
                                    "listed": chosen.line.score, "checked": check[0].score})
@@ -358,10 +363,10 @@ class Attacker(Personality):
                   f"({board.fen()})", file=sys.stderr, flush=True)
             refused[chosen.line.move] = (check[0].score, chosen)
             rest = [i for _, i in order if evals[i].line.move not in refused]
-            if not rest:
+            if not rest or tried == 2:  # au 3e refus, le meilleur des autres coups revérifié, jamais un 4e à l'aveugle
                 return self.fallback(board, analyser, refused, best)
-            chosen, tried = evals[rest[0]], tried + 1
-        return chosen
+            chosen = evals[rest[0]]
+        raise AssertionError("inatteignable : le 3e refus passe par le repli")
 
     def fallback(self, board: chess.Board, analyser: Analyser,
                  refused: dict[chess.Move, tuple[int, CandidateEval]], best: Line) -> CandidateEval:
@@ -559,7 +564,9 @@ class Attacker(Personality):
         kept = planned is not None and chosen.line.move == planned
         self.plan_stats["kept"] += kept
         self.remember_plan(board, chosen)
-        if chosen.rescue:  # le coup joué figure parmi les candidats (export, mesures, conseil), et lui seul compte
+        if chosen.rescue:  # le coup joué figure parmi les candidats (export, mesures, conseil), une seule fois
+            # (le repli peut reprendre un candidat de la liste), et lui seul compte
+            evals = [e for e in evals if e.line.move != chosen.line.move]
             evals, probabilities = [*evals, chosen], [0.0] * len(evals) + [1.0]
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,

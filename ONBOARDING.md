@@ -69,7 +69,9 @@ Le cœur est dans `Attacker._choose_move` (`personalities/attacker.py`) :
      lieu de 6 (`endgame_attack_depth`) : moins de « pièges » qui gâchent une finale. Pas en
      dessous de 5 min sans incrément, où ces coups plus lents ont frôlé la perte au temps.
 6. **Tirage** softmax à la température 0,3, puis le **garde-fou** (`verified`). Le coup choisi
-   est revérifié seul : si son évaluation était fausse, il est remplacé et l'anomalie est notée.
+   est revérifié seul : si son évaluation était fausse, il est remplacé et l'anomalie est notée (au
+   plus trois refus, puis le meilleur des autres coups). Un coup qui vaut encore +5 (`GUARD_WON`) passe :
+   comparer « mat » et +10 n'aurait pas de sens.
 
 Le coût est **exponentiel en horizon** (`attack_moves` : ×2,6 par coup simulé) et presque plat en
 profondeur de Stockfish. Maia représente environ 70 % du temps. Le réglage `effort` (0 à 5)

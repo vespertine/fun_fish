@@ -4,6 +4,7 @@ import chess
 import pytest
 
 from fun_fish import personalities
+from fun_fish.personalities import attacker
 from fun_fish.analysis import Line
 from fun_fish.personalities.attacker import RESCUE, Attacker, CandidateEval, Outcome, settled_material
 
@@ -152,6 +153,26 @@ def test_garde_fou_rend_le_moins_mauvais_des_refuses():
     assert all(board.parse_san(s) not in analyser.searches[-1] for s in ("Qxe5", "Be3"))
 
 
+def test_garde_fou_laisse_passer_un_coup_encore_gagnant():
+    # MnwvVVL5 : finale de tour contre deux pions, 63.Th8+ noté « mat en 8 » mais revérifié à +11,62
+    fen = "4k3/8/7R/5p1p/5K1P/8/8/8 w - - 6 63"
+    board = chess.Board(fen)
+    for checked, kept in ((1162, True), (attacker.GUARD_WON, True), (attacker.GUARD_WON - 1, False)):
+        move = board.parse_san("Rh8+")
+        chosen = CandidateEval(Line(move, 99992, 8, None, (move,), 6), 0, Outcome())
+        agent, board, _, result = _verified(fen, [chosen, _eval(board, "Kxf5", 1400)], {"Rh8+": checked, "Kxf5": 1400})
+        assert (result is chosen) == kept and bool(agent.anomalies) != kept
+
+
+def test_garde_fou_ne_joue_jamais_un_quatrieme_candidat_sans_le_verifier():
+    # trois refus : le repli prend le meilleur des autres coups revérifiés, pas le 4e candidat (−9) à l'aveugle
+    board = chess.Board(QXE5)
+    evals = [_eval(board, san, 795) for san in ("Qxe5", "Be3", "Rh1", "Rg2")]
+    agent, board, analyser, result = _verified(QXE5, evals, {"Qxe5": -417, "Be3": -500, "Rh1": -600, "Rg2": -900}, -100)
+    assert result.rescue and result.line.score == -100 and board.san(result.line.move) not in ("Qxe5", "Be3", "Rh1", "Rg2")
+    assert len(agent.anomalies) == 3
+
+
 def test_garde_fou_sans_autre_coup_legal_garde_le_coup():
     fen = "7k/8/8/8/8/8/6q1/7K w - - 0 1"  # seul coup : Rxg2
     board = chess.Board(fen)
@@ -172,6 +193,20 @@ def test_le_repli_figure_dans_la_decision(stockfish_analyser, monkeypatch):
     assert [c.probability for c in decision.candidates if c.move == move] == [1.0]
     assert sum(c.probability for c in decision.candidates) == 1.0
     assert "éval +7.2" in decision.candidates[0].note
+
+
+def test_un_repli_sur_un_candidat_de_la_liste_n_y_figure_qu_une_fois(stockfish_analyser, monkeypatch):
+    # au 3e refus, le repli peut reprendre un candidat de la liste : un doublon à 0 effaçait son 1 (conseil)
+    board = chess.Board(QXE5)
+    agent = personalities.create("capabot_v2", rng=random.Random(0))
+
+    def rescue(board, analyser, chosen, evals, probabilities, best):
+        line = evals[-1].line
+        return CandidateEval(Line(line.move, line.score, None, None, (line.move,), 6), 0, Outcome(), rescue=True)
+    monkeypatch.setattr(agent, "verified", rescue)
+    decision = agent.choose_move(board, stockfish_analyser)
+    assert [c.probability for c in decision.candidates if c.move == decision.move] == [1.0]
+    assert len({c.move for c in decision.candidates}) == len(decision.candidates)
 
 
 def test_garde_fou_d_un_membre_de_conseil_se_replie_parmi_les_coups_du_conseil():
