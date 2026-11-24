@@ -564,7 +564,9 @@ class Attacker(Personality):
         kept = planned is not None and chosen.line.move == planned
         self.plan_stats["kept"] += kept
         self.remember_plan(board, chosen)
-        if chosen.rescue:  # le coup joué figure parmi les candidats (export, mesures, conseil), et lui seul compte
+        if chosen.rescue:  # le coup joué figure parmi les candidats (export, mesures, conseil), une seule fois
+            # (le repli peut reprendre un candidat de la liste), et lui seul compte
+            evals = [e for e in evals if e.line.move != chosen.line.move]
             evals, probabilities = [*evals, chosen], [0.0] * len(evals) + [1.0]
         candidates = [
             Candidate(move=e.line.move, san=board.san(e.line.move), score=e.line.score, mate=e.line.mate,

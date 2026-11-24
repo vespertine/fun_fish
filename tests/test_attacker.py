@@ -195,6 +195,20 @@ def test_le_repli_figure_dans_la_decision(stockfish_analyser, monkeypatch):
     assert "éval +7.2" in decision.candidates[0].note
 
 
+def test_un_repli_sur_un_candidat_de_la_liste_n_y_figure_qu_une_fois(stockfish_analyser, monkeypatch):
+    # au 3e refus, le repli peut reprendre un candidat de la liste : un doublon à 0 effaçait son 1 (conseil)
+    board = chess.Board(QXE5)
+    agent = personalities.create("capabot_v2", rng=random.Random(0))
+
+    def rescue(board, analyser, chosen, evals, probabilities, best):
+        line = evals[-1].line
+        return CandidateEval(Line(line.move, line.score, None, None, (line.move,), 6), 0, Outcome(), rescue=True)
+    monkeypatch.setattr(agent, "verified", rescue)
+    decision = agent.choose_move(board, stockfish_analyser)
+    assert [c.probability for c in decision.candidates if c.move == decision.move] == [1.0]
+    assert len({c.move for c in decision.candidates}) == len(decision.candidates)
+
+
 def test_garde_fou_d_un_membre_de_conseil_se_replie_parmi_les_coups_du_conseil():
     board = chess.Board(QXE5)
     agent = personalities.create("capabot_v2", rng=random.Random(0))
