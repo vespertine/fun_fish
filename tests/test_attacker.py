@@ -4,6 +4,7 @@ import chess
 import pytest
 
 from fun_fish import personalities
+from fun_fish.personalities import attacker
 from fun_fish.analysis import Line
 from fun_fish.personalities.attacker import RESCUE, Attacker, CandidateEval, Outcome, settled_material
 
@@ -150,6 +151,16 @@ def test_garde_fou_rend_le_moins_mauvais_des_refuses():
     agent, board, analyser, result = _verified(QXE5, [first, second], {"Qxe5": -417, "Be3": -600}, -500)
     assert result is first
     assert all(board.parse_san(s) not in analyser.searches[-1] for s in ("Qxe5", "Be3"))
+
+
+def test_garde_fou_laisse_passer_un_coup_encore_gagnant():
+    # MnwvVVL5 : tour et pion contre roi, 63.Th8+ noté « mat » mais revérifié à +11,62 : rien à rattraper
+    fen = "4k3/8/7R/5p1p/5K1P/8/8/8 w - - 6 63"
+    board = chess.Board(fen)
+    for checked, kept in ((1162, True), (attacker.GUARD_WON, True), (attacker.GUARD_WON - 1, False)):
+        chosen = _eval(board, "Rh8+", 99992)
+        agent, board, _, result = _verified(fen, [chosen, _eval(board, "Kxf5", 1400)], {"Rh8+": checked, "Kxf5": 1400})
+        assert (result is chosen) == kept and bool(agent.anomalies) != kept
 
 
 def test_garde_fou_sans_autre_coup_legal_garde_le_coup():

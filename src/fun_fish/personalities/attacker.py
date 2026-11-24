@@ -44,6 +44,10 @@ from fun_fish.style import STYLE_HELP, STYLE_WEIGHTS, Style, material, settled_m
 
 
 CLIP = 1000  # évals bornées à ±10 pions
+# Garde-fou : un coup qui vaut encore GUARD_WON à la revérification gagne toujours, il n'y a rien à rattraper
+# (MnwvVVL5, novembre 2026 : tour et pion contre roi, chaque coup noté « mat » puis revérifié à +10 était
+# refusé, et le mat a pris 20 coups)
+GUARD_WON = 500
 
 
 
@@ -342,7 +346,8 @@ class Attacker(Personality):
                  probabilities: list[float], best: Line) -> CandidateEval:
         """Garde-fou : le coup choisi est revérifié seul. Si sa vraie éval est bien pire que celle de
         la liste (analyse incohérente, vu une fois en partie : 12.Fc5?? noté −1,19 au lieu de −8) et
-        sort de la tolérance, il prend le plus probable des autres coups."""
+        sort de la tolérance, il prend le plus probable des autres coups. Un coup encore gagnant (GUARD_WON)
+        passe : comparer « mat » et +10 n'aurait pas de sens."""
         if chosen.line.score <= -1000:  # déjà perdu : rien à sauver, et les mats rendraient l'écart trompeur
             return chosen
         order = sorted(zip(probabilities, range(len(evals))), reverse=True)
@@ -350,7 +355,8 @@ class Attacker(Personality):
         tried = 0
         while tried < 3:
             check = analyser.analyse(board, multipv=1, depth=self.soundness_depth, moves=[chosen.line.move])
-            if not check or check[0].score >= chosen.line.score - 200 or regret(best, check[0]) <= self.tolerance:
+            if not check or check[0].score >= chosen.line.score - 200 or regret(best, check[0]) <= self.tolerance \
+                    or check[0].score >= GUARD_WON:
                 return chosen
             self.anomalies.append({"fen": board.fen(), "move": chosen.line.move.uci(),
                                    "listed": chosen.line.score, "checked": check[0].score})
